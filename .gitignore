@@ -14,7 +14,8 @@ venv/
 .freebuff/
 
 # Generated AF3 job files / export trees (regenerate with `configbuilder`)
-output/
+# — root-anchored so it never matches the configbuilder/output source package
+/output/
 
 # OS and editor cruft
 .DS_Store
