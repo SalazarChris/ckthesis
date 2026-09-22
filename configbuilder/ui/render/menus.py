@@ -380,10 +380,7 @@ class MenuApp:
         if not raw:
             self._report(configuration.unset_format_target())
             return
-        evidence = self._ask("menu.ask_evidence")
-        self._report(
-            configuration.set_format_target(version=raw, evidence=evidence or None)
-        )
+        self._report(configuration.set_format_target(version=raw))
 
     def _generate_seeds(self, configuration) -> None:
         """Generate seeds through the service — a count in, the service's

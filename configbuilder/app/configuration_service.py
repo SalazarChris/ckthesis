@@ -603,14 +603,14 @@ class ConfigurationService:
     # -- format target (§15 set_format_target) ----------------------------------------
 
     def set_format_target(self, version=None, dialect="STANDALONE_AF3", evidence=None) -> MutationOutput:
-        """Pin a format version with its human-supplied provenance.
+        """Pin a format version, optionally recording provenance.
 
-        ``evidence`` cites the observation that justifies the pin (e.g. a
-        ``PIN-nnn`` record the operator verified in the deployment log).
+        ``evidence`` optionally cites the observation behind the pin (e.g.
+        a ``PIN-nnn`` record the operator verified in the deployment log).
         The citation travels in the model; no runtime code reads any
-        document to obtain it. An omitted or empty ``evidence`` records
-        that no citation has been supplied yet (R-VER-002 reports it).
-        ``version=None`` keeps the selection Unverified.
+        document to obtain it, and nothing requires one — the pin itself
+        is the explicit choice. ``version=None`` keeps the selection
+        Unverified, which validation still refuses as an explicit state.
         """
         configuration = self._configuration()
         if configuration is None:

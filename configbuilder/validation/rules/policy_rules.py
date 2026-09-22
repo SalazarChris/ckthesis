@@ -62,20 +62,10 @@ def check_r_ver_002(configuration: Configuration, report: Report, rule: Rule) ->
     checks the provenance that travels with the selection."""
     selection = configuration.format_target.version_selection
     if isinstance(selection, Pinned):
-        if not selection.evidence:
-            _add(
-                report,
-                rule,
-                "The pinned format version %d carries no verification evidence."
-                % selection.version,
-                "Pinned(%d) has no evidence reference" % selection.version,
-                (FieldPath("Pinned", None, "version_selection"),),
-                suggestion=(
-                    "Cite the record that observed the deployment accepting "
-                    "this version (e.g. its PIN-nnn identifier)."
-                ),
-                severity=Severity.ERROR,
-            )
+        # The pin itself is the operator's explicit choice; an evidence
+        # reference is optional recorded provenance, never a condition for
+        # generating output.
+        pass
     elif isinstance(selection, Auto):
         if not selection.evidenced:
             _add(

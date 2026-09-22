@@ -55,8 +55,16 @@ class ProjectService:
     # -- operations (§15) ------------------------------------------------------
 
     def new(self, name: str = "Untitled project") -> Project:
-        """Start a fresh project. Never fails: nothing exists to corrupt."""
-        from configbuilder.model import Configuration, ConfigurationMetadata, SeedSet
+        """Start a fresh project. Never fails: nothing exists to corrupt.
+
+        The format target pins a default version so an export never needs
+        a version/evidence ritual first; the job settings menu can change
+        the pin at any time. ``Auto`` stays the upgrade path: pinning
+        nothing keeps generation at the default, while a project that
+        pins no version explicitly (Unverified) still refuses to export —
+        that refusal is a statement, not a missing default."""
+        from configbuilder.model import Configuration, ConfigurationMetadata, FormatTarget, SeedSet
+        from configbuilder.model.configuration import Pinned
         from configbuilder.identity import IdentityRegistry
 
         configuration = Configuration(
@@ -64,6 +72,7 @@ class ProjectService:
             seeds=SeedSet([1]),
             records=(),
             identity=IdentityRegistry(),
+            format_target=FormatTarget(version_selection=Pinned(3)),
         )
         self._project = Project(
             configuration=configuration,

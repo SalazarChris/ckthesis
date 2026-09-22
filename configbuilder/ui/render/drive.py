@@ -274,10 +274,7 @@ class StepDrive:
         answer = self.ask(_text("plain.advanced_version_prompt")).strip()
         if not answer:
             return
-        evidence = self.ask(_text("plain.advanced_evidence_prompt")).strip()
-        result = self.services.configuration.set_format_target(
-            version=answer, evidence=evidence or None
-        )
+        result = self.services.configuration.set_format_target(version=answer)
         self.write_line(
             _text("plain.saved")
             if result.ok
