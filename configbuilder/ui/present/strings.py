@@ -236,6 +236,9 @@ STRINGS = {
         "  1) Set RNA MSA (automatic/free/provided)"
     ),
     "menu.export_empty_hint": "Nothing to export yet — create variants first (master menu, option 6).",
+    "menu.files_in": "Files in %s:",
+    "menu.pick_hint": "Type a number to open or choose, a full path, or '..' to go up. 0 cancels.",
+    "menu.pick_cannot_list": "Cannot list this directory.",
     "menu.factor_edits_note": "Edits (sequence changes etc.) are applied on top of the base — nothing is copied.",
     "menu.edit_field": "Edit which field? [sequence/description/name/seeds/format]",
     "menu.add_rna_prompt": "RNA sequence: ",

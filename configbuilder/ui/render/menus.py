@@ -22,6 +22,8 @@ from configbuilder.model.records import (
     FamilyCRecord,
     fold_representation,
 )
+import os
+
 from configbuilder.app.configuration_service import ReferenceInput
 from configbuilder.ui.present.strings import text as _text
 
@@ -140,6 +142,65 @@ class MenuApp:
         self._say(_text("menu.not_applied") % (outcome.message or "refused"))
         return False
 
+    # -- path and file picking -------------------------------------------------
+
+    def _picker_listing(self, directory: str):
+        """Sort a directory listing: subdirectories first (names only, the
+        ``..`` entry first), then files, both alphabetically. Returns
+        ``None`` when the directory cannot be read."""
+        try:
+            names = sorted(
+                os.listdir(directory),
+                key=lambda n: (not os.path.isdir(os.path.join(directory, n)), n.lower()),
+            )
+        except OSError:
+            return None
+        return [".."] + [n for n in names if not n.startswith(".")]
+
+    def _pick_path(self, prompt_key: str) -> str:
+        """Choose a path with the keyboard alone: the current directory is
+        listed, numbers open directories or select files, ``..`` goes up,
+        and anything else typed is taken as a literal path — so pasting a
+        full path still works. Cancellation is ``0`` or an empty answer;
+        the service layer remains the authority on whether the path exists
+        or is usable."""
+        directory = os.getcwd()
+        while True:
+            listing = self._picker_listing(directory)
+            if listing is None:
+                self._say(_text("menu.pick_cannot_list"))
+                directory = os.path.dirname(directory) or os.sep
+                continue
+            self._say()
+            self._say(_text("menu.files_in") % directory)
+            for number, name in enumerate(listing, start=1):
+                is_dir = (
+                    name == ".."
+                    or os.path.isdir(os.path.join(directory, name))
+                )
+                self._say("  %2d) %s%s" % (number, name, "/" if is_dir else ""))
+            self._say(_text("menu.pick_hint"))
+            raw = self._ask(prompt_key)
+            if raw in ("", "0", "q", "quit", "exit"):
+                return ""
+            if raw == "..":
+                directory = os.path.dirname(directory) or os.sep
+                continue
+            if raw.isdigit():
+                index = int(raw)
+                if not 1 <= index <= len(listing):
+                    self._say(_text("menu.invalid") % raw)
+                    continue
+                chosen = os.path.join(directory, listing[index - 1])
+                if os.path.isdir(chosen):
+                    directory = chosen
+                    continue
+                return chosen
+            # Anything else is a literal path — verbatim, no existence
+            # gate here: the service layer owns whether a path exists or
+            # is usable, and abstract paths are legitimate input.
+            return os.path.expanduser(raw)
+
     def _project(self):
         project = self._services.projects.project
         if project is None:
@@ -225,10 +286,9 @@ class MenuApp:
 
     def _save_project(self) -> None:
         projects = self._services.projects
-        if projects.project is None:
-            self._say(_text("menu.no_project"))
-            return
-        path = self._ask("menu.ask_path")
+        if projects.project is None:        self._say(_text("menu.no_project"))
+        return
+        path = self._pick_path("menu.ask_path")
         result = projects.save_as(path) if path else projects.save()
         if result.ok:
             self._say(_text("menu.saved_to") % (projects.path or path))
@@ -236,7 +296,7 @@ class MenuApp:
             self._say(_text("menu.not_applied") % (result.message or "refused"))
 
     def _load_project(self) -> None:
-        path = self._ask("menu.ask_path")
+        path = self._pick_path("menu.ask_path")
         if not path:
             return
         result = self._services.projects.open(path)
@@ -467,7 +527,7 @@ class MenuApp:
             ).decode("utf-8", "replace")
             return content or None, None
         if route in ("e", "external", "path"):
-            return None, self._ask("menu.ask_msa_path") or None
+            return None, self._pick_path("menu.ask_msa_path") or None
         return None, None
 
     def _set_protein_alignment(self, configuration) -> None:
@@ -508,7 +568,7 @@ class MenuApp:
         if route not in ("p", "provide", "list"):
             self._say(_text("menu.invalid") % route)
             return
-        external_path = self._ask("menu.ask_ref_path") or None
+        external_path = self._pick_path("menu.ask_ref_path") or None
         raw_pairs = self._ask("menu.ask_ref_pairs").strip()
         pairs = []
         if raw_pairs:
@@ -760,7 +820,7 @@ class MenuApp:
         file. The UI reads nothing and builds nothing: it passes the path
         to the service and reports the outcome — the batch logic lives in
         ``app`` (spec construction) and ``persistence`` (file reading)."""
-        path = self._ask("menu.ask_sequence_file")
+        path = self._pick_path("menu.ask_sequence_file")
         if not path:
             return
         outcome = self._services.variants.generate_from_file(path)
@@ -896,7 +956,7 @@ class MenuApp:
                 keys = [k.strip() for k in raw.split(",") if k.strip()]
                 self._export(keys or None, format_findings)
             elif choice == "3":
-                new_dir = self._ask("menu.ask_export_dir")
+                new_dir = self._pick_path("menu.ask_export_dir")
                 if new_dir:
                     self._output_dir = new_dir
                     self._say(_text("menu.export_dir_changed") % new_dir)
