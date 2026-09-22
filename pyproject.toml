@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "configbuilder"
+version = "0.1.0"
+description = "Terminal builder that produces validated, reproducible standalone AF3 input files"
+readme = "CHECKLIST.md"
+requires-python = ">=3.9"
+# IMPLEMENTATION_PLAN.md §4: the core builder runs on the standard library
+# alone. Every optional component sits behind a port with a documented
+# fallback (§9.6, §16.7), so absence removes convenience or validation
+# strength, never capability. Nothing may move into [project].dependencies
+# without amending the plan.
+dependencies = []
+
+[project.optional-dependencies]
+# Optional full-screen renderer (§16.7). Absence selects PlainLineRenderer.
+fullscreen = ["prompt_toolkit>=3.0"]
+# Development-only; not required to run the application (§4).
+dev = [
+    "pytest>=7",
+    "hypothesis>=6",
+]
+
+[project.scripts]
+configbuilder = "configbuilder.app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["configbuilder*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

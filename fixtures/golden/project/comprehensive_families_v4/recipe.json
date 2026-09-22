@@ -1,0 +1,44 @@
+{
+  "metadata": {"name": "comprehensive_families_v4"},
+  "seeds": [11, 22],
+  "version": 4,
+  "component_definition": {"inline": "data CCD_DEMO\n)"},
+  "linkages": [
+    {"a": ["A", 3, "OG1"], "b": ["E", 1, "N1"]}
+  ],
+  "records": [
+    {
+      "family": "protein",
+      "ids": ["A"],
+      "sequence": "PEPTIDE",
+      "description": {"state": "present", "text": "demo chain"},
+      "alignment": {"kind": "unpaired_only", "source": {"inline": ">query\nPEPTIDE"}},
+      "references": {
+        "kind": "explicit",
+        "items": [
+          {
+            "source": {"path": "templates/1ubq.cif"},
+            "index_map": [[0, 0], [2, 4]]
+          }
+        ]
+      },
+      "modifications": [{"code": "TPO", "position": 7}]
+    },
+    {
+      "family": "rna",
+      "ids": ["B", "C"],
+      "sequence": "ACGU"
+    },
+    {
+      "family": "dna",
+      "ids": ["D"],
+      "sequence": "ACGT",
+      "description": {"state": "empty"}
+    },
+    {
+      "family": "ligand",
+      "ids": ["E"],
+      "representation": {"by_notation": "CCO"}
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+
+# Application workspace state (Freebuff client) — not project content
+.freebuff/
+
+# Generated AF3 job files / export trees (regenerate with `configbuilder`)
+output/
+
+# OS and editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
