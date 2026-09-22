@@ -199,6 +199,7 @@ class GenerationPlan:
         "format_version",
         "project_name",
         "output_root",
+        "findings",
     )
 
     def __init__(
@@ -213,6 +214,7 @@ class GenerationPlan:
         output_root="",
         failure_reason=None,
         message="",
+        findings=(),
     ) -> None:
         self.ok = bool(ok)
         self.entries = tuple(entries)
@@ -224,6 +226,10 @@ class GenerationPlan:
         self.output_root = output_root
         self.failure_reason = failure_reason
         self.message = message or ""
+        # Blocking findings attached when a refusal was caused by validation
+        # (VALIDATION_BLOCKED): the UI renders these instead of leaving the
+        # user with a message that names no cause. Empty otherwise.
+        self.findings = tuple(findings)
 
     def __repr__(self) -> str:
         return "GenerationPlan(ok=%r, entries=%d, conflicts=%d)" % (

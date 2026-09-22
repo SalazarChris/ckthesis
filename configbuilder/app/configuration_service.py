@@ -38,6 +38,7 @@ from configbuilder.model import (
     IndexPair,
     Inline,
     LinkEndpoint,
+    ModelError,
     Linkage,
     ModificationRecord,
     ModelError,
@@ -329,7 +330,7 @@ class ConfigurationService:
                 family = "dna"
             try:
                 updated = updated.with_sequence(SequenceText(sequence, family))
-            except ValueError as error:
+            except ModelError as error:
                 return self._refused(str(error))
         if description is not None:
             updated = updated.with_description(self._presence(description))
@@ -455,9 +456,18 @@ class ConfigurationService:
         record = self._record_for(configuration, primary)
         if record is None or not isinstance(record, (FamilyARecord, FamilyBRecord)):
             return self._unknown_record(record_key)
-        source, failure = self._source(inline_text, external_path)
-        if failure is not None:
-            return failure
+        # automatic/free leave alignment to the deployment or to sequence
+        # search: they carry no source, and demanding one would refuse
+        # exactly the modes users most commonly want. Source-carrying
+        # modes validate theirs below.
+        if mode in ("automatic", "free"):
+            if inline_text or external_path:
+                return self._refused("alignment mode %r takes no source" % mode)
+            source = None
+        else:
+            source, failure = self._source(inline_text, external_path)
+            if failure is not None:
+                return failure
         try:
             if isinstance(record, FamilyARecord):
                 alignment = self._protein_alignment(mode, source)

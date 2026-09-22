@@ -213,6 +213,29 @@ STRINGS = {
         "  3) Delete\n"
         "  4) List details"
     ),
+    "menu.entity_actions_extra": "  5) MSA / Templates",
+    "menu.entity_actions_extra": "  5) MSA / Templates",
+    "menu.msa_title": "MSA / Templates",
+    "menu.msa_note": "MSA / templates apply to a record that already exists (add it first).",
+    "menu.msa_record_prompt": "Record id (e.g. A): ",
+    "menu.msa_actions": (
+        "  1) Set protein MSA (unpaired/paired/both/automatic/free)\n"
+        "  2) Set RNA MSA (automatic/free/provided)\n"
+        "  3) Set structural templates"
+    ),
+    "menu.ask_msa_mode": "Mode: ",
+    "menu.ask_msa_route": "Source - i) paste inline, e) external file path: ",
+    "menu.ask_msa_path": "Path to the MSA file: ",
+    "menu.msa_inline_header": "Paste the MSA, finish with a blank line:",
+    "menu.ask_templates_route": (
+        "Templates - n) search allowed, e) explicitly none, p) provide list: "
+    ),
+    "menu.ask_ref_path": "Path to the template structure file: ",
+    "menu.ask_ref_pairs": "Index pairs (query:template, comma-separated, 0-based; blank = none): ",
+    "menu.msa_actions_rna": (
+        "  1) Set RNA MSA (automatic/free/provided)"
+    ),
+    "menu.export_empty_hint": "Nothing to export yet — create variants first (master menu, option 6).",
     "menu.factor_edits_note": "Edits (sequence changes etc.) are applied on top of the base — nothing is copied.",
     "menu.edit_field": "Edit which field? [sequence/description/name/seeds/format]",
     "menu.add_rna_prompt": "RNA sequence: ",

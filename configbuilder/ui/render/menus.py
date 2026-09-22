@@ -22,6 +22,7 @@ from configbuilder.model.records import (
     FamilyCRecord,
     fold_representation,
 )
+from configbuilder.app.configuration_service import ReferenceInput
 from configbuilder.ui.present.strings import text as _text
 
 __all__ = ["MenuApp", "MINIMUM_WIDTH"]
@@ -358,6 +359,9 @@ class MenuApp:
                 self._say(_text("menu.entity_list_empty"))
             self._say()
             self._say(_text("menu.entity_actions"))
+            if family in ("protein", "rna"):
+                self._say()
+                self._say(_text("menu.entity_actions_extra"))
             self._say()
             self._say(_text("menu.back"))
             choice = self._select()
@@ -375,6 +379,8 @@ class MenuApp:
                     return
                 for record in records:
                     self._say(_entity_line(record))
+            elif choice == "5":
+                self._msa_menu(family)
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
@@ -413,6 +419,110 @@ class MenuApp:
     def _delete_entity(self) -> None:
         record_key = self._ask("menu.ask_record")
         self._report(self._services.configuration.remove_record(record_key))
+
+    # -- MSA / structural templates (§15 set_alignment / set_references) ------
+
+    def _msa_menu(self, family: str) -> None:
+        """Alignments and templates live on *existing* records: this menu
+        only collects the mode, the source, and the index pairs. Every
+        change goes through the application services — the UI never
+        touches alignment objects or wire fields."""
+        configuration = self._services.configuration
+        if family not in ("protein", "rna"):
+            self._say(_text("menu.msa_note"))
+            return
+        while True:
+            if self._project() is None:
+                return
+            self._say(_banner(_text("menu.msa_title"), self._width))
+            self._say()
+            self._say(_text("menu.msa_note"))
+            self._say()
+            self._say(
+                _text("menu.msa_actions")
+                if family == "protein"
+                else _text("menu.msa_actions_rna")
+            )
+            self._say()
+            self._say(_text("menu.back"))
+            choice = self._select()
+            if choice in ("0", "q", "back"):
+                return
+            elif choice == "1" and family == "protein":
+                self._set_protein_alignment(configuration)
+            elif choice == "2" and family == "protein":
+                self._set_references(configuration)
+            elif choice == "1" and family == "rna":
+                self._set_rna_alignment(configuration)
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
+
+    def _msa_source(self):
+        """Collect the alignment source: pasted inline text or an external
+        path — exactly one, as the service requires."""
+        route = self._ask("menu.ask_msa_route").lower()
+        if route in ("i", "inline"):
+            content = self._console.read_multiline(
+                _text("menu.msa_inline_header") + "\n"
+            ).decode("utf-8", "replace")
+            return content or None, None
+        if route in ("e", "external", "path"):
+            return None, self._ask("menu.ask_msa_path") or None
+        return None, None
+
+    def _set_protein_alignment(self, configuration) -> None:
+        record_key = self._ask("menu.msa_record_prompt")
+        mode = self._ask("menu.ask_msa_mode").strip().lower()
+        if mode in ("", "automatic", "free"):
+            self._report(configuration.set_alignment(record_key, mode or "automatic"))
+            return
+        inline_text, external_path = self._msa_source()
+        self._report(
+            configuration.set_alignment(
+                record_key, mode, inline_text=inline_text, external_path=external_path
+            )
+        )
+
+    def _set_rna_alignment(self, configuration) -> None:
+        record_key = self._ask("menu.msa_record_prompt")
+        mode = self._ask("menu.ask_msa_mode").strip().lower()
+        if mode in ("", "automatic", "free"):
+            self._report(configuration.set_alignment(record_key, mode or "automatic"))
+            return
+        inline_text, external_path = self._msa_source()
+        self._report(
+            configuration.set_alignment(
+                record_key, mode, inline_text=inline_text, external_path=external_path
+            )
+        )
+
+    def _set_references(self, configuration) -> None:
+        record_key = self._ask("menu.msa_record_prompt")
+        route = self._ask("menu.ask_templates_route").strip().lower()
+        if route in ("n", ""):
+            self._report(configuration.set_references(record_key))
+            return
+        if route in ("e", "none"):
+            self._report(configuration.set_references(record_key, references=()))
+            return
+        if route not in ("p", "provide", "list"):
+            self._say(_text("menu.invalid") % route)
+            return
+        external_path = self._ask("menu.ask_ref_path") or None
+        raw_pairs = self._ask("menu.ask_ref_pairs").strip()
+        pairs = []
+        if raw_pairs:
+            for token in raw_pairs.split(","):
+                left, _, right = token.strip().partition(":")
+                pairs.append((left.strip(), right.strip()))
+        self._report(
+            configuration.set_references(
+                record_key,
+                references=(
+                    ReferenceInput(external_path=external_path, pairs=pairs),
+                ),
+            )
+        )
 
     # -- structural sections ------------------------------------------------
 
@@ -766,6 +876,8 @@ class MenuApp:
             self._say(_banner(_text("menu.export_header"), self._width))
             self._say()
             self._say(_text("menu.export_ready") % len(specs))
+            if not specs:
+                self._say(_text("menu.export_empty_hint"))
             for spec in specs:
                 self._say("  " + _text("menu.spec_line") % (spec.key, spec.label))
             self._say()
@@ -793,10 +905,20 @@ class MenuApp:
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
+    def _plan_failure(self, generation_plan, format_findings) -> None:
+        """A refused plan: the message, and — when the refusal came from
+        validation — the actual blocking findings, so the user sees which
+        rule and which record stand in the way instead of a bare verdict."""
+        self._say(_text("menu.not_applied") % (generation_plan.message or ""))
+        if generation_plan.findings:
+            self._print_cards(generation_plan.findings, format_findings)
+
     def _preview_export(self) -> None:
+        from configbuilder.ui.present import format_findings
+
         generation_plan = self._services.generation.plan(self._output_dir)
         if not generation_plan.ok:
-            self._say(_text("menu.not_applied") % (generation_plan.message or ""))
+            self._plan_failure(generation_plan, format_findings)
             return
         for warning in generation_plan.warnings:
             self._say(_text("menu.export_warning") % warning)
@@ -811,7 +933,7 @@ class MenuApp:
         a blocking report (plan §15's fixed sequence, unchanged)."""
         generation_plan = self._services.generation.plan(self._output_dir, only=keys)
         if not generation_plan.ok:
-            self._say(_text("menu.not_applied") % (generation_plan.message or ""))
+            self._plan_failure(generation_plan, format_findings)
             return
         for warning in generation_plan.warnings:
             self._say(_text("menu.export_warning") % warning)

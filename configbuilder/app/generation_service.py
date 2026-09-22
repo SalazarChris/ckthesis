@@ -139,6 +139,7 @@ class GenerationService:
                 ok=False,
                 failure_reason=FailureReason.VALIDATION_BLOCKED,
                 message="the base configuration has blocking findings; generate cannot start",
+                findings=tuple(base_validation.report.findings),
             )
 
         # Step 2: expand variants (the base is not implicitly included; §12.2).
@@ -167,6 +168,7 @@ class GenerationService:
                 ok=False,
                 failure_reason=FailureReason.VALIDATION_BLOCKED,
                 message="the base configuration has blocking findings; generate cannot start",
+                findings=tuple(variant_validation.base_report.findings),
             )
         combined = Report()
         combined.add_all(base_validation.report.findings)
