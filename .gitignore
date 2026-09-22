@@ -22,3 +22,15 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+
+# Local development material kept out of the repository (still on disk):
+# specification/planning documents, the test suite, and its fixtures.
+tests/
+fixtures/
+testdata/
+docs/
+IMPLEMENTATION_PLAN.md
+AUTHORITATIVE_SPEC.md
+DOMAIN_MAPPING.md
+HANDOFF.md
+CHECKLIST.md

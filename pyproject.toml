@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "configbuilder"
 version = "0.1.0"
 description = "Terminal builder that produces validated, reproducible standalone AF3 input files"
-readme = "CHECKLIST.md"
 requires-python = ">=3.9"
 # IMPLEMENTATION_PLAN.md §4: the core builder runs on the standard library
 # alone. Every optional component sits behind a port with a documented
