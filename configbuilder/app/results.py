@@ -29,12 +29,12 @@ __all__ = [
 ]
 
 
-RESERVED_BASE_KEY = "base"
-"""The generation run's key for the base configuration itself.
+BASE_PLAN_KEY = "base"
+"""The label the base configuration's own plan entry carries.
 
 Base generation is a first-class operation — the base job is a complete
-job — so the base is planned like any other run entry, under a key no
-variant may take.
+job — and its file is named after the project itself; this key only
+marks the plan entry, it is not part of the file name.
 """
 
 

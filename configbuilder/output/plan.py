@@ -37,7 +37,7 @@ from configbuilder.output.naming import (
 )
 from configbuilder.output.policies import OverwritePolicy, PathPolicy
 
-__all__ = ["PlanEntry", "ResourceEntry", "OutputPlan", "FileView", "OsFileView", "fingerprint", "plan"]
+__all__ = ["PlanEntry", "ResourceEntry", "OutputPlan", "FileView", "OsFileView", "fingerprint", "plan", "resolve_resources_into"]
 
 
 def fingerprint(data: bytes) -> str:
@@ -207,16 +207,27 @@ def decide_action(file_path, payload: bytes, overwrite_policy: OverwritePolicy, 
 
 
 def _resolve_resources(requirements, output_root, project_slug: str, variant_key: str, path_policy: PathPolicy, filesystem: FileView):
-    """Per §13.5: resolve each requirement under the path policy.
+    """Per §13.5: resolve each requirement under the path policy, into
+    the per-variant layout's directory. Returns ``(resource_entries,
+    warnings)``. Warnings carry the cross-machine hazard messages
+    (absolute paths that cannot travel), as data for the caller to
+    surface — this layer reports, it does not validate.
+    """
+    variant_dir = os.path.join(output_root, project_slug, variant_directory_name(project_slug, variant_key))
+    return resolve_resources_into(requirements, output_root, variant_dir, path_policy, filesystem)
 
-    Returns ``(resource_entries, warnings)``. Warnings carry the
-    cross-machine hazard messages (absolute paths that cannot travel), as
-    data for the caller to surface — this layer reports, it does not
-    validate.
+
+def resolve_resources_into(requirements, output_root, directory_path: str, path_policy: PathPolicy, filesystem: FileView):
+    """§13.5 resolution into an explicit directory — the one home of the
+    path-policy decision, shared by the per-variant layout and by the
+    base configuration's own run (whose file sits directly under the
+    project directory, so there is no variant subdirectory).
+
+    Returns ``(resource_entries, warnings)``; see ``_resolve_resources``.
     """
     entries = []
     warnings = []
-    variant_dir = os.path.join(output_root, project_slug, variant_directory_name(project_slug, variant_key))
+    variant_dir = directory_path
     assets_dir = os.path.join(variant_dir, "assets")
     seen = set()
     for requirement in requirements:

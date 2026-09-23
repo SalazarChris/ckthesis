@@ -36,7 +36,7 @@ from __future__ import annotations
 import os
 
 from configbuilder.app.results import (
-    RESERVED_BASE_KEY,
+    BASE_PLAN_KEY,
     ConfigurationPlan,
     FailureReason,
     GenerationPlan,
@@ -44,6 +44,7 @@ from configbuilder.app.results import (
 )
 from configbuilder.output import (
     OverwritePolicy,
+    OutputPlan,
     PathPolicy,
     PlanEntry,
     build_manifest,
@@ -55,7 +56,12 @@ from configbuilder.output.naming import (
     variant_directory_name,
     variant_file_name,
 )
-from configbuilder.output.plan import fingerprint
+from configbuilder.output.plan import (
+    OsFileView,
+    decide_action,
+    fingerprint,
+    resolve_resources_into,
+)
 from configbuilder.persistence import OutputSettings
 from configbuilder.serialize import encode
 from configbuilder.transform import (
@@ -363,12 +369,14 @@ class GenerationService:
     ) -> GenerationPlan:
         """The same generation pipeline for the base configuration itself.
 
-        The base job is a complete job: it is planned exactly like a
-        variant run — same validation gate, same transform, same naming
-        layout (``<project>__base``), same manifest, same planner —
-        under the reserved run key ``base``. No variant is expanded and
-        none is required: base generation is independent of variant
-        creation.
+        The base job is a complete job: the file is named after the
+        project — ``<project>/<project>.json``, with the wire ``name``
+        matching the project name (slug form) — through the same
+        validation gate, transform, encode, overwrite/asset discipline,
+        and the same planner's decision helpers as a variant run. No
+        variant is expanded and none is required: base generation is
+        independent of variant creation, and no manifest is written
+        (the manifest summarises a variant run; there is no variant).
         """
         project = self._projects._require_project()
         if project is None:
@@ -398,14 +406,43 @@ class GenerationService:
             PathPolicy(settings.path_policy) if path_policy is None else path_policy
         )
         project_name = project.configuration.metadata.name
-        project_slug = slug_name(project_name)
 
-        # Steps 4–5: transform and encode the base's own wire document.
+        # Steps 4–5: transform, resolve the §13.5 resource paths into the
+        # project directory, rewrite, then encode. The wire ``name`` is
+        # the project's slug — no variant directory component is
+        # appended; the value inside the file and the file name agree.
         try:
+            project_slug = slug_name(project_name)
             result = to_wire(project.configuration)
-            document = with_wire_job_name(
-                result.document,
-                variant_directory_name(project_slug, RESERVED_BASE_KEY),
+        except TransformError as error:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.TRANSFORM_FAILED,
+                message=str(error),
+            )
+
+        # Step 6: the output plan. The base file sits directly under the
+        # project directory (not a per-variant subdirectory), so the plan
+        # is assembled from the planner's own decision helpers: same
+        # §13.5 path-policy resolution and §13.3 action table.
+        filesystem = self._filesystem if self._filesystem is not None else OsFileView()
+        base_dir = os.path.join(output_root, project_slug)
+        resources, warnings = resolve_resources_into(
+            result.external_resources,
+            output_root,
+            base_dir,
+            path_choice,
+            filesystem,
+        )
+        emitted = {}
+        for resource in resources:
+            if resource.emitted_path is not None and resource.raw_path != resource.emitted_path:
+                emitted.setdefault(resource.wire_field, {})[resource.raw_path] = (
+                    resource.emitted_path
+                )
+        try:
+            document = with_emitted_resource_paths(
+                with_wire_job_name(result.document, project_slug), emitted
             )
             payload = encode(document)
         except TransformError as error:
@@ -415,50 +452,53 @@ class GenerationService:
                 message=str(error),
             )
 
-        # Steps 6: the output plan — identical collision/overwrite/asset
-        # discipline as a variant run (one entry, no manifest: the
-        # manifest summarises a variant run and there is no variant).
-        planned = plan_output(
-            {RESERVED_BASE_KEY: payload},
-            output_root,
-            project_name,
-            overwrite_policy=overwrite,
-            path_policy=path_choice,
-            resources_by_variant={RESERVED_BASE_KEY: result.external_resources},
-            filesystem=self._filesystem,
+        file_name = project_slug + ".json"
+        file_path = os.path.join(base_dir, file_name)
+        file_path, action, exists = decide_action(
+            file_path, payload, overwrite, filesystem
         )
-        if planned.conflicts:
+        conflicts = (
+            (
+                "%s exists with different content and the overwrite policy is Fail" % file_path,
+            )
+            if action == "conflict"
+            else ()
+        )
+        if conflicts:
             return GenerationPlan(
                 ok=False,
                 failure_reason=FailureReason.NO_PATH,
                 message="the plan has conflicts; nothing will be written",
-                conflicts=tuple(planned.conflicts),
-                warnings=tuple(planned.warnings),
+                conflicts=conflicts,
+                warnings=tuple(warnings),
                 output_root=output_root,
                 project_name=project_name,
             )
 
-        entry = planned.entries[0] if planned.entries else None
-        entries = (
-            (
-                ConfigurationPlan(
-                    RESERVED_BASE_KEY,
-                    entry.path,
-                    entry.action,
-                    entry.payload_fingerprint,
-                ),
-            )
-            if entry is not None
-            else ()
-        )
         # The review surface for execute(): what the user confirmed is
         # exactly what execute() writes (the same discipline as plan()).
-        self._reviewed = planned
+        self._reviewed = OutputPlan(
+            project_slug=project_slug,
+            output_root=output_root,
+            overwrite_policy=overwrite,
+            path_policy=path_choice,
+            entries=(PlanEntry(file_path, action, payload, exists),),
+            resources=resources,
+            conflicts=(),
+            warnings=tuple(warnings),
+        )
         return GenerationPlan(
             ok=True,
-            entries=entries,
+            entries=(
+                ConfigurationPlan(
+                    BASE_PLAN_KEY,
+                    file_path,
+                    action,
+                    self._reviewed.entries[0].payload_fingerprint,
+                ),
+            ),
             conflicts=(),
-            warnings=tuple(planned.warnings),
+            warnings=tuple(warnings),
             format_version=result.version,
             project_name=project_name,
             output_root=output_root,

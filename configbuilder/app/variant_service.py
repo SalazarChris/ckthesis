@@ -10,7 +10,6 @@ failure reasons — never exceptions.
 from __future__ import annotations
 
 from configbuilder.app.results import (
-    RESERVED_BASE_KEY,
     ExpandOutput,
     FailureReason,
     FilePreview,
@@ -90,12 +89,6 @@ class VariantService:
         project = self._projects._require_project()
         if project is None:
             return self._not_open()
-        if key == RESERVED_BASE_KEY:
-            return MutationOutput(
-                ok=False,
-                failure_reason=FailureReason.NO_PATH,
-                message="%r is reserved for the base configuration's own output; choose another name" % (key,),
-            )
         if self._find(key) is not None:
             return MutationOutput(
                 ok=False,
@@ -203,12 +196,6 @@ class VariantService:
 
     def duplicate_spec(self, key: str, new_key: str, new_label: str = "") -> MutationOutput:
         """Copy an existing spec under a fresh key."""
-        if new_key == RESERVED_BASE_KEY:
-            return MutationOutput(
-                ok=False,
-                failure_reason=FailureReason.NO_PATH,
-                message="%r is reserved for the base configuration's own output; choose another name" % (new_key,),
-            )
         project = self._projects._require_project()
         if project is None:
             return self._not_open()
