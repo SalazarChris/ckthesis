@@ -254,16 +254,10 @@ class StepDrive:
         self.show_findings(_view_with_report(view, result.report))
 
     def _save(self) -> None:
-        result = self.services.projects.save() if self.services.projects.path else None
-        if result is None:
-            path = self.ask(_text("plain.save_as_prompt")).strip()
-            result = self.services.projects.save_as(path)
-        if result.ok:
-            # Report where the project went (§16.6's discipline, applied
-            # to the project file too).
-            self.write_line(_text("plain.saved_to") % self.services.projects.path)
-        else:
-            self.write_line(result.message)
+        """JSON-first save: the working copy is already persisted in the
+        internal directory by the service layer's autosave — nothing to
+        prompt for and nothing to write here."""
+        self.write_line(_text("plain.saved_autosaved"))
 
     def _advanced(self) -> None:
         """The 'a advanced' action: the format-target pin (plan §16.4:

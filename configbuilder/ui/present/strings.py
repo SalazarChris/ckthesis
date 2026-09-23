@@ -88,7 +88,6 @@ STRINGS = {
     "plain.nothing_written": "Nothing written.",
     "plain.unsaved_marker": "(unsaved changes)",
     "plain.output_prompt": "Output directory: ",
-    "plain.save_as_prompt": "Save as: ",
     "plain.advanced_version_prompt": "Format version to pin (blank to keep current): ",
     "plain.quit_prompt": "Unsaved changes — save before quitting? [y/N]: ",
     "plain.write_prompt": "Write these files? [y/N]: ",
@@ -112,7 +111,7 @@ STRINGS = {
     "plain.unknown_operation": "unknown operation %r",
     "plain.could_not_apply": "could not apply: %s",
     "plain.saved": "saved",
-    "plain.saved_to": "Project saved to %s",
+    "plain.saved_autosaved": "Work saved (kept automatically in the internal project store).",
     "plain.manifest_where": "Manifest and inputs are under %s (see manifest.json).",
     "plain.technical_rule": "rule %s",
     # Journal (plan §16.8).
@@ -154,9 +153,6 @@ STRINGS = {
     "menu.not_applied": "Not applied: %s",
     "menu.applied": "Applied.",
     "menu.no_project": "No project is open.",
-    "menu.saved_to": "Saved to %s",
-    "menu.loaded": "Loaded %s",
-    "menu.load_failed": "Load failed: %s",
     "menu.no_autosave": "No autosave found.",
     "menu.autosaved": "Autosaved.",
     "menu.autosave_path": "Autosave: %s",
@@ -270,6 +266,10 @@ STRINGS = {
     "menu.add_entity_family": "Which entity type?",
     "menu.entity_seq_prompt": "%s sequence: ",
     "menu.ligand_repr_prompt": "Ligand (CCD code(s) or SMILES): ",
+    "menu.ligand_kind_menu": "Is this ligand given as a CCD code or a SMILES string?",
+    "menu.ligand_kind_ccd": "CCD code(s) — e.g. ATP, or several separated by spaces",
+    "menu.ligand_kind_smiles": "SMILES string — e.g. C(C)O",
+    "menu.ligand_kind_back": "Back",
     "menu.family_protein": "Protein",
     "menu.family_rna": "RNA",
     "menu.family_dna": "DNA",
@@ -359,8 +359,8 @@ STRINGS = {
         "  1) Job Builder\n"
         "  2) Validation\n"
         "  3) Show JSON\n"
-        "  4) Save project\n"
-        "  5) Load project\n"
+        "  4) Save JSON\n"
+        "  5) Open saved work\n"
         "  6) Variants\n"
         "  7) Generate JSONs\n"
         "  8) Guided wizard\n"
@@ -368,7 +368,7 @@ STRINGS = {
     ),
     "menu.start_actions": (
         "  1) New experiment\n"
-        "  2) Load a saved project\n"
+        "  2) Open saved work\n"
         "  3) Import an AF3 JSON file"
     ),
     "menu.import_title": "Import AF3 JSON",
@@ -385,8 +385,12 @@ STRINGS = {
     "menu.import_keep_choice": "Import with warning (unsupported fields are dropped)",
     "menu.import_cancel_choice": "Cancel import",
     "menu.ask_experiment": "Experiment name: ",
-    "menu.ask_path": "Project file path (Enter accepts the default, 0 cancels): ",
-    "menu.ask_open_path": "Project file path (0 cancels): ",
+    "menu.save_json_title": "Save JSON",
+    "menu.save_json_intro": "Saves the current job as an AF3 JSON file in the output destination.",
+    "menu.save_json_no_project": "No job is open — nothing to save.",
+    "menu.save_json_back": "Back",
+    "menu.open_saved_none": "There is no saved work to reopen.",
+    "menu.open_saved_loaded": "Saved work reopened.",
     "menu.save_cancelled": "Save cancelled — nothing written.",
     "menu.ask_import_path": "AF3 JSON file to import: ",
     "menu.builder_title": "Job Builder",

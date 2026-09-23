@@ -99,6 +99,7 @@ class VariantService:
         if failure is not None:
             return failure
         self._projects._with_specs(self._specs() + (spec,))
+        self._projects._commit_project()
         return MutationOutput(ok=True)
 
     def update_spec(self, key: str, label=None, edits=None) -> MutationOutput:
@@ -120,6 +121,7 @@ class VariantService:
         self._projects._with_specs(
             tuple(spec if s.key == key else s for s in self._specs())
         )
+        self._projects._commit_project()
         return MutationOutput(ok=True)
 
     def remove_spec(self, key: str) -> MutationOutput:
@@ -133,6 +135,7 @@ class VariantService:
                 message="no variant keyed %r exists" % (key,),
             )
         self._projects._with_specs(tuple(s for s in self._specs() if s.key != key))
+        self._projects._commit_project()
         return MutationOutput(ok=True)
 
     def add_spec_from_factor(
@@ -217,6 +220,7 @@ class VariantService:
         if failure is not None:
             return failure
         self._projects._with_specs(self._specs() + (spec,))
+        self._projects._commit_project()
         return MutationOutput(ok=True)
 
     # -- expansion (§15 preview / expand) ---------------------------------------------
@@ -417,7 +421,7 @@ class VariantService:
         """Polymer records as choice rows (remove-modification picker)."""
         return self.all_entity_choices()
 
-    def build_add_records(self, family: str, sequence: str, representation=""):
+    def build_add_records(self, family: str, sequence: str, representation="", representation_kind=""):
         """The record(s) one add-entity edit adds: ``(records, None)`` or
         ``((), message)``.
 
@@ -436,7 +440,8 @@ class VariantService:
             return (), "entity adds need the configuration service"
         registry = project.configuration.identity.clone()
         records, failure = self._configuration._build_records(
-            family, sequence, representation, 1, registry
+            family, sequence, representation, 1, registry,
+            representation_kind=representation_kind,
         )
         if failure is not None:
             return (), failure.message or "refused"

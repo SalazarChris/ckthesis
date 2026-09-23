@@ -91,6 +91,7 @@ class ConfigurationService:
 
     def _commit(self, configuration) -> MutationOutput:
         self._projects._replace_project(self._project().with_configuration(configuration))
+        self._projects._commit_project()
         return self._findings_output()
 
     def _findings_output(self) -> MutationOutput:
@@ -191,7 +192,7 @@ class ConfigurationService:
 
     # -- records -----------------------------------------------------------------
 
-    def add_record(self, family: str, sequence: str = "", representation="", copies: int = 1, description=None):
+    def add_record(self, family: str, sequence: str = "", representation="", copies: int = 1, description=None, representation_kind=""):
         """Add a record; identity allocates its identifiers (plan §8.1).
 
         ``family`` is ``"protein"`` / ``"rna"`` / ``"dna"`` / ``"ligand"``.
@@ -229,7 +230,10 @@ class ConfigurationService:
                 "automatically, so copies does not apply"
             )
         registry = configuration.identity.clone()
-        records, failure = self._build_records(family, sequence, representation, copies, registry)
+        records, failure = self._build_records(
+            family, sequence, representation, copies, registry,
+            representation_kind=representation_kind,
+        )
         if failure is not None:
             return failure
         if description is not None:
@@ -238,7 +242,7 @@ class ConfigurationService:
             configuration.with_records(configuration.records + records).with_identity(registry)
         )
 
-    def _build_records(self, family, sequence, representation, copies, registry: IdentityRegistry):
+    def _build_records(self, family, sequence, representation, copies, registry: IdentityRegistry, representation_kind=""):
         """Build the record(s) with registry-allocated identifiers.
 
         Returns ``(records, None)`` or ``((), MutationOutput)``. Every
@@ -254,7 +258,7 @@ class ConfigurationService:
             strands = 2 if family == "dna" else copies
             allocated = [registry.allocate(owner=owner) for _ in range(strands)]
             if family == "ligand":
-                representation_value = self._ligand_representation(representation)
+                representation_value = self._ligand_representation(representation, kind=representation_kind)
                 if isinstance(representation_value, MutationOutput):
                     return (), representation_value
                 ids = Multiplicity([entity.value for entity in allocated])
@@ -289,10 +293,25 @@ class ConfigurationService:
             return Present(description) if description else ExplicitEmpty()
         return description
 
-    def _ligand_representation(self, representation: str):
+    def _ligand_representation(self, representation: str, kind=""):
+        """The ligand representation for a raw representation string.
+
+        ``kind`` (``"ccd"`` / ``"smiles"``) is the UI's explicit submenu
+        choice: ``ccd`` classifies as codes, ``smiles`` as a notation,
+        and the empty default keeps the established classification (a
+        multi-token string is codes, otherwise a code when it parses as
+        one and a notation only when the caller asks for one).
+        """
         text = representation.strip()
         if not text:
             return self._refused("a ligand representation cannot be empty")
+        if kind == "smiles":
+            try:
+                return ByNotation(text)
+            except ValueError as error:
+                return self._refused(str(error))
+        if kind == "ccd":
+            return self._ccds(text)
         if " " in text or "," in text or ";" in text:
             # Multi-code entry: every whitespace/comma-separated token is a CCD code.
             try:
@@ -300,13 +319,15 @@ class ConfigurationService:
             except ValueError as error:
                 return self._refused(str(error))
             return ByCode(codes)
+        return self._ccds(text)
+
+    def _ccds(self, text: str):
         try:
             code = ComponentCode(text)
         except ValueError:
-            try:
-                return ByNotation(text)
-            except ValueError as error:
-                return self._refused(str(error))
+            return self._refused(
+                "%r is not a CCD component code; choose SMILES in the submenu for notation input" % text
+            )
         return ByCode((code,))
 
     def update_record(self, record_key: str, sequence=None, description=None) -> MutationOutput:

@@ -17,6 +17,9 @@ venv/
 # — root-anchored so it never matches the configbuilder/output source package
 /output/
 
+# Internal working copies (.cbproj autosave) — the application's resume state
+.configbuilder/
+
 # OS and editor cruft
 .DS_Store
 Thumbs.db

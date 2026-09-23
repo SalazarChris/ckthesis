@@ -57,6 +57,7 @@ class FailureReason:
     FUTURE_VERSION = "future_version"
     UNKNOWN_RECORD = "unknown_record"
     NO_PATH = "no_path"
+    NO_SAVED_WORK = "no_saved_work"
 
 
 class MutationOutput:

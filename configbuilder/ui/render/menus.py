@@ -335,30 +335,20 @@ class MenuApp:
         self._say(_text("menu.import_loaded"))
 
     def _save_project(self) -> None:
-        projects = self._services.projects
-        if projects.project is None:
-            self._say(_text("menu.no_project"))
-            return
-        default = projects.suggested_project_path()
-        path = self._pick_path("menu.ask_path", default=default)
-        if not path:
-            self._say(_text("menu.save_cancelled"))
-            return
-        result = projects.save_as(path)
-        if result.ok:
-            self._say(_text("menu.saved_to") % path)
-        else:
-            self._say(_text("menu.not_applied") % (result.message or "refused"))
+        """Save = write the current job as AF3 JSON in the output
+        destination, through the generation pipeline. The .cbproj working
+        copy is maintained automatically in the internal directory; no
+        project-file path is ever asked for."""
+        self._generate_base_json()
 
     def _load_project(self) -> None:
-        path = self._pick_path("menu.ask_open_path")
-        if not path:
-            return
-        result = self._services.projects.open(path)
+        """Open saved work: restore the internal working copy — no file
+        listing, no path choice. JSON files enter through Import."""
+        result = self._services.projects.load_saved_work()
         if result.ok:
-            self._say(_text("menu.loaded") % path)
+            self._say(_text("menu.open_saved_loaded"))
         else:
-            self._say(_text("menu.load_failed") % (result.message or "failed"))
+            self._say(_text("menu.open_saved_none"))
 
     def _wizard(self) -> None:
         """The existing guided front end, kept as a compatibility path."""
@@ -496,6 +486,15 @@ class MenuApp:
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
+    def _ligand_kind(self):
+        """The CCD-or-SMILES submenu. Returns "ccd", "smiles", or None
+        to cancel — one shared wording source for every ligand input."""
+        entries = [
+            (_text("menu.ligand_kind_ccd"), "ccd"),
+            (_text("menu.ligand_kind_smiles"), "smiles"),
+        ]
+        return self._numbered_choice(_text("menu.ligand_kind_menu"), entries)
+
     def _add_entity(self, family: str) -> None:
         prompts = {
             "protein": "menu.add_protein_prompt",
@@ -504,10 +503,13 @@ class MenuApp:
             "ligand": "menu.add_ligand_prompt",
         }
         if family == "ligand":
+            kind = self._ligand_kind()
+            if kind is None:
+                return
             representation = self._ask(prompts[family])
             self._report(
                 self._services.configuration.add_record(
-                    "ligand", representation=representation
+                    "ligand", representation=representation, representation_kind=kind
                 )
             )
             return
@@ -1381,11 +1383,14 @@ class MenuApp:
         if family is None:
             return False
         if family == "ligand":
+            kind = self._ligand_kind()
+            if kind is None:
+                return False
             representation = self._ask("menu.ligand_repr_prompt")
             if not representation:
                 return False
             records, error = self._services.variants.build_add_records(
-                family, "", representation=representation
+                family, "", representation=representation, representation_kind=kind
             )
         else:
             sequence = self._ask(_text("menu.entity_seq_prompt") % family)

@@ -23,17 +23,78 @@ from configbuilder.persistence import (
     PROJECT_EXTENSION,
 )
 
-__all__ = ["ProjectService"]
+__all__ = ["ProjectService", "INTERNAL_PROJECTS_DIR"]
+
+
+INTERNAL_PROJECTS_DIR = ".configbuilder"
+"""Where working project files live, invisible to the user's workflow.
+
+Users work exclusively with AF3 JSON files in their output destination;
+the .cbproj working copy is the application's own resume mechanism,
+kept out of the way in this internal directory under the current
+working directory.
+"""
 
 
 class ProjectService:
-    """Owns the currently open project and its persistence."""
+    """Owns the currently open project and its persistence.
+
+    Persistence discipline (the JSON-first workflow): the user-visible
+    save action writes **AF3 JSON** through the generation pipeline into
+    the output destination. The canonical .cbproj working copy is
+    maintained silently in ``INTERNAL_PROJECTS_DIR`` — written on every
+    committed change (``_commit_project``) — and ``load_saved_work``
+    restores it on "Open saved work". No prompt, no path ritual.
+    """
 
     def __init__(self, validate=None) -> None:
         self._project = None  # type: Optional[Project]
         self._path = None  # type: Optional[str]
         self._dirty = False
         self._validate = validate
+
+    # -- internal working copy ------------------------------------------------
+
+    def _internal_path(self) -> str:
+        import uuid
+
+        root = os.path.join(os.getcwd(), INTERNAL_PROJECTS_DIR)
+        os.makedirs(root, exist_ok=True)
+        return os.path.join(root, "%s.cbproj" % uuid.uuid4().hex)
+
+    def _commit_project(self) -> None:
+        """Silently persist the working copy. Failures are swallowed by
+        design: this is crash protection, not a user-visible action."""
+        if self._project is None:
+            return
+        try:
+            if self._path is None:
+                self._path = self._internal_path()
+            _save(self._project, self._path)
+            self._dirty = False
+        except OSError:
+            pass
+
+    def load_saved_work(self) -> LoadOutput:
+        """Restore the most recent internal working copy, if any.
+
+        Returns ``ok=False`` (``NO_SAVED_WORK``) when none exists — the
+        user simply starts a new job. The restored project becomes the
+        current one exactly as it was left.
+        """
+        import glob as _glob
+
+        root = os.path.join(os.getcwd(), INTERNAL_PROJECTS_DIR)
+        candidates = sorted(
+            _glob.glob(os.path.join(root, "*.cbproj")), key=os.path.getmtime
+        )
+        if not candidates:
+            return LoadOutput(
+                ok=False,
+                failure_reason=FailureReason.NO_SAVED_WORK,
+                message="there is no saved work to reopen",
+            )
+        return self.open(candidates[-1])
 
     # -- state ---------------------------------------------------------------
 
@@ -84,6 +145,7 @@ class ProjectService:
         )
         self._path = None
         self._dirty = True
+        self._commit_project()
         return self._project
 
     # -- AF3 JSON import (§7 of the import feature; the same canonical model) --
@@ -158,6 +220,7 @@ class ProjectService:
         )
         self._path = None  # the imported file is not a project file
         self._dirty = True
+        self._path = self._internal_path()
         return LoadOutput(
             ok=True,
             project=self._project,
