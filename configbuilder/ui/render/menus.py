@@ -1391,6 +1391,19 @@ class MenuApp:
             return self._collect_alignment(key)
         if kind == "references":
             return self._collect_references(key)
+        if kind == "component_count":
+            component = self._choice_menu(
+                _text("menu.count_component_prompt"),
+                service.component_count_choices(),
+            )
+            if component is None:
+                return False
+            raw = self._ask("menu.count_value_prompt")
+            if not raw.isdigit() or int(raw) < 1:
+                self._say(_text("menu.invalid") % raw)
+                return False
+            self._report(service.apply_variant_edit(key, kind, int(raw), record_key=component))
+            return True
         if kind == "add_entity":
             return self._collect_add_entity(key)
         if kind == "remove_entity":
