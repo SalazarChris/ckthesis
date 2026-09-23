@@ -8,9 +8,11 @@ exclusively on ``persistence`` (plan §5.3 rule 8).
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from configbuilder.app.results import FailureReason, ImportPreview, LoadOutput, SaveOutput
+from configbuilder.output.naming import slug
 from configbuilder.persistence import (
     FutureVersionError,
     OutputSettings,
@@ -18,6 +20,7 @@ from configbuilder.persistence import (
     Project,
     load as _load,
     save as _save,
+    PROJECT_EXTENSION,
 )
 
 __all__ = ["ProjectService"]
@@ -223,7 +226,7 @@ class ProjectService:
 
     def save(self) -> SaveOutput:
         """Write to the project's current path (``FailureReason.SAVE_WITHOUT_PATH``
-        when none is set — use ``save_as``)."""
+        when none is set — use ``save_as`` or ``suggested_project_path``)."""
         if self._project is None:
             return SaveOutput(ok=False, failure_reason=FailureReason.NOT_OPEN, message="no project is open")
         if self._path is None:
@@ -233,6 +236,27 @@ class ProjectService:
                 message="the project has no path yet; choose one with save_as",
             )
         return self.save_as(self._path)
+
+    def suggested_project_path(self) -> str:
+        """A concrete default save path for the UI's save prompt.
+
+        The project's current path when it has one ("blank keeps the
+        current one"); otherwise ``<cwd>/<project-name-slug>.cbproj`` —
+        the extension is the persistence layer's. An empty string when
+        there is no open project or the name admits no slug; the caller
+        then falls back to its existing behaviour (``save`` refuses, and
+        says so).
+        """
+        project = self._project
+        if project is None:
+            return ""
+        if self._path:
+            return self._path
+        try:
+            base = slug(project.configuration.metadata.name)
+        except NameError:
+            return ""
+        return os.path.join(os.getcwd(), base + PROJECT_EXTENSION)
 
     def save_as(self, path: str) -> SaveOutput:
         """Write to ``path`` and make it the project's path."""

@@ -385,7 +385,9 @@ STRINGS = {
     "menu.import_keep_choice": "Import with warning (unsupported fields are dropped)",
     "menu.import_cancel_choice": "Cancel import",
     "menu.ask_experiment": "Experiment name: ",
-    "menu.ask_path": "Project file path (blank keeps the current one): ",
+    "menu.ask_path": "Project file path (Enter accepts the default, 0 cancels): ",
+    "menu.ask_open_path": "Project file path (0 cancels): ",
+    "menu.save_cancelled": "Save cancelled — nothing written.",
     "menu.ask_import_path": "AF3 JSON file to import: ",
     "menu.builder_title": "Job Builder",
     "menu.builder_actions": (

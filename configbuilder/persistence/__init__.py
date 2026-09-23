@@ -16,7 +16,7 @@ from configbuilder.persistence.schema import (
     upgrade,
 )
 from configbuilder.persistence.sequences import read_sequence_file
-from configbuilder.persistence.store import load, save
+from configbuilder.persistence.store import PROJECT_EXTENSION, load, save
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -24,6 +24,7 @@ __all__ = [
     "LoadResult",
     "OutputSettings",
     "PersistenceError",
+    "PROJECT_EXTENSION",
     "Project",
     "load",
     "read_sequence_file",

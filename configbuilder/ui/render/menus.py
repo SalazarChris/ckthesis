@@ -157,13 +157,14 @@ class MenuApp:
             return None
         return [".."] + [n for n in names if not n.startswith(".")]
 
-    def _pick_path(self, prompt_key: str) -> str:
+    def _pick_path(self, prompt_key: str, default: str = "") -> str:
         """Choose a path with the keyboard alone: the current directory is
         listed, numbers open directories or select files, ``..`` goes up,
         and anything else typed is taken as a literal path — so pasting a
-        full path still works. Cancellation is ``0`` or an empty answer;
-        the service layer remains the authority on whether the path exists
-        or is usable."""
+        full path still works. Cancellation is ``0`` or ``q``; an empty
+        answer accepts the *default*, when one is offered — the service
+        layer remains the authority on whether the path exists or is
+        usable."""
         directory = os.getcwd()
         while True:
             listing = self._picker_listing(directory)
@@ -181,8 +182,10 @@ class MenuApp:
                 self._say("  %2d) %s%s" % (number, name, "/" if is_dir else ""))
             self._say(_text("menu.pick_hint"))
             raw = self._ask(prompt_key)
-            if raw in ("", "0", "q", "quit", "exit"):
+            if raw in ("0", "q", "quit", "exit"):
                 return ""
+            if raw == "":
+                return default
             if raw == "..":
                 directory = os.path.dirname(directory) or os.sep
                 continue
@@ -336,15 +339,19 @@ class MenuApp:
         if projects.project is None:
             self._say(_text("menu.no_project"))
             return
-        path = self._pick_path("menu.ask_path")
-        result = projects.save_as(path) if path else projects.save()
+        default = projects.suggested_project_path()
+        path = self._pick_path("menu.ask_path", default=default)
+        if not path:
+            self._say(_text("menu.save_cancelled"))
+            return
+        result = projects.save_as(path)
         if result.ok:
-            self._say(_text("menu.saved_to") % (projects.path or path))
+            self._say(_text("menu.saved_to") % path)
         else:
             self._say(_text("menu.not_applied") % (result.message or "refused"))
 
     def _load_project(self) -> None:
-        path = self._pick_path("menu.ask_path")
+        path = self._pick_path("menu.ask_open_path")
         if not path:
             return
         result = self._services.projects.open(path)
