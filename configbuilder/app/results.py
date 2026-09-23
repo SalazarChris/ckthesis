@@ -154,6 +154,28 @@ class VariantValidationOutput:
         return "VariantValidationOutput(variants=%d)" % len(self.variant_reports)
 
 
+class ImportPreview:
+    """A read-only look at an AF3 JSON file (nothing installed yet).
+
+    ``summary`` carries the display rows for the confirm screen (the
+    job picture data, keyed like ``SummaryService``'s output);
+    ``notes`` are the ImportNotes for unsupported-but-tolerated fields.
+    The current project is untouched until ``commit`` is called.
+    """
+
+    __slots__ = ("ok", "failure_reason", "message", "summary", "notes")
+
+    def __init__(self, ok, summary=None, notes=(), failure_reason=None, message="") -> None:
+        self.ok = bool(ok)
+        self.failure_reason = failure_reason
+        self.message = message or ""
+        self.summary = summary or {}
+        self.notes = tuple(notes)
+
+    def __repr__(self) -> str:
+        return "ImportPreview(ok=%r, notes=%d)" % (self.ok, len(self.notes))
+
+
 class FilePreview:
     """A read-only look at a batch input file (no variants created).
 

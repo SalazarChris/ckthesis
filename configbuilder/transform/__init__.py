@@ -23,15 +23,20 @@ from configbuilder.transform.mappings import (
 )
 from configbuilder.transform.presence import OMITTED, EmissionRule, Omitted
 
+from configbuilder.transform.from_wire import ImportNote, WireImportError, from_wire
+
 __all__ = [
     "ExternalResourceRequirement",
     "TransformError",
     "TransformResult",
     "WireDocument",
+    "from_wire",
     "to_wire",
     "with_emitted_resource_paths",
     "with_wire_job_name",
     "DNA_FIELDS",
+    "ImportNote",
+    "WireImportError",
     "FAMILY_TABLES",
     "LIGAND_FIELDS",
     "PROTEIN_FIELDS",

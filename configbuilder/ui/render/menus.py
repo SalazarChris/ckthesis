@@ -282,12 +282,60 @@ class MenuApp:
             self._services.projects.new(name or "experiment")
         elif choice == "2":
             self._load_project()
+        elif choice == "3":
+            self._import_json()
         # anything else (blank, unknown, EOF) declines and lets the caller exit
+
+    def _import_json(self) -> None:
+        """Load an existing AF3 JSON as the current job (§7 of the import
+        feature). Preview first — the current project is untouched until
+        the numbered confirm — then unsupported-field notes get an
+        explicit continue/cancel choice."""
+        path = self._pick_path("menu.ask_import_path")
+        if not path:
+            return
+        preview = self._services.projects.import_json_preview(path)
+        if not preview.ok:
+            self._say(_text("menu.import_failed"))
+            self._say(_text("menu.import_reason") % (preview.message or "unknown"))
+            self._say(_text("menu.import_untouched"))
+            return
+        self._say()
+        self._say(_text("menu.import_file_line") % path)
+        summary = preview.summary
+        self._say(_text("menu.preview_name") % summary.get("job_name", ""))
+        self._say(_text("menu.base_entities") % summary.get("entity_count", 0))
+        for family, count in summary.get("family_counts", {}).items():
+            self._say(_text("menu.job_family_header") % family)
+            self._say("    x%d" % count)
+        self._say(_text("menu.preview_seeds") % (summary.get("seed_values", []),))
+        if preview.notes:
+            self._say()
+            self._say(_text("menu.import_notes"))
+            for note in preview.notes:
+                self._say(_text("menu.import_note_line") % note.detail)
+        entries = [
+            (_text("menu.import_yes"), True),
+            (_text("menu.import_no"), False),
+        ]
+        proceed = self._numbered_choice(_text("menu.import_confirm"), entries, back_note=False)
+        if not proceed:
+            return
+        result = self._services.projects.import_json_commit(path)
+        if not result.ok:
+            self._say(_text("menu.import_failed"))
+            self._say(_text("menu.import_reason") % (result.message or "unknown"))
+            self._say(_text("menu.import_untouched"))
+            return
+        for warning in result.warnings:
+            self._say(_text("menu.import_note_line") % warning)
+        self._say(_text("menu.import_loaded"))
 
     def _save_project(self) -> None:
         projects = self._services.projects
-        if projects.project is None:        self._say(_text("menu.no_project"))
-        return
+        if projects.project is None:
+            self._say(_text("menu.no_project"))
+            return
         path = self._pick_path("menu.ask_path")
         result = projects.save_as(path) if path else projects.save()
         if result.ok:
@@ -550,7 +598,9 @@ class MenuApp:
         )
 
     def _delete_entity(self) -> None:
-        record_key = self._ask("menu.ask_record")
+        record_key = self._select_entity(title=_text("menu.delete_entity_title"))
+        if record_key is None:
+            return
         self._report(self._services.configuration.remove_record(record_key))
 
     # -- MSA / structural templates (§15 set_alignment / set_references) ------
@@ -1460,6 +1510,11 @@ class MenuApp:
     def _export_menu(self) -> None:
         from configbuilder.ui.present import format_findings
 
+        project = self._services.projects.project
+        if project is not None and not project.specs:
+            # No variants: base JSON generation is the whole story here.
+            self._export_menu_with_base()
+            return
         while True:
             project = self._project()
             if project is None:
@@ -1488,6 +1543,43 @@ class MenuApp:
                 keys = [k.strip() for k in raw.split(",") if k.strip()]
                 self._export(keys or None, format_findings)
             elif choice == "3":
+                new_dir = self._pick_path("menu.ask_export_dir")
+                if new_dir:
+                    self._output_dir = new_dir
+                    self._say(_text("menu.export_dir_changed") % new_dir)
+            elif choice == "4":
+                self._preview_export()
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
+
+    def _export_menu_with_base(self) -> None:
+        """The JSON-generation screen when no variants exist: base
+        generation *is* the primary action, so the menu offers it
+        directly instead of refusing (§13: JSON generation never hides
+        behind variant management)."""
+        while True:
+            project = self._project()
+            if project is None:
+                return
+            self._say(_banner(_text("menu.export_base_header"), self._width))
+            self._say()
+            self._say(_text("menu.export_base_hint"))
+            self._say()
+            self._say(_text("menu.export_base_actions"))
+            self._say()
+            self._say(_text("menu.back"))
+            choice = self._select()
+            if choice in ("0", "q", "back"):
+                return
+            elif choice == "1":
+                self._generate_base_json()
+            elif choice == "2":
+                new_dir = self._pick_path("menu.ask_export_dir")
+                if new_dir:
+                    self._output_dir = new_dir
+                    self._say(_text("menu.export_dir_changed") % new_dir)
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
                 new_dir = self._pick_path("menu.ask_export_dir")
                 if new_dir:
                     self._output_dir = new_dir

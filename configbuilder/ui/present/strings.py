@@ -232,6 +232,7 @@ STRINGS = {
     "menu.change_generic": "%s",
     "menu.choice_line": "  %d) %s",
     "menu.select_entity": "Select entity:",
+    "menu.delete_entity_title": "Select the entity to delete:",
     "menu.select_variant": "Select variant:",
     "menu.select_change": "What would you like to change?",
     "menu.entity_add_note": "Nothing to choose yet — add entities in the Job Builder first.",
@@ -367,10 +368,25 @@ STRINGS = {
     ),
     "menu.start_actions": (
         "  1) New experiment\n"
-        "  2) Load a saved project"
+        "  2) Load a saved project\n"
+        "  3) Import an AF3 JSON file"
     ),
+    "menu.import_title": "Import AF3 JSON",
+    "menu.import_file_line": "File: %s",
+    "menu.import_confirm": "Load this JSON as the current job?",
+    "menu.import_yes": "Load",
+    "menu.import_no": "Cancel",
+    "menu.import_loaded": "JSON loaded. The job is now a normal, editable configuration.",
+    "menu.import_notes": "Fields this builder does not support for editing:",
+    "menu.import_note_line": "  ! %s",
+    "menu.import_failed": "Could not load this JSON.",
+    "menu.import_reason": "Reason: %s",
+    "menu.import_untouched": "The original file has not been modified.",
+    "menu.import_keep_choice": "Import with warning (unsupported fields are dropped)",
+    "menu.import_cancel_choice": "Cancel import",
     "menu.ask_experiment": "Experiment name: ",
     "menu.ask_path": "Project file path (blank keeps the current one): ",
+    "menu.ask_import_path": "AF3 JSON file to import: ",
     "menu.builder_title": "Job Builder",
     "menu.builder_actions": (
         "  1) Job Settings\n"
@@ -424,6 +440,12 @@ STRINGS = {
         "  3) Change output directory\n"
         "  4) Preview export"
     ),
+    "menu.export_base_actions": (
+        "  1) Save / Generate Base JSON\n"
+        "  2) Change output directory"
+    ),
+    "menu.export_base_hint": "No variants defined. Generate the base configuration's JSON directly:",
+    "menu.export_base_header": "Generate JSON",
     "menu.ask_export_dir": "Output directory: ",
     "menu.export_warning": "Note: %s",
     "menu.export_action_line": "  %s  %s",

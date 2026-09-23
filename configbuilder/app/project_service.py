@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from configbuilder.app.results import FailureReason, LoadOutput, SaveOutput
+from configbuilder.app.results import FailureReason, ImportPreview, LoadOutput, SaveOutput
 from configbuilder.persistence import (
     FutureVersionError,
     OutputSettings,
@@ -82,6 +82,110 @@ class ProjectService:
         self._path = None
         self._dirty = True
         return self._project
+
+    # -- AF3 JSON import (§7 of the import feature; the same canonical model) --
+
+    def import_json_preview(self, path: str) -> ImportPreview:
+        """Parse and validate an AF3 JSON file **without installing it**.
+
+        Returns the summary rows and any ImportNotes for the confirm
+        screen; the current project is untouched whatever happens here.
+        """
+        from configbuilder.transform import WireImportError, from_wire
+
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                import json as _json
+
+                document = _json.load(handle)
+        except OSError as error:
+            return ImportPreview(ok=False, failure_reason=FailureReason.IO_ERROR, message=str(error))
+        except ValueError as error:
+            return ImportPreview(
+                ok=False,
+                failure_reason=FailureReason.CORRUPT_FILE,
+                message="the file is not valid JSON: %s" % (error,),
+            )
+        try:
+            configuration, notes = from_wire(document)
+        except WireImportError as error:
+            return ImportPreview(ok=False, failure_reason=FailureReason.CORRUPT_FILE, message=str(error))
+        except (ModelError, ValueError, TypeError) as error:
+            return ImportPreview(ok=False, failure_reason=FailureReason.CORRUPT_FILE, message=str(error))
+        return ImportPreview(ok=True, summary=self._import_summary(configuration), notes=notes)
+
+
+    def import_json_commit(self, path: str) -> LoadOutput:
+        """Install the previously previewed file as the current project.
+
+        The file becomes the base configuration — a normal job, editable
+        through every existing service, variant-able, and generatable;
+        no "imported" special state exists. The original file is never
+        modified (the import output goes through the normal generation
+        naming, which derives its own path from the project name).
+        """
+        from configbuilder.transform import WireImportError, from_wire
+
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                import json as _json
+
+                document = _json.load(handle)
+        except OSError as error:
+            return LoadOutput(ok=False, failure_reason=FailureReason.IO_ERROR, message=str(error))
+        except ValueError as error:
+            return LoadOutput(
+                ok=False,
+                failure_reason=FailureReason.CORRUPT_FILE,
+                message="the file is not valid JSON: %s" % (error,),
+            )
+        try:
+            configuration, notes = from_wire(document)
+        except WireImportError as error:
+            return LoadOutput(ok=False, failure_reason=FailureReason.CORRUPT_FILE, message=str(error))
+        except (ModelError, ValueError, TypeError) as error:
+            return LoadOutput(ok=False, failure_reason=FailureReason.CORRUPT_FILE, message=str(error))
+        report = None
+        if self._validate is not None:
+            report = self._validate(configuration)
+        self._project = Project(
+            configuration=configuration,
+            specs=(),
+            settings=OutputSettings(),
+        )
+        self._path = None  # the imported file is not a project file
+        self._dirty = True
+        return LoadOutput(
+            ok=True,
+            project=self._project,
+            warnings=tuple(note.detail for note in notes),
+            findings=report,
+        )
+
+    def _import_summary(self, configuration) -> dict:
+        """Summary data for the confirm screen — plain data from the
+        model; the UI renders wording ("app returns data, ui renders",
+        plan §5.3 rule 6)."""
+        from configbuilder.model.records import FamilyARecord, FamilyBRecord, FamilyCRecord, ComponentRecord
+
+        records = configuration.records
+        family_names = {
+            FamilyARecord: "protein",
+            FamilyBRecord: "rna",
+            FamilyCRecord: "dna",
+            ComponentRecord: "ligand",
+        }
+        families = {}
+        for record in records:
+            name = family_names.get(type(record), type(record).__name__)
+            families.setdefault(name, []).append(record)
+        return {
+            "job_name": configuration.metadata.name,
+            "seed_values": [seed.value for seed in configuration.seeds.seeds],
+            "entity_count": len(records),
+            "family_counts": {name: len(rows) for name, rows in sorted(families.items())},
+            "record_ids": [record.ids.primary.value for record in records],
+        }
 
     def open(self, path: str) -> LoadOutput:
         """Load a project file. Corruption, future versions, and IO
