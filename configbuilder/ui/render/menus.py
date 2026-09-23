@@ -95,6 +95,10 @@ def _entity_line(record) -> str:
             return _text("menu.ligand_by_notation")
 
         detail = fold_representation(record.representation, _on_code, _on_notation)
+        if len(record.ids.ids) > 1:
+            return _text("menu.entity_list_ligand_counted") % (
+                letter, detail, len(record.ids.ids)
+            )
         return _text("menu.entity_list_ligand") % (letter, detail)
     return _text("menu.entity_list_header") % (
         letter,
@@ -486,6 +490,27 @@ class MenuApp:
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
+    def _ask_quantity(self):
+        """How many copies of this component belong in the job? Guided
+        choices plus a custom entry — pure base-job quantity, nothing
+        about variants or series here."""
+        entries = [
+            ("1", 1), ("2", 2), ("3", 3), ("5", 5), ("10", 10),
+            (_text("menu.quantity_custom"), "custom"),
+        ]
+        chosen = self._numbered_choice(_text("menu.quantity_menu"), entries)
+        if chosen is None:
+            return None
+        if chosen != "custom":
+            return chosen
+        while True:
+            raw = self._ask("menu.quantity_custom_prompt")
+            if raw in ("0", "q", "back"):
+                return None
+            if raw.strip().isdigit() and int(raw) >= 1:
+                return int(raw)
+            self._say(_text("menu.series_bad_value"))
+
     def _ligand_kind(self):
         """The CCD-or-SMILES submenu. Returns "ccd", "smiles", or None
         to cancel — one shared wording source for every ligand input."""
@@ -507,9 +532,13 @@ class MenuApp:
             if kind is None:
                 return
             representation = self._ask(prompts[family])
+            copies = self._ask_quantity()
+            if copies is None:
+                return
             self._report(
                 self._services.configuration.add_record(
-                    "ligand", representation=representation, representation_kind=kind
+                    "ligand", representation=representation,
+                    representation_kind=kind, copies=copies,
                 )
             )
             return
@@ -975,8 +1004,103 @@ class MenuApp:
                 self._manage_variants()
             elif choice == "4":
                 self._batch_from_file()
+            elif choice == "5":
+                self._quantity_series()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
+
+    def _quantity_series(self) -> None:
+        """The concentration/quantity series — a **variant** operation,
+        reachable only here (never in the add-component flow). Component
+        selection, progression, preview, confirmation, then one
+        independent variant per level through the service."""
+        choices = self._services.variants.component_count_choices()
+        if not choices:
+            self._say(_text("menu.series_no_components"))
+            return
+        # -- component selection (numbered; no internal ids typed) ----
+        rows = [(choice.value, choice.detail) for choice in choices]
+        entries = [("%s  %s" % (key, _text("menu.series_preview_times") % count), key)
+                   for key, count in rows]
+        self._say(_banner(_text("menu.series_component_menu"), self._width))
+        self._say()
+        for index, (label, _) in enumerate(entries, start=1):
+            self._say(_text("menu.choice_line") % (index, label))
+        self._say(_text("menu.choice_line") % (
+            len(entries) + 1, _text("menu.series_component_multiple")))
+        self._say()
+        self._say(_text("menu.back"))
+        raw = self._select()
+        if raw in ("0", "q", "back", ""):
+            return
+        selected = []
+        if raw.strip() == str(len(entries) + 1):
+            selected = [key for _, key in entries]
+        elif all(part.isdigit() and 1 <= int(part) <= len(entries)
+                 for part in raw.split()):
+            seen = []
+            for part in raw.split():
+                key = entries[int(part) - 1][1]
+                if key not in seen:
+                    seen.append(key)
+            selected = seen
+        else:
+            self._say(_text("menu.invalid") % raw)
+            return
+        if not selected:
+            return
+        # -- progression -----------------------------------------------
+        numbers = {}
+        for prompt_key, name in (
+            ("menu.series_start_prompt", "start"),
+            ("menu.series_factor_prompt", "factor"),
+            ("menu.series_levels_prompt", "levels"),
+        ):
+            answer = self._ask(prompt_key)
+            if answer in ("0", "q", "back", "") or not answer.strip().isdigit():
+                self._say(_text("menu.series_bad_value"))
+                return
+            numbers[name] = int(answer)
+        rows_plan, failure = self._services.variants.quantity_series_plan(
+            selected, numbers["start"], numbers["factor"], numbers["levels"]
+        )
+        if failure is not None:
+            self._say(_text("menu.not_applied") % failure)
+            return
+        # -- preview, then confirm (nothing exists until Yes) ----------
+        self._say()
+        self._say(_banner(_text("menu.series_preview_title"), self._width))
+        self._say()
+        self._say(_text("menu.series_preview_base"))
+        for key, count in rows:
+            if key in selected:
+                self._say(_text("menu.series_preview_row") % (
+                    key, _text("menu.series_preview_times") % count))
+        self._say(_text("menu.series_preview_factor") % (
+            numbers["factor"], numbers["levels"]))
+        self._say()
+        self._say(_text("menu.series_preview_will"))
+        for multiplier, counts in rows_plan:
+            parts = "  ".join(
+                "%s %s" % (key, _text("menu.series_preview_times") % count)
+                for key, count in sorted(counts.items())
+            )
+            self._say(_text("menu.series_preview_row") % (
+                "x%d" % multiplier, parts))
+        self._say()
+        confirm = self._numbered_choice(_text("menu.series_confirm"), [
+            (_text("menu.series_yes"), True),
+            (_text("menu.series_no"), False),
+        ], back_note=False)
+        if not confirm:
+            return
+        outcome = self._services.variants.create_quantity_series(
+            selected, numbers["start"], numbers["factor"], numbers["levels"]
+        )
+        if outcome.ok:
+            self._say(_text("menu.series_created") % len(rows_plan))
+        else:
+            self._say(_text("menu.not_applied") % outcome.message)
 
     def _manage_variants(self) -> None:
         """Variant management, entered explicitly — CRUD and preview over
@@ -1112,6 +1236,11 @@ class MenuApp:
             return _text("menu.change_format_target")
         if kind == "SetComponentRepresentation":
             return _text("menu.change_component_representation")
+        if kind == "SetComponentCount":
+            return _text("menu.change_component_count") % (
+                record,
+                described.get("count", "?"),
+            )
         if kind == "AddRecord":
             return _text("menu.spec_add_record")
         if kind == "RemoveRecord":

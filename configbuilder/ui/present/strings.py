@@ -191,8 +191,27 @@ STRINGS = {
         "  1) Save / Generate Base JSON\n"
         "  2) Create variant\n"
         "  3) Manage variants\n"
-        "  4) Generate variants from sequence file"
+        "  4) Generate variants from sequence file\n"
+        "  5) Create concentration/quantity series"
     ),
+    "menu.variant_series_action": "  5) Create concentration/quantity series",
+    "menu.series_component_menu": "Select the component to vary:",
+    "menu.series_component_multiple": "Multiple components",
+    "menu.series_start_prompt": "Starting multiplier: ",
+    "menu.series_factor_prompt": "Multiplication factor: ",
+    "menu.series_levels_prompt": "Number of levels: ",
+    "menu.series_preview_title": "Concentration/Quantity Series Preview",
+    "menu.series_preview_base": "Base:",
+    "menu.series_preview_factor": "Factor: x%s    Levels: %s",
+    "menu.series_preview_will": "Will create:",
+    "menu.series_preview_row": "  %s: %s",
+    "menu.series_preview_times": "x%s",
+    "menu.series_confirm": "Create these variants?",
+    "menu.series_yes": "Yes — create the series",
+    "menu.series_no": "No / Cancel",
+    "menu.series_created": "%d series variants created.",
+    "menu.series_no_components": "No variable components (ligands/ions) in the current job.",
+    "menu.series_bad_value": "Enter whole numbers (factor and levels at least 1, start at least 1).",
     "menu.manage_actions": (
         "  1) Edit variant\n"
         "  2) Duplicate variant\n"
@@ -222,6 +241,7 @@ STRINGS = {
     "menu.change_references": "templates of %s",
     "menu.change_component_definition": "component definition set",
     "menu.change_format_target": "format target set",
+    "menu.change_component_count": "Component %s copy count changed to x%s",
     "menu.change_component_representation": "ligand representation changed",
     "menu.change_remove_record": "entity %s removed",
     "menu.change_linkage": "linkage changed",
@@ -354,6 +374,10 @@ STRINGS = {
     "menu.version_pinned": "v%d",
     "menu.version_auto": "auto",
     "menu.ligand_by_code": "CCD %s",
+    "menu.quantity_menu": "How many copies?",
+    "menu.quantity_custom": "Custom quantity",
+    "menu.quantity_custom_prompt": "Quantity: ",
+    "menu.entity_list_ligand_counted": "  %s  ligand  %s  x%d",
     "menu.ligand_by_notation": "SMILES notation",
     "menu.master_actions": (
         "  1) Job Builder\n"

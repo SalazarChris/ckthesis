@@ -257,6 +257,8 @@ def _edit(edit) -> dict:
         data["references"] = _references(edit._references)
     elif type(edit).__name__ == "SetComponentRepresentation":
         data["representation"] = _representation(edit._representation)
+    elif type(edit).__name__ == "SetComponentCount":
+        data["count"] = edit._count
     elif type(edit).__name__ == "AddRecord":
         record = edit._record
         data["family"] = type(record).__name__

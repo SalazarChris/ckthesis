@@ -56,6 +56,10 @@ def _progression():
     for first in _LETTERS:
         for second in _LETTERS:
             yield first + second
+    for first in _LETTERS:
+        for second in _LETTERS:
+            for third in _LETTERS:
+                yield first + second + third
 
 
 class IdAllocator:

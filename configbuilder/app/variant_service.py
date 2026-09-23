@@ -45,12 +45,13 @@ class VariantChoice:
     carry the record key for orientation), ``kind`` discriminator, and
     the value the front end passes back. Plain data — no behaviour."""
 
-    __slots__ = ("label", "kind", "value")
+    __slots__ = ("label", "kind", "value", "detail")
 
-    def __init__(self, label, kind, value=None):
+    def __init__(self, label, kind, value=None, detail=None):
         self.label = label
         self.kind = kind
         self.value = value
+        self.detail = detail
 
 
 class VariantService:
@@ -374,6 +375,7 @@ class VariantService:
             VariantChoice("Job name", "job_name"),
             VariantChoice("Job description", "job_description"),
             VariantChoice("Model seeds", "seeds"),
+            VariantChoice("Component copy count", "component_count"),
             VariantChoice("Add a new entity", "add_entity"),
             VariantChoice("Remove an entity", "remove_entity"),
         )
@@ -543,6 +545,14 @@ class VariantService:
                     message="no variant keyed %r exists" % (key,),
                 )
             return self.update_spec(key, edits=existing.edits + new_edits)
+        if kind == "component_count":
+            try:
+                edit = self._edit_class("SetComponentCount")(
+                    EntityId(record_key), int(value)
+                )
+            except (EditError, ValueError, TypeError) as error:
+                return self._refuse(str(error))
+            return self._append_edit(key, edit)
         if kind == "remove_entity":
             try:
                 edit = self._edit_class("RemoveRecord")(EntityId(record_key))
@@ -570,6 +580,7 @@ class VariantService:
     @staticmethod
     def _alignment_case(value):
         from configbuilder.model import (
+    ComponentRecord,
             AlignmentAutomatic,
             AlignmentBoth,
             AlignmentFree,
@@ -650,6 +661,111 @@ class VariantService:
             record = described.get("record_key", "") or ""
             rows.append((kind, described, record))
         return rows
+
+    def component_count_choices(self) -> "tuple[VariantChoice, ...]":
+        """The base's ligand/component records — the only records whose
+        copy count is a variable dimension — as choice rows. ``value``
+        is the primary key; ``label`` carries the family word (data, not
+        wording); ``detail`` is the row's current copy count."""
+        project = self._projects._require_project()
+        if project is None:
+            return ()
+        return tuple(
+            VariantChoice(
+                record.ids.primary.value, "component",
+                record.ids.primary.value, len(record.ids.ids),
+            )
+            for record in project.configuration.records
+            if isinstance(record, ComponentRecord)
+        )
+
+    def component_counts(self) -> "tuple[tuple[str, int], ...]":
+        """Every ligand record as ``(primary key, copy count)`` — the
+        preview's base-quantity rows, in the model's record order."""
+        project = self._projects._require_project()
+        if project is None:
+            return ()
+        return tuple(
+            (record.ids.primary.value, len(record.ids.ids))
+            for record in project.configuration.records
+            if isinstance(record, ComponentRecord)
+        )
+
+    def quantity_series_plan(self, keys, start: int, factor: int, levels: int):
+        """The concentration/quantity series as reviewable data —
+        **no variant is created here** (§7: preview before creation).
+
+        ``keys`` are ligand primary keys; ``levels`` variants are planned
+        at multipliers ``start * factor**(level-1)``. Each level is one
+        spec of independent ``base + SetComponentCount(key, count)``
+        edits — derived from the base, never from a sibling variant.
+        Returns ``(plan_rows, None)`` or ``(None, message)`` where
+        ``plan_rows`` is a list of ``(key, {component_key: count})``
+        pairs in variant order.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return None, "no project is open"
+        known = {record.ids.primary.value for record in project.configuration.records
+                 if isinstance(record, ComponentRecord)}
+        requested = tuple(keys)
+        if not requested:
+            return None, "select at least one component to vary"
+        unknown = [key for key in requested if key not in known]
+        if unknown:
+            return None, "no component identified by %r" % (unknown[0],)
+        for name, value in (("start", start), ("factor", factor), ("levels", levels)):
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                return None, (
+                    "the series %s must be a whole number of at least 1" % name
+                )
+        rows = []
+        for level in range(1, levels + 1):
+            multiplier = start * factor ** (level - 1)
+            counts = {key: len(self._find_component(key).ids.ids) * multiplier
+                      for key in requested}
+            rows.append((multiplier, counts))
+        return rows, None
+
+    def create_quantity_series(self, keys, start: int, factor: int, levels: int) -> MutationOutput:
+        """Commit the series the picker previewed: one spec per level,
+        named ``series_<multiplier>x`` (deterministic keys, regenerable
+        on any machine). Commitment is ``add_spec``'s — the standard
+        route's guarantees; the base configuration is never touched."""
+        rows, failure = self.quantity_series_plan(keys, start, factor, levels)
+        if failure is not None:
+            return self._refuse(failure)
+        created = 0
+
+        def _rollback():
+            for done in rows[:created]:
+                self.remove_spec("series_%dx" % done[0])
+
+        for multiplier, counts in rows:
+            edits = tuple(
+                self._edit_class("SetComponentCount")(EntityId(key), count)
+                for key, count in sorted(counts.items())
+            )
+            key = "series_%dx" % multiplier
+            if self._find(key) is not None:
+                _rollback()
+                return self._refuse(
+                    "a variant keyed %r already exists; rename or remove it first" % key
+                )
+            outcome = self.add_spec(key, "series x%d" % multiplier, edits)
+            if not outcome.ok:
+                _rollback()
+                return self._refuse(
+                    "variant %r could not be created: %s" % (key, outcome.message)
+                )
+            created += 1
+        return MutationOutput(ok=True, message="%d series variants created" % created)
+
+    def _find_component(self, key: str):
+        for record in self._projects._require_project().configuration.records:
+            if isinstance(record, ComponentRecord) and record.ids.primary.value == key:
+                return record
+        raise EditError("no component identified by %r" % key)
 
     def inspect_sequence_file(self, path: str):
         """Read a sequence file for preview **only** — no variant is

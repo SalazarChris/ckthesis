@@ -397,6 +397,10 @@ def _edit(data, location):
         return SetComponentRepresentation(
             _entity(record_key, location), _representation(_require(data, "representation", location), location)
         )
+    if kind == "SetComponentCount":
+        from configbuilder.variants import SetComponentCount
+
+        return SetComponentCount(_entity(record_key, location), int(_require(data, "count", location)))
     if kind == "AddRecord":
         from configbuilder.variants import AddRecord
 

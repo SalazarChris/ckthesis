@@ -88,7 +88,9 @@ def _attribute(factor, path):
 
     if factor in ("sequence", "modifications", "alignment", "references", "chain_description"):
         return region == "sequences"
-    if factor == "ligand_representation":
+    if factor in ("ligand_representation", "component_count"):
+        # A copy-count edit changes the id list (and possibly the id
+        # length) on the ligand's entity — the same sequences region.
         return region == "sequences"
     if factor == "records":
         return region == "sequences"

@@ -5,7 +5,7 @@ persistable into the project file, and answerable ("what differs between
 these variants?") without diffing two documents. The vocabulary covers
 exactly the variant-relevant dimensions of spec §15 and nothing else:
 job name, job description, seeds, sequences, modifications, alignments
-(pairing and single), references, component representations, records
+(pairing and single), references, component representations and copy counts, records
 themselves, linkages, the component definition, and the format target.
 
 ``record_key`` is the record's primary ``EntityId``, resolved through the
@@ -20,7 +20,7 @@ returns a new ``Configuration``; nothing is mutated (plan §12.4).
 
 from __future__ import annotations
 
-from configbuilder.identity import EntityId, IdentityError
+from configbuilder.identity import EntityId, IdentityError, Multiplicity
 from configbuilder.model import (
     AlignmentPairing,
     ByCode,
@@ -48,6 +48,7 @@ from configbuilder.model import (
     SeedSet,
     SequenceText,
     SingleAlignment,
+    Unset,
     is_presence,
 )
 
@@ -64,6 +65,7 @@ __all__ = [
     "SetAlignment",
     "SetComponentDefinition",
     "SetComponentRepresentation",
+    "SetComponentCount",
     "SetDescription",
     "SetFormatTarget",
     "SetJobDescription",
@@ -381,6 +383,34 @@ class SetComponentRepresentation(_EditBase):
         return (self._record_key, self._representation)
 
 
+class SetComponentCount(_EditBase):
+    """A ligand record's copy count — the quantity/concentration-series
+    edit (variant dimension only; the base job's quantity is set at add
+    time through ``add_record``'s ``copies``).
+
+    The record is rebuilt with a fresh ``Multiplicity`` of ``count``
+    identifiers: the existing primary identifier stays first, so the
+    record keeps its identity, and the variant's registry clone gains
+    exactly the new copies — allocated through identity, never
+    hand-assigned. Trimming (count < current) releases the dropped
+    identifiers. Like every edit, application runs on the expanded
+    clone; the base configuration is never touched (plan §12.4).
+    """
+
+    __slots__ = ("_record_key", "_count")
+
+    def __init__(self, record_key: EntityId, count: int) -> None:
+        if not isinstance(record_key, EntityId):
+            raise EditError("SetComponentCount record_key must be an EntityId")
+        if not isinstance(count, int) or isinstance(count, bool) or count < 1:
+            raise EditError("SetComponentCount count must be a whole number of at least 1")
+        object.__setattr__(self, "_record_key", record_key)
+        object.__setattr__(self, "_count", count)
+
+    def _fields(self):
+        return (self._record_key, self._count)
+
+
 class AddRecord(_EditBase):
     """Add a fully-formed record (spec §15: entity IDs/copy counts).
 
@@ -534,6 +564,48 @@ def apply_edit(edit, configuration: Configuration) -> Configuration:
         replacement = record.with_representation(edit._representation)
         return _replace_record(configuration, record, replacement)
 
+    if isinstance(edit, SetComponentCount):
+        record = record_for_key(configuration, edit._record_key)
+        _check_record_family(
+            "SetComponentCount", record, (ComponentRecord,), "ligand record"
+        )
+        current = [entity.value for entity in record.ids]
+        if edit._count == len(current):
+            return configuration
+        if edit._count < len(current):
+            # Trim: release the surplus identifiers in the variant's own
+            # registry clone (cloned at expansion start) and rebuild.
+            registry = configuration.identity.clone()
+            registry.release_multiplicity(
+                Multiplicity(current[edit._count:]), missing_ok=True
+            )
+            replacement = ComponentRecord(
+                ids=Multiplicity(current[:edit._count]),
+                representation=record.representation,
+                description=None
+                if isinstance(record.description, Unset)
+                else record.description,
+            )
+            configuration = configuration.with_identity(registry)
+            return _replace_record(configuration, record, replacement)
+        # Grow: allocate the new copies through the variant's registry
+        # clone. The existing identifiers stay (the record keeps its
+        # identity); the fresh letters come from identity, never by hand.
+        registry = configuration.identity.clone()
+        fresh = [
+            registry.allocate(owner="set_component_count")
+            for _ in range(edit._count - len(current))
+        ]
+        replacement = ComponentRecord(
+            ids=Multiplicity(current + [entity.value for entity in fresh]),
+            representation=record.representation,
+            description=None
+            if isinstance(record.description, Unset)
+            else record.description,
+        )
+        configuration = configuration.with_identity(registry)
+        return _replace_record(configuration, record, replacement)
+
     if isinstance(edit, AddRecord):
         record = edit._record
         # Clone before mutate: the base's registry is shared with the base
@@ -603,6 +675,7 @@ EDIT_CLASSES = (
     SetSingleAlignment,
     SetReferences,
     SetComponentRepresentation,
+    SetComponentCount,
     AddRecord,
     RemoveRecord,
     AddLinkage,
@@ -656,6 +729,8 @@ def describe_edit(edit) -> dict:
         return {**base, "references": describe_edit._references(edit._references)}
     if isinstance(edit, SetComponentRepresentation):
         return {**base, "representation": describe_edit._representation(edit._representation)}
+    if isinstance(edit, SetComponentCount):
+        return {**base, "count": edit._count}
     if isinstance(edit, AddRecord):
         record = edit._record
         ids = [entity.value for entity in record.ids]
