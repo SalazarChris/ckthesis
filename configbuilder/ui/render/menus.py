@@ -456,9 +456,85 @@ class MenuApp:
                 )
             )
             return
+        if not self._report(
+            self._services.configuration.add_record(
+                family, self._ask(prompts[family])
+            )
+        ):
+            return
+        if family not in ("protein", "rna"):
+            return
+        # The record exists now — chain the alignment/template questions
+        # onto it in one flow (sequence -> MSA y/n -> templates y/n). Every
+        # "no" is legitimate: unset is a normal state, not a gap.
+        self._chain_msa(family)
+        self._chain_templates(family)
+
+    def _chain_msa(self, family: str) -> None:
+        """The add-flow MSA question: y -> collect, N/blank -> skip."""
+        answer = self._ask("menu.ask_msa_yn").lower()
+        if answer not in ("y", "yes"):
+            self._say(_text("menu.msa_skip"))
+            return
+        configuration = self._services.configuration
+        records = self._records(family)
+        record_key = records[-1].ids.ids[0].value if records else ""
+        mode = self._msa_mode(family)
+        if mode in ("automatic", "free"):
+            self._report(configuration.set_alignment(record_key, mode))
+            return
+        inline_text, external_path = self._msa_source()
         self._report(
-            self._services.configuration.add_record(family, self._ask(prompts[family]))
+            configuration.set_alignment(
+                record_key, mode, inline_text=inline_text, external_path=external_path
+            )
         )
+
+
+    def _chain_templates(self, family: str) -> None:
+        """The add-flow templates question: y -> collect, N/blank -> skip."""
+        answer = self._ask("menu.ask_templates_yn").lower()
+        if answer not in ("y", "yes"):
+            self._say(_text("menu.msa_skip"))
+            return
+        records = self._records(family)
+        record_key = records[-1].ids.ids[0].value if records else ""
+        self._references_for(record_key)
+
+    def _msa_mode(self, family: str) -> str:
+        """The mode answer, translated to the service's vocabulary.
+
+        Single letters (the fast path in the chained prompt) and full
+        words (power users, existing scripts) both resolve. An
+        unrecognized answer is reported and asked again — never silently
+        guessed; a blank line (or EOF) takes ``automatic``.
+        """
+        prompt = (
+            "menu.ask_msa_mode_yn"
+            if family == "protein"
+            else "menu.ask_rna_mode_yn"
+        )
+        while True:
+            raw = self._ask(prompt).lower()
+            if family == "protein":
+                table = {
+                    "p": "paired", "paired": "paired",
+                    "u": "unpaired", "unpaired": "unpaired",
+                    "b": "both", "both": "both",
+                    "a": "automatic", "automatic": "automatic",
+                    "f": "free", "free": "free", "none": "free",
+                }
+            else:
+                table = {
+                    "a": "automatic", "automatic": "automatic",
+                    "f": "free", "free": "free", "none": "free",
+                    "p": "provided", "provided": "provided",
+                }
+            if raw in table:
+                return table[raw]
+            if raw in ("", "automatic"):
+                return "automatic"
+            self._say(_text("menu.invalid") % raw)
 
     def _edit_entity(self) -> None:
         configuration = self._services.configuration
@@ -529,22 +605,17 @@ class MenuApp:
 
     def _set_protein_alignment(self, configuration) -> None:
         record_key = self._ask("menu.msa_record_prompt")
-        mode = self._ask("menu.ask_msa_mode").strip().lower()
-        if mode in ("", "automatic", "free"):
-            self._report(configuration.set_alignment(record_key, mode or "automatic"))
-            return
-        inline_text, external_path = self._msa_source()
-        self._report(
-            configuration.set_alignment(
-                record_key, mode, inline_text=inline_text, external_path=external_path
-            )
-        )
+        self._alignment_for(configuration, record_key, "protein")
 
     def _set_rna_alignment(self, configuration) -> None:
         record_key = self._ask("menu.msa_record_prompt")
-        mode = self._ask("menu.ask_msa_mode").strip().lower()
-        if mode in ("", "automatic", "free"):
-            self._report(configuration.set_alignment(record_key, mode or "automatic"))
+        self._alignment_for(configuration, record_key, "rna")
+
+    def _alignment_for(self, configuration, record_key: str, family: str) -> None:
+        """Collect mode (+ source when the mode carries one) and dispatch."""
+        mode = self._msa_mode(family)
+        if mode in ("automatic", "free"):
+            self._report(configuration.set_alignment(record_key, mode))
             return
         inline_text, external_path = self._msa_source()
         self._report(
@@ -555,6 +626,11 @@ class MenuApp:
 
     def _set_references(self, configuration) -> None:
         record_key = self._ask("menu.msa_record_prompt")
+        self._references_for(record_key)
+
+    def _references_for(self, record_key: str) -> None:
+        """Collect the template route and dispatch (shared with the add flow)."""
+        configuration = self._services.configuration
         route = self._ask("menu.ask_templates_route").strip().lower()
         if route in ("n", ""):
             self._report(configuration.set_references(record_key))

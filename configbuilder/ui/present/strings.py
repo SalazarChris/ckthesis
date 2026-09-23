@@ -212,16 +212,19 @@ STRINGS = {
         "  4) List details"
     ),
     "menu.entity_actions_extra": "  5) MSA / Templates",
-    "menu.entity_actions_extra": "  5) MSA / Templates",
     "menu.msa_title": "MSA / Templates",
     "menu.msa_note": "MSA / templates apply to a record that already exists (add it first).",
     "menu.msa_record_prompt": "Record id (e.g. A): ",
+    "menu.msa_skip": "Skipped - set it later via 5) MSA / Templates.",
+    "menu.ask_msa_yn": "Add an MSA for this record? [y/N]: ",
+    "menu.ask_msa_mode_yn": "MSA mode - p) paired, u) unpaired, b) both, a) automatic (search), f) none (free modeling): ",
+    "menu.ask_rna_mode_yn": "MSA mode - a) automatic (search), f) none (free modeling), p) provided (paste or file): ",
+    "menu.ask_templates_yn": "Add structural templates? [y/N]: ",
     "menu.msa_actions": (
         "  1) Set protein MSA (unpaired/paired/both/automatic/free)\n"
         "  2) Set RNA MSA (automatic/free/provided)\n"
         "  3) Set structural templates"
     ),
-    "menu.ask_msa_mode": "Mode: ",
     "menu.ask_msa_route": "Source - i) paste inline, e) external file path: ",
     "menu.ask_msa_path": "Path to the MSA file: ",
     "menu.msa_inline_header": "Paste the MSA, finish with a blank line:",
