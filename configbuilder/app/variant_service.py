@@ -9,24 +9,56 @@ failure reasons — never exceptions.
 
 from __future__ import annotations
 
-from configbuilder.app.results import ExpandOutput, FailureReason, MutationOutput
+from configbuilder.app.results import (
+    ExpandOutput,
+    FailureReason,
+    FilePreview,
+    MutationOutput,
+)
 from configbuilder.identity import EntityId, IdentityRegistry
-from configbuilder.model import SequenceText
+from configbuilder.model import ModelError, SequenceText
+from configbuilder.model.records import (
+    ComponentRecord,
+    FamilyARecord,
+    FamilyBRecord,
+    FamilyCRecord,
+)
 from configbuilder.variants import (
     EditError,
     VariantSpec,
     VariantSpecError,
+    describe_edit,
     expand,
 )
 
-__all__ = ["VariantService"]
+__all__ = ["ChoiceError", "VariantChoice", "VariantService"]
+
+
+class ChoiceError(Exception):
+    """A UI-facing choice payload is unusable (bad table shape, unknown
+    template route). User-caused, so it surfaces as a refusal — never an
+    exception escaping into a front end."""
+
+
+class VariantChoice:
+    """One numbered choice in a UI table: label (human wording, may
+    carry the record key for orientation), ``kind`` discriminator, and
+    the value the front end passes back. Plain data — no behaviour."""
+
+    __slots__ = ("label", "kind", "value")
+
+    def __init__(self, label, kind, value=None):
+        self.label = label
+        self.kind = kind
+        self.value = value
 
 
 class VariantService:
     """Maintains the open project's variant specs."""
 
-    def __init__(self, projects) -> None:
+    def __init__(self, projects, configuration=None) -> None:
         self._projects = projects
+        self._configuration = configuration
 
     # -- helpers ---------------------------------------------------------------
 
@@ -317,6 +349,318 @@ class VariantService:
             return self.update_spec(key, edits=existing.edits + (edit,))
         except SequenceTextError as error:
             return self._refuse(str(error))
+
+    # -- UI choice tables (§15 vocabulary as numbered menus; the UI never
+    #    constructs edits itself — every table answers "what can this
+    #    variant change" from the same authority the edits come from) -----
+
+    def edit_options(self) -> "tuple[VariantChoice, ...]":
+        """The change kinds a variant can make, as UI choices.
+
+        Every option here maps onto ``_factor_edit`` or
+        ``apply_variant_edit`` — nothing is offered that the service
+        cannot perform.
+        """
+        return (
+            VariantChoice("Sequence change", "sequence"),
+            VariantChoice("Add a modification", "add_modification"),
+            VariantChoice("Remove a modification", "remove_modification"),
+            VariantChoice("MSA (alignment)", "alignment"),
+            VariantChoice("Structural templates", "references"),
+            VariantChoice("Job name", "job_name"),
+            VariantChoice("Job description", "job_description"),
+            VariantChoice("Model seeds", "seeds"),
+            VariantChoice("Add a new entity", "add_entity"),
+            VariantChoice("Remove an entity", "remove_entity"),
+        )
+
+    def entity_choices(self, family: str) -> "tuple[VariantChoice, ...]":
+        """The base's records of one family, as choice rows.
+
+        ``label`` is deliberately **data, not wording** (``app`` cannot
+        import the UI's string registry): the front end renders the row
+        through its own registered templates. ``value`` is the internal
+        key — resolved here, never typed.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return ()
+        type_by_family = {
+            "protein": FamilyARecord,
+            "rna": FamilyBRecord,
+            "dna": FamilyCRecord,
+            "ligand": ComponentRecord,
+        }
+        type_ = type_by_family.get(family)
+        if type_ is None:
+            return ()
+        choices = []
+        for record in project.configuration.records:
+            if not isinstance(record, type_):
+                continue
+            key = record.ids.primary.value
+            choices.append(VariantChoice(key, family, key))
+        return tuple(choices)
+
+    def all_entity_choices(self) -> "tuple[VariantChoice, ...]":
+        """Every base record across families, as choice rows (the
+        sequence-change target picker)."""
+        project = self._projects._require_project()
+        if project is None:
+            return ()
+        return tuple(
+            VariantChoice(record.ids.primary.value, "entity", record.ids.primary.value)
+            for record in project.configuration.records
+        )
+
+    def record_sequence_choices(self) -> "tuple[VariantChoice, ...]":
+        """Polymer records as choice rows (remove-modification picker)."""
+        return self.all_entity_choices()
+
+    def build_add_records(self, family: str, sequence: str, representation=""):
+        """The record(s) one add-entity edit adds: ``(records, None)`` or
+        ``((), message)``.
+
+        Construction is delegated to the configuration service's own
+        ``_build_records`` — the same validated constructors, the same
+        DNA-duplex rule, allocation from a **throwaway clone** of the
+        base registry (the base never claims the ids; ``AddRecord``
+        reserves them again inside each expansion). A DNA family add
+        therefore yields the two-strand duplex, exactly like the base
+        entity path.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return (), "no project is open"
+        if self._configuration is None:
+            return (), "entity adds need the configuration service"
+        registry = project.configuration.identity.clone()
+        records, failure = self._configuration._build_records(
+            family, sequence, representation, 1, registry
+        )
+        if failure is not None:
+            return (), failure.message or "refused"
+        return tuple(records), None
+
+    def modification_summary(self, key: str):
+        """The named modifications of one variant's target record.
+
+        Returns a list of ``(index, ``'code@position'``)`` pairs for the
+        record the sequence change would target — the remove picker's
+        data, so an index is never counted by hand.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return []
+        spec = self._find(key)
+        if spec is None:
+            return []
+        summary = []
+        for index, edit in enumerate(spec.edits):
+            if type(edit).__name__ != "AddModification":
+                continue
+            described = describe_edit(edit)
+            summary.append(
+                (index, "%s @ %s (%s)" % (
+                    described.get("record_key", "?"),
+                    described.get("position", "?"),
+                    described.get("code", "?"),
+                ))
+            )
+        return summary
+
+    def apply_variant_edit(self, key: str, kind: str, value, record_key=None) -> MutationOutput:
+        """Apply one menu-selected change kind to an existing spec.
+
+        The menu passes the ``kind`` from ``edit_options``; the edit
+        construction stays here, in ``app``. Kinds outside the table
+        refuse — the UI can never invent an edit the vocabulary lacks.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return self._not_open()
+        if kind in ("sequence", "job_name", "job_description", "seeds"):
+            return self.append_factor(key, kind, value, record_key=record_key)
+        if kind == "add_modification":
+            code, position = value
+            try:
+                code_value, position_value = self._modification_values(code, int(position))
+                edit = self._edit_class("AddModification")(
+                    EntityId(record_key), code_value, position_value
+                )
+            except (EditError, ModelError, ValueError, TypeError) as error:
+                return self._refuse(str(error))
+            return self._append_edit(key, edit)
+        if kind == "remove_modification":
+            try:
+                edit = self._edit_class("RemoveModification")(
+                    EntityId(record_key), int(value)
+                )
+            except (EditError, ValueError, TypeError) as error:
+                return self._refuse(str(error))
+            return self._append_edit(key, edit)
+        if kind == "alignment":
+            try:
+                alignment = self._alignment_case(value)
+            except ChoiceError as error:
+                return self._refuse(str(error))
+            try:
+                edit = self._edit_class("SetAlignment")(
+                    EntityId(record_key), alignment
+                )
+            except (EditError, ValueError, TypeError) as error:
+                return self._refuse(str(error))
+            return self._append_edit(key, edit)
+        if kind == "references":
+            try:
+                reference_set = self._reference_set_case(value)
+            except ChoiceError as error:
+                return self._refuse(str(error))
+            try:
+                edit = self._edit_class("SetReferences")(
+                    EntityId(record_key), reference_set
+                )
+            except (EditError, ValueError, TypeError) as error:
+                return self._refuse(str(error))
+            return self._append_edit(key, edit)
+        if kind == "add_entity":
+            try:
+                new_edits = tuple(
+                    self._edit_class("AddRecord")(record) for record in value
+                )
+            except (EditError, ValueError, TypeError) as error:
+                return self._refuse(str(error))
+            existing = self._find(key)
+            if existing is None:
+                return MutationOutput(
+                    ok=False,
+                    failure_reason=FailureReason.UNKNOWN_RECORD,
+                    message="no variant keyed %r exists" % (key,),
+                )
+            return self.update_spec(key, edits=existing.edits + new_edits)
+        if kind == "remove_entity":
+            try:
+                edit = self._edit_class("RemoveRecord")(EntityId(record_key))
+            except (EditError, ValueError, TypeError) as error:
+                return self._refuse(str(error))
+            return self._append_edit(key, edit)
+        return self._refuse("unknown change kind %r" % (kind,))
+
+    def _append_edit(self, key: str, edit) -> MutationOutput:
+        existing = self._find(key)
+        if existing is None:
+            return MutationOutput(
+                ok=False,
+                failure_reason=FailureReason.UNKNOWN_RECORD,
+                message="no variant keyed %r exists" % (key,),
+            )
+        return self.update_spec(key, edits=existing.edits + (edit,))
+
+    @staticmethod
+    def _modification_values(code: str, position: int):
+        from configbuilder.model import ComponentCode, Position
+
+        return ComponentCode(code), Position(position)
+
+    @staticmethod
+    def _alignment_case(value):
+        from configbuilder.model import (
+            AlignmentAutomatic,
+            AlignmentBoth,
+            AlignmentFree,
+            AlignmentPairedOnly,
+            AlignmentUnpairedOnly,
+            External,
+            Inline,
+            PathSpec,
+        )
+
+        mode, source = value
+        if mode == "automatic":
+            return AlignmentAutomatic()
+        if mode == "free":
+            return AlignmentFree()
+        if source is None:
+            raise ChoiceError("mode %r carries an MSA source; none was given" % (mode,))
+        if source[0] == "inline":
+            payload = Inline(source[1])
+        else:
+            payload = External(PathSpec(source[1]))
+        if mode == "unpaired":
+            return AlignmentUnpairedOnly(payload)
+        if mode == "paired":
+            return AlignmentPairedOnly(payload)
+        if mode == "both":
+            return AlignmentBoth(payload)
+        raise ChoiceError("unknown alignment mode %r" % (mode,))
+
+    @staticmethod
+    def _reference_set_case(value):
+        from configbuilder.model import (
+            Explicit,
+            External,
+            IndexPair,
+            Inline,
+            PathSpec,
+            ReferenceRecord,
+            SearchAllowed,
+        )
+
+        route, payload = value
+        if route == "search":
+            return SearchAllowed()
+        if route == "none":
+            return Explicit(())
+        # payload is a list of (source_kind, text, pairs) rows
+        records = []
+        for source_kind, text, pairs in payload:
+            if source_kind == "inline":
+                source = Inline(text)
+            else:
+                source = External(PathSpec(text))
+            index_map = tuple(IndexPair(int(q), int(t)) for q, t in pairs)
+            records.append(ReferenceRecord(source, index_map))
+        return Explicit(tuple(records))
+
+    def describe_spec_edits(self, key: str):
+        """Every edit of one spec as described data (``describe_edit``),
+        in order — the preview's change list as plain data; the front end
+        renders it through its own registered wording."""
+        project = self._projects._require_project()
+        if project is None:
+            return []
+        spec = self._find(key)
+        if spec is None:
+            return []
+        return [describe_edit(edit) for edit in spec.edits]
+
+    def spec_change_descriptions(self, key: str):
+        """The variant list's change summaries as plain ``(kind,
+        described, record)`` rows — no wording (``app`` cannot import
+        the UI's string registry); the front end renders each row
+        through its registered templates."""
+        rows = []
+        for described in self.describe_spec_edits(key):
+            kind = described.get("kind", "")
+            record = described.get("record_key", "") or ""
+            rows.append((kind, described, record))
+        return rows
+
+    def inspect_sequence_file(self, path: str):
+        """Read a sequence file for preview **only** — no variant is
+        created. The same persistence reader the committed batch uses,
+        so what the user confirms is exactly what would be created."""
+        from configbuilder.persistence import PersistenceError, read_sequence_file
+
+        try:
+            entries = read_sequence_file(path)
+        except PersistenceError as error:
+            return FilePreview(ok=False, message=str(error))
+        if not entries:
+            return FilePreview(
+                ok=False, message="the sequence file contains no sequences (only blank lines)"
+            )
+        return FilePreview(ok=True, entries=[text for _, text in entries])
 
     def generate_from_file(self, path: str) -> MutationOutput:
         """Batch-generate one independent variant per sequence in a file.

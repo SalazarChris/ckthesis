@@ -49,7 +49,7 @@ def build_services():
     """The standard wiring (the same shape the e2e tests use)."""
     projects = ProjectService()
     configuration = ConfigurationService(projects)
-    variants = VariantService(projects)
+    variants = VariantService(projects, configuration)
     validation = ValidationService(projects)
     generation = GenerationService(projects, validation, variants)
     return Services(projects, configuration, variants, validation, generation)

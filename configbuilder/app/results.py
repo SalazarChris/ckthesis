@@ -19,6 +19,7 @@ __all__ = [
     "FailureReason",
     "ConfigurationOutput",
     "ExpandOutput",
+    "FilePreview",
     "GenerationPlan",
     "LoadOutput",
     "MutationOutput",
@@ -142,6 +143,25 @@ class VariantValidationOutput:
 
     def __repr__(self) -> str:
         return "VariantValidationOutput(variants=%d)" % len(self.variant_reports)
+
+
+class FilePreview:
+    """A read-only look at a batch input file (no variants created).
+
+    ``entries`` carries the detected sequence texts in file order; the
+    committed batch re-reads the file through the same persistence
+    reader, so what is confirmed is exactly what would be created.
+    """
+
+    __slots__ = ("ok", "message", "entries")
+
+    def __init__(self, ok, message="", entries=()) -> None:
+        self.ok = bool(ok)
+        self.message = message or ""
+        self.entries = tuple(entries)
+
+    def __repr__(self) -> str:
+        return "FilePreview(ok=%r, entries=%d)" % (self.ok, len(self.entries))
 
 
 class ExpandOutput:
