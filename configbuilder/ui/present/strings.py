@@ -192,14 +192,21 @@ STRINGS = {
     "menu.specs_header": "Variants:",
     "menu.specs_none": "No variants defined yet.",
     "menu.variant_actions": (
-        "  1) Create variant\n"
-        "  2) Edit variant\n"
-        "  3) Duplicate variant\n"
-        "  4) Delete variant\n"
-        "  5) Preview variant\n"
-        "  6) Generate JSON preview\n"
-        "  7) Generate from sequence file"
+        "  1) Save / Generate Base JSON\n"
+        "  2) Create variant\n"
+        "  3) Manage variants\n"
+        "  4) Generate variants from sequence file"
     ),
+    "menu.manage_actions": (
+        "  1) Edit variant\n"
+        "  2) Duplicate variant\n"
+        "  3) Delete variant\n"
+        "  4) Preview variant\n"
+        "  5) Generate JSON for variant"
+    ),
+    "menu.base_confirm": "Generate base JSON",
+    "menu.base_generate": "Generate JSON",
+    "menu.base_back": "Back",
     # -- variants: the entry screen's job picture and numbered flows -------
     "menu.job_header": "Current job",
     "menu.job_version_line": "AF3 version: %s",

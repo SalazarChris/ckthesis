@@ -36,6 +36,7 @@ from __future__ import annotations
 import os
 
 from configbuilder.app.results import (
+    RESERVED_BASE_KEY,
     ConfigurationPlan,
     FailureReason,
     GenerationPlan,
@@ -353,6 +354,115 @@ class GenerationService:
         )
 
     # -- execution (§15: writes only) --------------------------------------------
+
+    def plan_base(
+        self,
+        output_root: str,
+        overwrite_policy=None,
+        path_policy=None,
+    ) -> GenerationPlan:
+        """The same generation pipeline for the base configuration itself.
+
+        The base job is a complete job: it is planned exactly like a
+        variant run — same validation gate, same transform, same naming
+        layout (``<project>__base``), same manifest, same planner —
+        under the reserved run key ``base``. No variant is expanded and
+        none is required: base generation is independent of variant
+        creation.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.NOT_OPEN,
+                message="no project is open",
+            )
+
+        # Step 1: validate the base. Stop on ERROR.
+        base_validation = self._validation.validate_base()
+        if not base_validation.ok:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.VALIDATION_BLOCKED,
+                message="the base configuration has blocking findings; generate cannot start",
+                findings=tuple(base_validation.report.findings),
+            )
+
+        settings = project.settings or OutputSettings()
+        overwrite = (
+            OverwritePolicy(settings.overwrite_policy)
+            if overwrite_policy is None
+            else overwrite_policy
+        )
+        path_choice = (
+            PathPolicy(settings.path_policy) if path_policy is None else path_policy
+        )
+        project_name = project.configuration.metadata.name
+        project_slug = slug_name(project_name)
+
+        # Steps 4–5: transform and encode the base's own wire document.
+        try:
+            result = to_wire(project.configuration)
+            document = with_wire_job_name(
+                result.document,
+                variant_directory_name(project_slug, RESERVED_BASE_KEY),
+            )
+            payload = encode(document)
+        except TransformError as error:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.TRANSFORM_FAILED,
+                message=str(error),
+            )
+
+        # Steps 6: the output plan — identical collision/overwrite/asset
+        # discipline as a variant run (one entry, no manifest: the
+        # manifest summarises a variant run and there is no variant).
+        planned = plan_output(
+            {RESERVED_BASE_KEY: payload},
+            output_root,
+            project_name,
+            overwrite_policy=overwrite,
+            path_policy=path_choice,
+            resources_by_variant={RESERVED_BASE_KEY: result.external_resources},
+            filesystem=self._filesystem,
+        )
+        if planned.conflicts:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.NO_PATH,
+                message="the plan has conflicts; nothing will be written",
+                conflicts=tuple(planned.conflicts),
+                warnings=tuple(planned.warnings),
+                output_root=output_root,
+                project_name=project_name,
+            )
+
+        entry = planned.entries[0] if planned.entries else None
+        entries = (
+            (
+                ConfigurationPlan(
+                    RESERVED_BASE_KEY,
+                    entry.path,
+                    entry.action,
+                    entry.payload_fingerprint,
+                ),
+            )
+            if entry is not None
+            else ()
+        )
+        # The review surface for execute(): what the user confirmed is
+        # exactly what execute() writes (the same discipline as plan()).
+        self._reviewed = planned
+        return GenerationPlan(
+            ok=True,
+            entries=entries,
+            conflicts=(),
+            warnings=tuple(planned.warnings),
+            format_version=result.version,
+            project_name=project_name,
+            output_root=output_root,
+        )
 
     def execute(self, generation_plan: GenerationPlan) -> PlanOutput:
         """Write what was reviewed. Nothing here re-derives content: the

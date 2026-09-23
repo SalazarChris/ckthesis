@@ -29,6 +29,15 @@ __all__ = [
 ]
 
 
+RESERVED_BASE_KEY = "base"
+"""The generation run's key for the base configuration itself.
+
+Base generation is a first-class operation — the base job is a complete
+job — so the base is planned like any other run entry, under a key no
+variant may take.
+"""
+
+
 class FailureReason:
     """Stable, matchable reasons a service operation returned no value.
 

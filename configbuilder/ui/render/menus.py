@@ -890,10 +890,9 @@ class MenuApp:
         return choice.label
 
     def _variants_menu(self) -> None:
-        """The variants section: the current job first, then the variant
-        list, then numbered actions. Every target — entity, variant,
-        change kind — is chosen from a rendered list; free text only for
-        genuinely free-form values (sequences, names, paths)."""
+        """The job-first variants section: the current job picture first,
+        base JSON as the primary action, variants as the optional,
+        explicitly-entered workflow beneath it."""
         while True:
             project = self._project()
             if project is None:
@@ -910,21 +909,87 @@ class MenuApp:
             if choice in ("0", "q", "back"):
                 return
             elif choice == "1":
-                self._create_variant()
+                self._generate_base_json()
             elif choice == "2":
-                self._edit_variant()
+                self._create_variant()
             elif choice == "3":
-                self._duplicate_variant()
+                self._manage_variants()
             elif choice == "4":
-                self._delete_variant()
-            elif choice == "5":
-                self._preview_variant()
-            elif choice == "6":
-                self._json_preview_variant()
-            elif choice == "7":
                 self._batch_from_file()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
+
+    def _manage_variants(self) -> None:
+        """Variant management, entered explicitly — CRUD and preview over
+        the variants that exist, never a gate in front of the base."""
+        while True:
+            project = self._project()
+            if project is None:
+                return
+            self._say(_banner(_text("menu.variants_title"), self._width))
+            self._say()
+            self._say_variant_list(project)
+            self._say()
+            self._say(_text("menu.manage_actions"))
+            self._say()
+            self._say(_text("menu.back"))
+            choice = self._select()
+            if choice in ("0", "q", "back"):
+                return
+            elif choice == "1":
+                self._edit_variant()
+            elif choice == "2":
+                self._duplicate_variant()
+            elif choice == "3":
+                self._delete_variant()
+            elif choice == "4":
+                self._preview_variant()
+            elif choice == "5":
+                self._json_preview_variant()
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
+
+    def _generate_base_json(self) -> None:
+        """Base JSON as a first-class action: validate → transform →
+        encode → plan → confirm → write, all through the generation
+        service (the same pipeline a variant run uses, with the base as
+        the run's only entry). The UI never serializes anything."""
+        from configbuilder.ui.present import format_findings
+
+        project = self._project()
+        if project is None:
+            return
+        generation_plan = self._services.generation.plan_base(self._output_dir)
+        if not generation_plan.ok:
+            self._plan_failure(generation_plan, format_findings)
+            return
+        self._say()
+        self._say(_text("menu.preview_name") % generation_plan.project_name)
+        self._say(_text("menu.preview_entities"))
+        for record in project.configuration.records:
+            self._say("  " + _entity_line(record))
+        self._say(_text("menu.preview_seeds") % (list(project.configuration.seeds.values),))
+        self._say(_text("menu.export_dir") % generation_plan.output_root)
+        for entry in generation_plan.entries:
+            self._say(_text("menu.export_action_line") % (entry.action, entry.path))
+        for warning in generation_plan.warnings:
+            self._say(_text("menu.export_warning") % warning)
+        entries = [
+            (_text("menu.base_generate"), True),
+            (_text("menu.base_back"), False),
+        ]
+        proceed = self._numbered_choice(_text("menu.base_confirm"), entries, back_note=False)
+        if not proceed:
+            return
+        result = self._services.generation.execute(generation_plan)
+        if result.ok:
+            for path in result.written:
+                self._say(_text("menu.export_written") % path)
+            for path in result.skipped:
+                self._say(_text("menu.export_skipped") % path)
+        else:
+            for error in result.errors:
+                self._say(_text("menu.not_applied") % error)
 
     def _say_job_picture(self, project) -> None:
         """The base job as the variants screen shows it: entities grouped
