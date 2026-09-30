@@ -6,7 +6,6 @@ from configbuilder.model import (
     Configuration,
     Explicit,
     FamilyARecord,
-    SearchAllowed,
 )
 from configbuilder.validation.catalogue import Rule
 from configbuilder.validation.report import FieldPath, Finding, Report

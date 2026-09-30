@@ -13,7 +13,7 @@ from configbuilder.model import (
     Pinned,
     Unverified,
 )
-from configbuilder.validation.catalogue import Rule, Severity
+from configbuilder.validation.catalogue import Rule
 from configbuilder.validation.report import FieldPath, Finding, Report
 
 

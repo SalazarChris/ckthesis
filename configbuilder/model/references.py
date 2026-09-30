@@ -27,7 +27,7 @@ class ReferenceRecord:
 
     __slots__ = ("_source", "_index_map")
 
-    def __init__(self, source: ResourceRef, index_map: Tuple[IndexPair, ...]) -> None:
+    def __init__(self, source, index_map: Tuple[IndexPair, ...]) -> None:
         if not isinstance(source, (Inline, External)):
             raise ReferenceError("source must be an Inline or External resource")
         if not isinstance(index_map, tuple):

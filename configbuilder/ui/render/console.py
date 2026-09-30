@@ -1,8 +1,8 @@
 """The console abstraction (plan §5.3 rule 9: only ``ui/render`` may
 read or write a stream).
 
-The plain renderer speaks to a ``Console``, never to ``sys`` directly,
-so scripted-stdin tests drive the whole workflow and snapshot the
+The menu speaks to a ``Console``, never to ``sys`` directly, so
+scripted-stdin tests drive the whole workflow and snapshot the
 transcript without a terminal (plan §18.8). Generated files are
 unaffected by any of this — their bytes are fixed by ``serialize``
 (plan §16.10).
@@ -20,7 +20,7 @@ __all__ = ["Console", "ScriptedConsole", "make_console"]
 
 class Console:
     """Real-stream console. The only class in the codebase that talks
-    to a terminal's stdin/stdout for the wizard."""
+    to a terminal's stdin/stdout."""
 
     def __init__(self, stdin=None, stdout=None) -> None:
         self.stdin = stdin if stdin is not None else sys.stdin
@@ -30,9 +30,9 @@ class Console:
         self.stdout.write(text + "\n")
 
     def ask(self, prompt_text: str, field=None) -> str:
-        """Field-aware ask: the plain console has no input extras, so
-        ``field`` (the asking ``FieldSpec``) is accepted and ignored —
-        the full-screen console completes on path fields."""
+        """Field-aware ask: this console has no input extras, so
+        ``field`` (the asking field, when there is one) is accepted and
+        ignored — path completion lives in the menu's own picker."""
         return self.prompt(prompt_text)
 
     def prompt(self, text: str) -> str:
@@ -63,7 +63,7 @@ class Console:
 
 class ScriptedConsole(Console):
     """A console fed by a script of input lines, capturing all output —
-    the §18.8 plain-line snapshot harness, no terminal needed.
+    the §18.8 snapshot harness, no terminal needed.
 
     The input side is a chunk queue, not a shared cursor: ``feed_multiline``
     appends a paste after the scripted lines, so a test can script the

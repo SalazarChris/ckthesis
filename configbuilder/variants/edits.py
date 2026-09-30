@@ -28,6 +28,7 @@ from configbuilder.model import (
     ComponentCode,
     ComponentRecord,
     Configuration,
+    duplex_partner,
     External,
     FamilyARecord,
     FamilyBRecord,
@@ -43,6 +44,7 @@ from configbuilder.model import (
     Inline,
     Linkage,
     ModificationRecord,
+    reverse_complement,
     Position,
     ReferenceSet,
     SeedSet,
@@ -513,8 +515,15 @@ def apply_edit(edit, configuration: Configuration) -> Configuration:
     if isinstance(edit, SetSequence):
         record = record_for_key(configuration, edit._record_key)
         _check_record_family("SetSequence", record, (FamilyARecord, FamilyBRecord, FamilyCRecord), "polymer record")
-        replacement = record.with_sequence(edit._text)
-        return _replace_record(configuration, record, replacement)
+        # The partner is read from the state *before* the edit: afterwards the
+        # strand no longer matches its own complement (DNA duplex feature).
+        partner = duplex_partner(configuration, record)
+        configuration = _replace_record(configuration, record, record.with_sequence(edit._text))
+        if partner is None:
+            return configuration
+        return _replace_record(
+            configuration, partner, partner.with_sequence(reverse_complement(edit._text))
+        )
 
     if isinstance(edit, AddModification):
         record = record_for_key(configuration, edit._record_key)
@@ -623,19 +632,26 @@ def apply_edit(edit, configuration: Configuration) -> Configuration:
 
     if isinstance(edit, RemoveRecord):
         record = record_for_key(configuration, edit._record_key)
+        # A DNA duplex is one user-level entity: removing either strand
+        # removes the pair, exactly as the base-edit path does (DNA duplex
+        # feature). A lone strand removes on its own.
+        partner = duplex_partner(configuration, record)
+        doomed = (record,) if partner is None else (record, partner)
         # Clone before mutate (plan §12.4): releasing in place would drain
         # the identifier out of the base and every sibling variant.
         registry = configuration.identity.clone()
-        registry.release_multiplicity(record.ids, missing_ok=True)
+        for target in doomed:
+            registry.release_multiplicity(target.ids, missing_ok=True)
         configuration = configuration.with_identity(registry)
-        records = tuple(r for r in configuration.records if r is not record)
+        records = tuple(r for r in configuration.records if r not in doomed)
         configuration = configuration.with_records(records)
-        # Linkages referencing the removed record must go: an endpoint that
+        # Linkages referencing a removed record must go: an endpoint that
         # no longer resolves would be a dangling reference.
+        gone = {entity for target in doomed for entity in target.ids}
         linkages = tuple(
             linkage
             for linkage in configuration.linkages
-            if linkage.a.entity in record.ids or linkage.b.entity in record.ids
+            if linkage.a.entity not in gone and linkage.b.entity not in gone
         )
         if len(linkages) != len(configuration.linkages):
             configuration = configuration.with_linkages(linkages)

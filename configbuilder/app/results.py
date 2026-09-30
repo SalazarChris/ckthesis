@@ -2,9 +2,8 @@
 
 ``app`` exposes the only API a front end needs, and every operation
 returns a result object: user-caused problems are findings, not
-exceptions. These types are plain data holders — the terminal wizard and
-any other front end read them; nothing here raises for conditions the
-user can fix.
+exceptions. These types are plain data holders — the menu reads them;
+nothing here raises for conditions the user can fix.
 
 The types are deliberately app-owned (plan §5.3 rule 6: ``ui`` imports
 ``app`` and ``model.traceability`` only, so layer types must not leak
@@ -13,7 +12,6 @@ into the result surface).
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
 
 __all__ = [
     "FailureReason",
@@ -24,7 +22,6 @@ __all__ = [
     "LoadOutput",
     "MutationOutput",
     "PlanOutput",
-    "SaveOutput",
     "VariantValidationOutput",
 ]
 
@@ -51,7 +48,6 @@ class FailureReason:
     EXPANSION_FAILED = "expansion_failed"
     TRANSFORM_FAILED = "transform_failed"
     EMPTY_EXPANSION = "empty_expansion"
-    SAVE_WITHOUT_PATH = "save_without_path"
     IO_ERROR = "io_error"
     CORRUPT_FILE = "corrupt_file"
     FUTURE_VERSION = "future_version"
@@ -84,21 +80,6 @@ class MutationOutput:
             self.failure_reason,
             self.message,
         )
-
-
-class SaveOutput:
-    """Outcome of ``ProjectService.save`` / ``save_as``."""
-
-    __slots__ = ("ok", "failure_reason", "message", "path")
-
-    def __init__(self, ok, failure_reason=None, message="", path=None) -> None:
-        self.ok = bool(ok)
-        self.failure_reason = failure_reason
-        self.message = message or ""
-        self.path = path
-
-    def __repr__(self) -> str:
-        return "SaveOutput(ok=%r, path=%r)" % (self.ok, self.path)
 
 
 class LoadOutput:

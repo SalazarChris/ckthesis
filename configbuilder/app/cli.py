@@ -3,9 +3,9 @@ packaging declared in ``pyproject.toml`` as ``configbuilder.app.cli:main``).
 
 This module is the **composition root** of the console application, not an
 application-domain module: it builds the standard service wiring once, hands
-it to the free-navigation builder (``ui.render.menus.MenuApp``), and returns
-the session status. The guided wizard stays reachable from the builder's
-menu (option 7) — nothing here duplicates either front end.
+it to the menu (``ui.render.menus.MenuApp``), and returns the session
+status. There is one front end: the menu's six goal-oriented actions
+(edit, review, variants, generate, open saved work, import).
 
 Importing ``ui`` from here is the single, designated exception to plan §5.3
 rule 6: an entry point is a composition root, not an ordinary ``app`` module.

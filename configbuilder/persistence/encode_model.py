@@ -15,7 +15,6 @@ Presence value, ``source``/``content`` for resource references.
 from __future__ import annotations
 
 from configbuilder.model import (
-    Explicit,
     fold_alignment,
     fold_presence,
     fold_reference_set,

@@ -21,16 +21,12 @@ from __future__ import annotations
 from configbuilder.identity import Multiplicity
 from configbuilder.model import (
     AlignmentError,
-    ByCode,
-    ByNotation,
     ComponentRecord,
     Configuration,
     External,
     FamilyARecord,
     FamilyBRecord,
-    FamilyCRecord,
     Inline,
-    ReferenceError,
     ExplicitEmpty,
     Present,
     Unset,

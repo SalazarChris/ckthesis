@@ -58,6 +58,7 @@ from configbuilder.output.naming import (
 )
 from configbuilder.output.plan import (
     OsFileView,
+    conflict_message,
     decide_action,
     fingerprint,
     resolve_resources_into,
@@ -457,13 +458,7 @@ class GenerationService:
         file_path, action, exists = decide_action(
             file_path, payload, overwrite, filesystem
         )
-        conflicts = (
-            (
-                "%s exists with different content and the overwrite policy is Fail" % file_path,
-            )
-            if action == "conflict"
-            else ()
-        )
+        conflicts = (conflict_message(file_path),) if action == "conflict" else ()
         if conflicts:
             return GenerationPlan(
                 ok=False,

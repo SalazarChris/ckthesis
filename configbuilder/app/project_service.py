@@ -1,5 +1,12 @@
 """Project lifecycle (IMPLEMENTATION_PLAN.md §15): ``new``, ``open``,
-``save``, ``save_as``, ``is_dirty``.
+``load_saved_work``, ``is_dirty``.
+
+The workflow is JSON-first: what the user saves is generated AF3 JSON, and
+the ``.cbproj`` working copy is this service's own autosave, never a
+user-facing save target. Project-file save/save-as and the output-policy
+setter were removed with that workflow (audit 2026-09-30); the internal
+working copy is written by ``_commit_project`` and restored by
+``load_saved_work``.
 
 Every operation returns a result object; user-caused problems are
 findings or failure reasons, never exceptions. Filesystem access rides
@@ -9,10 +16,9 @@ exclusively on ``persistence`` (plan §5.3 rule 8).
 from __future__ import annotations
 
 import os
-from typing import Optional
 
-from configbuilder.app.results import FailureReason, ImportPreview, LoadOutput, SaveOutput
-from configbuilder.output.naming import slug
+from configbuilder.app.results import FailureReason, ImportPreview, LoadOutput
+from configbuilder.model import ModelError
 from configbuilder.persistence import (
     FutureVersionError,
     OutputSettings,
@@ -35,6 +41,17 @@ kept out of the way in this internal directory under the current
 working directory.
 """
 
+WORKING_COPIES_KEPT = 50
+"""How many working copies the internal store keeps.
+
+The store is a *cache of recovery candidates*, not an archive: only
+this application's own autosave files live here (never a user's
+generated JSON, never an intentionally saved file), only the newest one
+is ever restored, and pruning on a new job keeps the store from growing
+without bound. Fifty sessions of slack is far more than the recovery
+offer needs.
+"""
+
 
 class ProjectService:
     """Owns the currently open project and its persistence.
@@ -52,6 +69,7 @@ class ProjectService:
         self._path = None  # type: Optional[str]
         self._dirty = False
         self._validate = validate
+        self._automatic_names = 0  # how many automatic job names this session minted
 
     # -- internal working copy ------------------------------------------------
 
@@ -79,8 +97,10 @@ class ProjectService:
         """Restore the most recent internal working copy, if any.
 
         Returns ``ok=False`` (``NO_SAVED_WORK``) when none exists — the
-        user simply starts a new job. The restored project becomes the
-        current one exactly as it was left.
+        user simply starts a new job — and also when the open job *is*
+        that copy, with a message saying so: silently re-opening what the
+        user is already editing looked like nothing happened. The restored
+        project becomes the current one exactly as it was left.
         """
         import glob as _glob
 
@@ -94,7 +114,51 @@ class ProjectService:
                 failure_reason=FailureReason.NO_SAVED_WORK,
                 message="there is no saved work to reopen",
             )
-        return self.open(candidates[-1])
+        newest = candidates[-1]
+        if self._project is not None and self._path == newest:
+            return LoadOutput(
+                ok=False,
+                failure_reason=FailureReason.NO_SAVED_WORK,
+                message=(
+                    "the current job is already the most recent working copy; "
+                    "it is kept up to date as you edit"
+                ),
+            )
+        return self.open(newest)
+
+    def _prune_working_copies(self) -> None:
+        """Bound the internal store to the newest ``WORKING_COPIES_KEPT``
+        working copies.
+
+        Called when a new job starts, so the store cannot grow without
+        bound across sessions. Only this application's own autosave files
+        are candidates (``*.cbproj`` in ``INTERNAL_PROJECTS_DIR``): a
+        failure to prune is ignored — recovery still works, the store is
+        just larger than intended.
+        """
+        root = os.path.join(os.getcwd(), INTERNAL_PROJECTS_DIR)
+        try:
+            names = [
+                name
+                for name in os.listdir(root)
+                if name.endswith(PROJECT_EXTENSION)
+            ]
+        except OSError:
+            return
+        if len(names) <= WORKING_COPIES_KEPT:
+            return
+        try:
+            names.sort(
+                key=lambda name: os.path.getmtime(os.path.join(root, name)),
+                reverse=True,
+            )
+        except OSError:
+            return
+        for name in names[WORKING_COPIES_KEPT:]:
+            try:
+                os.remove(os.path.join(root, name))
+            except OSError:
+                pass
 
     # -- state ---------------------------------------------------------------
 
@@ -118,25 +182,39 @@ class ProjectService:
 
     # -- operations (§15) ------------------------------------------------------
 
-    def new(self, name: str = "Untitled project") -> Project:
+    def new(self, name: str = None) -> Project:
         """Start a fresh project. Never fails: nothing exists to corrupt.
 
-        The format target pins a default version so an export never needs
-        a version/evidence ritual first; the job settings menu can change
-        the pin at any time. ``Auto`` stays the upgrade path: pinning
-        nothing keeps generation at the default, while a project that
-        pins no version explicitly (Unverified) still refuses to export —
-        that refusal is a statement, not a missing default."""
+        The job arrives with the standard defaults already applied (the
+        policy in ``app/status.py``): a job name when the caller supplies
+        one and an automatic ``config-NNN`` name otherwise, the project's
+        default seed set, and the default format-version pin — so an
+        export never needs a naming/seeding/version ritual first. Only the
+        entities are genuinely the user's to supply; nothing here invents
+        biological data. Every default stays editable: the job settings
+        menu can change the name, the seeds, and the pin at any time, and
+        ``Unverified`` remains the explicit refusal-to-pin state.
+        """
         from configbuilder.model import Configuration, ConfigurationMetadata, FormatTarget, SeedSet
         from configbuilder.model.configuration import Pinned
         from configbuilder.identity import IdentityRegistry
+        from configbuilder.app.status import (
+            DEFAULT_SEED_VALUES,
+            DEFAULT_VERSION,
+            default_job_name,
+        )
 
+        self._prune_working_copies()
+        job_name = (name or "").strip()
+        if not job_name:
+            self._automatic_names += 1
+            job_name = default_job_name(self._automatic_names)
         configuration = Configuration(
-            metadata=ConfigurationMetadata(name),
-            seeds=SeedSet([1]),
+            metadata=ConfigurationMetadata(job_name),
+            seeds=SeedSet(list(DEFAULT_SEED_VALUES)),
             records=(),
             identity=IdentityRegistry(),
-            format_target=FormatTarget(version_selection=Pinned(3)),
+            format_target=FormatTarget(version_selection=Pinned(DEFAULT_VERSION)),
         )
         self._project = Project(
             configuration=configuration,
@@ -218,9 +296,13 @@ class ProjectService:
             specs=(),
             settings=OutputSettings(),
         )
-        self._path = None  # the imported file is not a project file
+        # The imported file is not a project file, and the imported job is
+        # the current one from this moment on: commit it to the internal
+        # working copy immediately, so it survives a crash before the
+        # user's next edit (the same promise every other mutation keeps).
+        self._path = None
         self._dirty = True
-        self._path = self._internal_path()
+        self._commit_project()
         return LoadOutput(
             ok=True,
             project=self._project,
@@ -287,90 +369,6 @@ class ProjectService:
             upgraded_from=result.upgraded_from,
         )
 
-    def save(self) -> SaveOutput:
-        """Write to the project's current path (``FailureReason.SAVE_WITHOUT_PATH``
-        when none is set — use ``save_as`` or ``suggested_project_path``)."""
-        if self._project is None:
-            return SaveOutput(ok=False, failure_reason=FailureReason.NOT_OPEN, message="no project is open")
-        if self._path is None:
-            return SaveOutput(
-                ok=False,
-                failure_reason=FailureReason.SAVE_WITHOUT_PATH,
-                message="the project has no path yet; choose one with save_as",
-            )
-        return self.save_as(self._path)
-
-    def suggested_project_path(self) -> str:
-        """A concrete default save path for the UI's save prompt.
-
-        The project's current path when it has one ("blank keeps the
-        current one"); otherwise ``<cwd>/<project-name-slug>.cbproj`` —
-        the extension is the persistence layer's. An empty string when
-        there is no open project or the name admits no slug; the caller
-        then falls back to its existing behaviour (``save`` refuses, and
-        says so).
-        """
-        project = self._project
-        if project is None:
-            return ""
-        if self._path:
-            return self._path
-        try:
-            base = slug(project.configuration.metadata.name)
-        except NameError:
-            return ""
-        return os.path.join(os.getcwd(), base + PROJECT_EXTENSION)
-
-    def save_as(self, path: str) -> SaveOutput:
-        """Write to ``path`` and make it the project's path."""
-        if self._project is None:
-            return SaveOutput(ok=False, failure_reason=FailureReason.NOT_OPEN, message="no project is open")
-        try:
-            _save(self._project, path)
-        except OSError as error:
-            return SaveOutput(ok=False, failure_reason=FailureReason.IO_ERROR, message=str(error))
-        self._path = path
-        self._dirty = False
-        return SaveOutput(ok=True, path=path)
-
-    def set_output_policies(self, overwrite_policy=None, path_policy=None) -> SaveOutput:
-        """Set the output policies (plan §16.4: explicit path policy and
-        overwrite policy are advanced settings reachable from the wizard).
-
-        Arguments are the policy names as data ("Fail", "Skip",
-        "Overwrite", "Versioned"; "CopyIntoAssets", "RelativeToOutput",
-        "AsGiven"); unknown names are refused, never guessed."""
-        if self._project is None:
-            return SaveOutput(ok=False, failure_reason=FailureReason.NOT_OPEN, message="no project is open")
-        settings = self._project.settings
-        overwrite = overwrite_policy if overwrite_policy is not None else settings.overwrite_policy
-        path = path_policy if path_policy is not None else settings.path_policy
-        from configbuilder.output import OverwritePolicy, PathPolicy
-        from configbuilder.output.policies import OVERWRITE_POLICIES, PATH_POLICIES
-
-        # The policy sets are closed (plan §13.3, §13.5); unknown names
-        # are refused, never guessed.
-        if overwrite not in (p.name for p in OVERWRITE_POLICIES):
-            return SaveOutput(
-                ok=False,
-                failure_reason=FailureReason.NO_PATH,
-                message="unknown overwrite policy %r; use one of %s"
-                % (overwrite, ", ".join(p.name for p in OVERWRITE_POLICIES)),
-            )
-        if path not in (p.name for p in PATH_POLICIES):
-            return SaveOutput(
-                ok=False,
-                failure_reason=FailureReason.NO_PATH,
-                message="unknown path policy %r; use one of %s"
-                % (path, ", ".join(p.name for p in PATH_POLICIES)),
-            )
-        from configbuilder.persistence import OutputSettings
-
-        self._replace_project(
-            self._project.with_settings(OutputSettings(overwrite, path))
-        )
-        return SaveOutput(ok=True, path=self._path)
-
     # -- internal hooks used by the sibling services ---------------------------
 
     def _require_project(self):
@@ -392,13 +390,3 @@ class ProjectService:
             return None
         self._replace_project(project.with_specs(tuple(specs)))
         return project
-
-    def _settings(self):
-        project = self._require_project()
-        return project.settings if project is not None else None
-
-    def _with_settings(self, settings) -> None:
-        project = self._require_project()
-        if project is None:
-            return
-        self._replace_project(project.with_settings(settings))

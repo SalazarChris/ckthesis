@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from configbuilder.app.results import FailureReason, MutationOutput
 from configbuilder.identity import (
-    DuplicateIdError,
     EntityId,
     IdentityError,
     IdentityRegistry,
@@ -38,10 +37,9 @@ from configbuilder.model import (
     IndexPair,
     Inline,
     LinkEndpoint,
-    ModelError,
     Linkage,
-    ModificationRecord,
     ModelError,
+    ModificationRecord,
     PathSpec,
     Pinned,
     Position,
@@ -52,6 +50,8 @@ from configbuilder.model import (
     SingleAutomatic,
     SingleFree,
     SingleProvided,
+    duplex_partner,
+    reverse_complement,
 )
 
 __all__ = ["ConfigurationService", "ReferenceInput"]
@@ -60,7 +60,7 @@ _FAMILY_TYPES = (FamilyARecord, FamilyBRecord, FamilyCRecord, ComponentRecord)
 
 
 class ReferenceInput:
-    """One structural-template reference, as the wizard supplies it:
+    """One structural-template reference, as a front end supplies it:
     a source (inline text or an external path) and 0-based query/template
     index pairs."""
 
@@ -138,13 +138,22 @@ class ConfigurationService:
     # -- job details (§15 set_name; spec §15 job descriptions) -------------------
 
     def set_name(self, name: str) -> MutationOutput:
+        """Rename the job.
+
+        A blank name is a **user condition**, not a crash: the model refuses
+        an empty name, so the refusal is converted to a ``MutationOutput``
+        here — every service operation answers with a result object, and no
+        front end can die on a bare Enter (plan §15).
+        """
         configuration = self._configuration()
         if configuration is None:
             return self._not_open()
         metadata = configuration.metadata
-        return self._commit(
-            configuration.with_metadata(metadata.__class__(name, metadata.description))
-        )
+        try:
+            renamed = metadata.__class__(name, metadata.description)
+        except (ModelError, ValueError, TypeError) as error:
+            return self._refused("a job name cannot be empty — %s" % (error,))
+        return self._commit(configuration.with_metadata(renamed))
 
     def set_job_description(self, description) -> MutationOutput:
         """Set or clear the job-level description (spec §15 naming factor).
@@ -171,7 +180,7 @@ class ConfigurationService:
         configuration = self._configuration()
         if configuration is None:
             return self._not_open()
-        # A wizard field arrives as raw text ("1 2 3"); lists/tuples are
+        # A front-end field arrives as raw text ("1 2 3"); lists/tuples are
         # the programmatic form. Parse text here so the caller's answer
         # shape is the service's problem, not the user's (plan §16).
         if isinstance(seeds, str):
@@ -216,7 +225,7 @@ class ConfigurationService:
             return self._refused("unknown family %r; use protein, rna, dna, or ligand" % (family,))
         elif not sequence:
             return self._refused("a %s record needs a sequence" % family)
-        if isinstance(copies, str):  # a wizard field arrives as text
+        if isinstance(copies, str):  # a front-end field arrives as text
             try:
                 copies = int(copies.strip() or "1")
             except ValueError:
@@ -226,8 +235,8 @@ class ConfigurationService:
 
         if family == "dna" and copies != 1:
             return self._refused(
-                "a DNA record is a duplex: the complementary strand is constructed "
-                "automatically, so copies does not apply"
+            "a DNA record is a duplex: the complementary strand is constructed "
+            "automatically, so copies does not apply"
             )
         registry = configuration.identity.clone()
         records, failure = self._build_records(
@@ -332,7 +341,15 @@ class ConfigurationService:
 
     def update_record(self, record_key: str, sequence=None, description=None) -> MutationOutput:
         """Change a record's sequence and/or description, identified
-        through the registry — never list position."""
+        through the registry — never list position.
+
+        A DNA strand is one half of a duplex the service itself built, so
+        changing its sequence changes its partner's too: leaving the partner
+        behind produced a "duplex" whose strands were no longer
+        complementary, with nothing reporting it (DNA duplex feature). The
+        partner is found by ``duplex_partner``; a lone strand (an imported
+        single DNA chain) has none and is edited on its own.
+        """
         configuration = self._configuration()
         if configuration is None:
             return self._not_open()
@@ -343,6 +360,8 @@ class ConfigurationService:
         if record is None or not isinstance(record, _FAMILY_TYPES):
             return self._unknown_record(record_key)
         updated = record
+        partner = duplex_partner(configuration, record)
+        partner_update = None
         if sequence is not None:
             family = "protein"
             if isinstance(record, FamilyBRecord):
@@ -350,17 +369,43 @@ class ConfigurationService:
             elif isinstance(record, FamilyCRecord):
                 family = "dna"
             try:
-                updated = updated.with_sequence(SequenceText(sequence, family))
+                replacement = SequenceText(sequence, family)
+                updated = updated.with_sequence(replacement)
+                if partner is not None:
+                    partner_update = partner.with_sequence(reverse_complement(replacement))
             except ModelError as error:
                 return self._refused(str(error))
         if description is not None:
             updated = updated.with_description(self._presence(description))
-        records = tuple(updated if existing is record else existing for existing in configuration.records)
-        return self._commit(configuration.with_records(records))
+
+        def _replacement(existing):
+            if existing is record:
+                return updated
+            if partner_update is not None and existing is partner:
+                return partner_update
+            return existing
+
+        outcome = self._commit(
+            configuration.with_records(
+                tuple(_replacement(existing) for existing in configuration.records)
+            )
+        )
+        if outcome.ok and partner_update is not None:
+            return MutationOutput(
+                ok=True, message="both strands of the DNA duplex were updated"
+            )
+        return outcome
 
     def remove_record(self, record_key: str) -> MutationOutput:
         """Remove a record and release its identifiers (identity-owned,
-        plan §8.3). Linkages referencing the removed copies go with it."""
+        plan §8.3). Linkages referencing the removed copies go with it.
+
+        Removing one strand of a DNA duplex removes the duplex: the two
+        records are one biological entity the user added in one action, so
+        deleting half of it would leave a state no input path can produce
+        (DNA duplex feature). A lone strand — an imported single DNA chain —
+        is removed on its own.
+        """
         configuration = self._configuration()
         if configuration is None:
             return self._not_open()
@@ -370,9 +415,13 @@ class ConfigurationService:
         record = self._record_for(configuration, primary)
         if record is None:
             return self._unknown_record(record_key)
-        released = tuple(configuration.identity.multiplicity_of(primary))
+        partner = duplex_partner(configuration, record)
+        doomed = (record,) if partner is None else (record, partner)
+        released = []
+        for target in doomed:
+            released.extend(configuration.identity.multiplicity_of(target.ids.primary))
         released_values = {entity.value for entity in released}
-        records = tuple(r for r in configuration.records if r is not record)
+        records = tuple(r for r in configuration.records if r not in doomed)
         linkages = tuple(
             linkage
             for linkage in configuration.linkages
@@ -382,9 +431,14 @@ class ConfigurationService:
         registry = configuration.identity.clone()
         for entity in released:
             registry.release(entity)
-        return self._commit(
+        outcome = self._commit(
             configuration.with_records(records).with_linkages(linkages).with_identity(registry)
         )
+        if outcome.ok and partner is not None:
+            return MutationOutput(
+                ok=True, message="the DNA duplex and its partner strand were removed"
+            )
+        return outcome
 
     # -- modifications (§15 add_modification) --------------------------------------
 
@@ -618,7 +672,11 @@ class ConfigurationService:
                 "linkage index %r does not exist (%d linkages present)"
                 % (index, len(configuration.linkages))
             )
-        linkages = tuple(l for i, l in enumerate(configuration.linkages) if i != index)
+        linkages = tuple(
+            existing
+            for position, existing in enumerate(configuration.linkages)
+            if position != index
+        )
         return self._commit(configuration.with_linkages(linkages))
 
     # -- format target (§15 set_format_target) ----------------------------------------

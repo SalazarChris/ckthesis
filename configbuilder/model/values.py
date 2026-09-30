@@ -16,7 +16,6 @@ Each type exists so a contract distinction is unrepresentable to violate
 from __future__ import annotations
 
 import string
-from typing import Tuple
 
 from configbuilder.model.errors import ModelError
 

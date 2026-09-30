@@ -62,10 +62,3 @@ class EmissionRule(enum.Enum):
     #: One resource: the inline field or the path field is emitted, the
     #: sibling is omitted. Never both, never neither.
     INLINE_XOR_PATH = "INLINE_XOR_PATH"
-
-
-def empty_value_for(wire_field: str):
-    """The contract's empty value for a field's type (spec §6.2)."""
-    if wire_field in ("modifications", "templates", "bondedAtomPairs"):
-        return []
-    return ""

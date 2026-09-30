@@ -23,11 +23,7 @@ their skip condition there — base validation is not variant validation.
 from __future__ import annotations
 
 from configbuilder.model import (
-    ComponentRecord,
     Configuration,
-    FamilyARecord,
-    FamilyBRecord,
-    FamilyCRecord,
 )
 from configbuilder.validation.catalogue import Rule, Severity
 from configbuilder.validation.report import FieldPath, Finding, Report
@@ -72,7 +68,6 @@ def _attribute(factor, path):
     inside ``sequences[*].protein`` — while a seeds edit never covers a
     sequence difference.
     """
-    field = path[-1] if path else ""
     region = path[0] if path else ""
 
     root_field_factors = {

@@ -15,7 +15,7 @@ from configbuilder.app.results import (
     FilePreview,
     MutationOutput,
 )
-from configbuilder.identity import EntityId, IdentityRegistry
+from configbuilder.identity import EntityId
 from configbuilder.model import ModelError, SequenceText
 from configbuilder.model.records import (
     ComponentRecord,
@@ -142,7 +142,7 @@ class VariantService:
     def add_spec_from_factor(
         self, key: str, factor: str, value, label: str = "", record_key=None
     ) -> MutationOutput:
-        """The wizard's guided factor picker (plan §16.4): the user picks
+        """The guided factor picker (plan §16.4): the user picks
         a factor and supplies a value; the builder writes the edits.
 
         Factors are the declared-change vocabulary of spec §15
@@ -225,25 +225,6 @@ class VariantService:
         return MutationOutput(ok=True)
 
     # -- expansion (§15 preview / expand) ---------------------------------------------
-
-    def duplicate_with_edits(self, key: str, new_key: str, new_label: str = "", edits=()) -> MutationOutput:
-        """Duplicate an existing variant spec, optionally adding edits.
-
-        The copy inherits the source's label and edit list (the project
-        file's definition, §12.1) and then applies ``edits`` on top — the
-        WT → T101P workflow: duplicate the base-like variant, then give
-        the copy its distinguishing modification. Editing never touches
-        the source spec or the base configuration.
-        """
-        source = self._find(key)
-        if source is None:
-            return self._refuse("no variant keyed %r exists" % (key,))
-        inherited = tuple(source.edits) + tuple(edits or ())
-        return self.add_spec(
-            new_key,
-            new_label if new_label else source.label,
-            inherited,
-        )
 
     def preview(self, key: str):
         """Expand one spec against the open base without committing.
@@ -419,10 +400,6 @@ class VariantService:
             for record in project.configuration.records
         )
 
-    def record_sequence_choices(self) -> "tuple[VariantChoice, ...]":
-        """Polymer records as choice rows (remove-modification picker)."""
-        return self.all_entity_choices()
-
     def build_add_records(self, family: str, sequence: str, representation="", representation_kind=""):
         """The record(s) one add-entity edit adds: ``(records, None)`` or
         ``((), message)``.
@@ -580,8 +557,7 @@ class VariantService:
     @staticmethod
     def _alignment_case(value):
         from configbuilder.model import (
-    ComponentRecord,
-            AlignmentAutomatic,
+    AlignmentAutomatic,
             AlignmentBoth,
             AlignmentFree,
             AlignmentPairedOnly,
@@ -675,18 +651,6 @@ class VariantService:
                 record.ids.primary.value, "component",
                 record.ids.primary.value, len(record.ids.ids),
             )
-            for record in project.configuration.records
-            if isinstance(record, ComponentRecord)
-        )
-
-    def component_counts(self) -> "tuple[tuple[str, int], ...]":
-        """Every ligand record as ``(primary key, copy count)`` — the
-        preview's base-quantity rows, in the model's record order."""
-        project = self._projects._require_project()
-        if project is None:
-            return ()
-        return tuple(
-            (record.ids.primary.value, len(record.ids.ids))
             for record in project.configuration.records
             if isinstance(record, ComponentRecord)
         )

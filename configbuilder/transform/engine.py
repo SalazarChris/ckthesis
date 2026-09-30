@@ -15,21 +15,16 @@ from __future__ import annotations
 from typing import Tuple
 
 from configbuilder.model import (
-    Auto,
     ComponentRecord,
     Configuration,
     External,
     FamilyARecord,
     FamilyBRecord,
     FamilyCRecord,
-    Inline,
-    Pinned,
-    Unverified,
     fold_version_selection,
 )
 from configbuilder.transform.mappings import (
     DNA_FIELDS,
-    FAMILY_TABLES,
     LIGAND_FIELDS,
     PROTEIN_FIELDS,
     RNA_FIELDS,

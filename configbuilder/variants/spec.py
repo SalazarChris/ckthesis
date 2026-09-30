@@ -14,7 +14,6 @@ from configbuilder.variants.edits import (
     AddLinkage,
     AddModification,
     AddRecord,
-    EditError,
     RemoveLinkage,
     RemoveModification,
     RemoveRecord,

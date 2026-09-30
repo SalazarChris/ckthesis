@@ -31,8 +31,6 @@ def convert_identity_error(error: IdentityError):
     own rules; an unmappable error is re-raised — it is a programming
     error, not a user condition.
     """
-    from configbuilder.model import Unverified
-    from configbuilder.validation.report import Finding
 
     if isinstance(error, DuplicateIdError):
         rule = get_rule("R-ENT-002")
@@ -91,9 +89,7 @@ def _run_rule(rule: Rule, configuration: Configuration, report: Report, context:
     ``configbuilder.validation.rules.<family>_rules.check_<lowercase-id>``.
     R-ENT-002 is special-cased as the DuplicateIdError conversion point.
     """
-    from configbuilder.model import Unverified
     from configbuilder.validation import rules as rules_pkg
-    from configbuilder.validation.report import Finding
 
     family = {
         "R-ROOT": "root_rules",

@@ -3,7 +3,8 @@
 ``validate_base`` runs the full catalogue over the open configuration;
 ``validate_all`` additionally validates every expanded variant with the
 drift and identity-stability checks wired up (the comparison data join
-plan §9.6 requires); ``set_policy`` adjusts the adjustable severities.
+plan §9.6 requires); ``status`` exposes the one configuration-status view
+that every screen reads.
 """
 
 from __future__ import annotations
@@ -62,11 +63,30 @@ class ValidationService:
                 failure_reason=FailureReason.NOT_OPEN,
                 message="no project is open",
             )
-        report = self._projects._require_project() and None
         from configbuilder.validation import validate
 
         report = validate(configuration, self._context())
         return ConfigurationOutput(ok=not report.blocking(), report=report)
+
+    def status(self):
+        """The one configuration-status view over the open project.
+
+        Menu display, the review screen, save, and JSON generation all read
+        this (``app.status.build_status``): the field rows a user sees and
+        the catalogue's verdict travel together, so a front end cannot show
+        "ready" while generation refuses, nor refuse without saying which
+        information is missing. ``None`` when no project is open — there is
+        nothing to describe.
+        """
+        from configbuilder.app.status import build_status
+
+        configuration = self._configuration()
+        if configuration is None:
+            return None
+        outcome = self.validate_base()
+        if outcome.report is None:
+            return None
+        return build_status(configuration, outcome.report.blocking())
 
     def validate_all(self, only=None) -> VariantValidationOutput:
         """Validate the base and every expanded variant (§15 step 3).
@@ -136,8 +156,4 @@ class ValidationService:
             base_document,
         )
 
-    def set_policy(self, **policy) -> None:
-        """Adjust the adjustable severities (plan §9.4): ``run_preflight``
-        is the switch the catalogue documents."""
-        if "run_preflight" in policy:
-            self._run_preflight = bool(policy["run_preflight"])
+

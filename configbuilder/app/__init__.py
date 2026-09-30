@@ -18,7 +18,6 @@ from configbuilder.app.results import (
     GenerationPlan,
     LoadOutput,
     PlanOutput,
-    SaveOutput,
 )
 from configbuilder.app.validation_service import ValidationService
 from configbuilder.app.variant_service import VariantService
@@ -31,7 +30,6 @@ __all__ = [
     "LoadOutput",
     "PlanOutput",
     "ProjectService",
-    "SaveOutput",
     "ValidationService",
     "VariantService",
 ]

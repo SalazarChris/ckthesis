@@ -8,7 +8,7 @@ shallow by design (plan §9.2: "no reimplementation of external parsing").
 
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from typing import Protocol
 
 __all__ = ["ChemistryProbe", "FilesystemPort", "NullFilesystemPort", "NullChemistryProbe"]
 

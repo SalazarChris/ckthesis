@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
+
 from configbuilder.model import (
-    ByCode,
     ByNotation,
     ComponentRecord,
     Configuration,
@@ -46,6 +47,48 @@ def _records_by_id(configuration: Configuration):
     return result
 
 
+# The periodic table, in its standard capitalisation. A SMILES whose whole
+# text is one of these symbols denotes a single bare element, and a *charged*
+# or bracketed single-atom form denotes an ion — both are CCD-coded ligands in
+# this contract, never SMILES (spec §9, MAP-204).
+_ELEMENT_SYMBOLS = frozenset(
+    """
+    H He Li Be B C N O F Ne Na Mg Al Si P S Cl Ar K Ca Sc Ti V Cr Mn Fe Co
+    Ni Cu Zn Ga Ge As Se Br Kr Rb Sr Y Zr Nb Mo Tc Ru Rh Pd Ag Cd In Sn Sb
+    Te I Xe Cs Ba La Ce Pr Nd Pm Sm Eu Gd Tb Dy Ho Er Tm Yb Lu Hf Ta W Re
+    Os Ir Pt Au Hg Tl Pb Bi Po At Rn Fr Ra Ac Th Pa U Np Pu Am Cm Bk Cf Es
+    Fm Md No Lr Rf Db Sg Bh Hs Mt Ds Rg Cn Nh Fl Mc Lv Ts Og
+    """.split()
+)
+
+# A charge suffix in either written order: ``+2`` and ``2+`` are both seen.
+_CHARGE = r"(?:[+-]\d*|\d*[+-])"
+# A bracketed single atom: [Na+], [Mg+2], [Cl-], [Fe].
+_BRACKETED_ION = re.compile(r"^\[([A-Z][a-z]?)(?:%s)?\]$" % _CHARGE)
+# A bare charged atom: Na+, Cl-, Mg2+, Mg+2.
+_CHARGED_ATOM = re.compile(r"^([A-Z][a-z]?)(?:%s)$" % _CHARGE)
+# A bare two-letter element symbol: Na, Mg, Zn, Cl — never a molecule.
+_BARE_ELEMENT = re.compile(r"^([A-Z][a-z])$")
+
+
+def _bare_ion_symbol(notation: str):
+    """The element symbol when ``notation`` denotes a bare element or ion
+    (``Na``, ``Na+``, ``[Mg+2]``); ``None`` for anything else.
+
+    Only *unambiguous* notations count, so ordinary small molecules are never
+    reported as ions: the symbol must be a real element in its standard
+    capitalisation, and a single letter is left alone because ``C``/``N``/
+    ``O``… are plain SMILES atoms. ``CCO``, ``CO``, ``CC`` and ``CN`` are
+    small molecules, not ions, and are never flagged.
+    """
+    text = notation.strip()
+    for pattern in (_BRACKETED_ION, _CHARGED_ATOM, _BARE_ELEMENT):
+        match = pattern.match(text)
+        if match is not None and match.group(1) in _ELEMENT_SYMBOLS:
+            return match.group(1)
+    return None
+
+
 def check_r_bnd_001(configuration: Configuration, report: Report, rule: Rule) -> None:
     """Ions are ligands with a CCD code: the model has no ion entity type;
     every ion-as-ligand ComponentRecord must use ByCode (CCD), not SMILES."""
@@ -53,18 +96,17 @@ def check_r_bnd_001(configuration: Configuration, report: Report, rule: Rule) ->
         if isinstance(record, ComponentRecord) and isinstance(record.representation, ByNotation):
             key = _record_key(configuration, record)
             notation = record.representation.text
-            # Single-atom or simple ionic notations are the classic ion case;
-            # the contract says ions are CCD-coded ligands, so flag SMILES
-            # forms that look like bare ions.
-            stripped = notation.strip()
-            if stripped and all(ch.isalpha() for ch in stripped) and stripped.isupper() and len(stripped) <= 3:
+            symbol = _bare_ion_symbol(notation)
+            if symbol is not None:
                 _add(
                     report,
                     rule,
-                    "Ion %r is represented as a SMILES ligand; ions are CCD-coded ligands in this contract." % key,
-                    "SMILES %r looks like an element symbol" % stripped,
+                    "The ligand is written as the bare element or ion %r in SMILES form; "
+                    "ions are CCD-coded ligands in this contract." % notation.strip(),
+                    "SMILES %r names the single element %s" % (notation.strip(), symbol),
                     (FieldPath("ByNotation", key, "smiles"),),
-                    suggestion="Use the CCD component code for the ion instead, e.g. %r." % stripped.capitalize(),
+                    suggestion="Use the CCD component code for %s instead, e.g. %r."
+                    % (symbol, symbol.upper()),
                 )
 
 

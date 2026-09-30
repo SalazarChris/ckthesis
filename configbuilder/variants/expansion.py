@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import Tuple
 
 from configbuilder.variants.edits import EditError, apply_edit
-from configbuilder.variants.spec import Lineage, Variant, VariantSpec, VariantSpecError, declared_changes
+from configbuilder.variants.spec import Lineage, Variant, VariantSpec, VariantSpecError
 
 __all__ = ["Variant", "expand"]
 

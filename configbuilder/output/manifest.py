@@ -9,7 +9,6 @@ byte-identical manifests apart from ``run_info`` (plan §13.7, tested in
 
 from __future__ import annotations
 
-from typing import Tuple
 
 __all__ = ["MANIFEST_SCHEMA_VERSION", "ManifestData", "build_manifest", "run_info"]
 

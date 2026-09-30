@@ -55,6 +55,7 @@ from configbuilder.model.records import (
     ModificationRecord,
     Record,
     RecordError,
+    duplex_partner,
     fold_representation,
 )
 from configbuilder.model.references import (
@@ -108,7 +109,7 @@ __all__ = [
     "Record", "FamilyARecord", "FamilyBRecord", "FamilyCRecord",
     "ComponentRecord", "ModificationRecord", "ByCode", "ByNotation",
     "ComponentRepresentationError", "RecordError", "LinkEndpoint", "Linkage",
-    "fold_representation",
+    "duplex_partner", "fold_representation",
     # configuration
     "Configuration", "ConfigurationMetadata", "SeedSet", "FormatTarget",
     "Dialect", "Unverified", "Pinned", "Auto", "VersionSelection",

@@ -12,25 +12,16 @@ from __future__ import annotations
 
 from typing import Tuple
 
-from configbuilder.identity import EntityId, IdentityRegistry, Multiplicity
+from configbuilder.identity import IdentityRegistry
 from configbuilder.model.presence import is_presence, Present, Unset
-from configbuilder.model.alignment import (
-    AlignmentError,
-    AlignmentPairing,
-    SingleAlignment,
-)
 from configbuilder.model.errors import ModelError
 from configbuilder.model.records import (
-    ByCode,
-    ByNotation,
     ComponentRecord,
     FamilyARecord,
     FamilyBRecord,
     FamilyCRecord,
     Linkage,
-    RecordError,
 )
-from configbuilder.model.references import Explicit, ReferenceSet, SearchAllowed
 from configbuilder.model.values import External, Inline, Seed
 
 __all__ = [

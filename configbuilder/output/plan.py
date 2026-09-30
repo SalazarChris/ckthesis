@@ -27,7 +27,6 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-from typing import Tuple
 
 from configbuilder.output.naming import (
     NameError,
@@ -37,12 +36,23 @@ from configbuilder.output.naming import (
 )
 from configbuilder.output.policies import OverwritePolicy, PathPolicy
 
-__all__ = ["PlanEntry", "ResourceEntry", "OutputPlan", "FileView", "OsFileView", "fingerprint", "plan", "resolve_resources_into"]
+__all__ = ["PlanEntry", "ResourceEntry", "OutputPlan", "FileView", "OsFileView", "conflict_message", "fingerprint", "plan", "resolve_resources_into"]
 
 
 def fingerprint(data: bytes) -> str:
     """SHA-256 of a payload, hex — the plan's content address."""
     return hashlib.sha256(data).hexdigest()
+
+
+def conflict_message(path: str) -> str:
+    """The one wording for a refused write (policy ``Fail`` and the target
+    holds different bytes). It names the file and both ways out, so the
+    refusal is actionable where the user reads it, and both planning routes
+    (the base's own file and a variant run) say the same thing."""
+    return (
+        "%s already exists with different content; delete or rename that file, "
+        "or write the job to a different output folder" % path
+    )
 
 
 class PlanEntry:
@@ -127,16 +137,6 @@ class OsFileView(FileView):
     def read(self, path) -> bytes:
         with open(path, "rb") as handle:
             return handle.read()
-
-
-class _NoFilesystem(FileView):
-    """Answers as if the disk were empty (explicitly opt-in for tests)."""
-
-    def exists(self, path) -> bool:
-        return False
-
-    def read(self, path) -> bytes:
-        raise FileNotFoundError(str(path))
 
 
 def _forward_slashes(path: str) -> str:
@@ -352,9 +352,7 @@ def plan(
     if any(entry.action == "conflict" for entry in entries):
         for entry in entries:
             if entry.action == "conflict":
-                conflicts.append(
-                    "%s exists with different content and the overwrite policy is Fail" % entry.path
-                )
+                conflicts.append(conflict_message(entry.path))
 
     return OutputPlan(
         project_slug=project_slug,

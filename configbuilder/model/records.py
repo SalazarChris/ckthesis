@@ -27,11 +27,9 @@ from configbuilder.model.alignment import (
     SingleAutomatic,
 )
 from configbuilder.model.errors import ModelError
-from configbuilder.model.presence import ExplicitEmpty, Present, Unset, is_presence
+from configbuilder.model.presence import Unset, is_presence
 from configbuilder.model.references import (
     Explicit,
-    ReferenceRecord,
-    ReferenceSet,
     ReferenceError,
     SearchAllowed,
 )
@@ -51,6 +49,7 @@ __all__ = [
     "FamilyARecord",
     "FamilyBRecord",
     "FamilyCRecord",
+    "duplex_partner",
     "LinkEndpoint",
     "Linkage",
     "ModificationRecord",
@@ -557,6 +556,53 @@ class FamilyCRecord(_RecordBase):
             len(self._sequence),
             len(self._modifications),
         )
+
+
+def duplex_partner(configuration, record):
+    """The other strand of the DNA duplex ``record`` belongs to, or ``None``.
+
+    A DNA entry is committed as **two consecutive** DNA records — the given
+    strand and its reverse complement (DNA duplex feature), allocated back
+    to back. That construction is the only definition of a duplex the model
+    has, so the partner is read back from it: the adjacent record that is a
+    DNA strand *and* is exactly this record's reverse complement. Both
+    directions are checked, so either strand of the pair answers with the
+    other.
+
+    ``None`` means this record is a lone strand — an imported single DNA
+    chain, or a record that is not a DNA strand at all — and callers must
+    then change nothing else. Requiring the complement to match keeps two
+    independently entered DNA entries from being mistaken for a pair: adding
+    ``ATGC`` and later adding ``GCAT`` yields two separate duplexes, each
+    pairing only with the strand allocated beside it.
+
+    Duck-typed on purpose: a DNA strand is recognised by carrying a ``dna``
+    sequence, which keeps this a structural question rather than a
+    record-family dispatch (``tests/architecture/test_model_rules.py``).
+    """
+    sequence = getattr(record, "sequence", None)
+    if sequence is None or getattr(sequence, "family", None) != "dna":
+        return None
+    records = configuration.records
+    index = next(
+        (position for position, existing in enumerate(records) if existing is record),
+        None,
+    )
+    if index is None:
+        return None
+    expected = reverse_complement(sequence).text
+    for neighbour in (index + 1, index - 1):
+        if not 0 <= neighbour < len(records):
+            continue
+        candidate = records[neighbour]
+        if candidate is record:
+            continue
+        candidate_sequence = getattr(candidate, "sequence", None)
+        if candidate_sequence is None or getattr(candidate_sequence, "family", None) != "dna":
+            continue
+        if candidate_sequence.text == expected:
+            return candidate
+    return None
 
 
 class ComponentRecord(_RecordBase):

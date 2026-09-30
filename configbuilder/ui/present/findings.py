@@ -121,5 +121,5 @@ def _context_key(finding) -> str:
 
 def _fallback_context(finding) -> str:
     """A finding whose rule emitted no locator still needs a grouping
-    context; the header comes from the wizard string registry."""
+    context; the header comes from the string registry."""
     return general_finding_context()

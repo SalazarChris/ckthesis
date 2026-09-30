@@ -3,7 +3,7 @@
 A ``Finding`` is the only way a rule reports; rules never raise for a
 condition the *user* can fix — exceptions are reserved for programmer or
 environment errors. ``FieldPath`` is the canonical locator for everything
-the wizard can jump to (plan §11: "jump-to-field from every FieldPath
+a front end can jump to (plan §11: "jump-to-field from every FieldPath
 variant"), and it carries a traceability-registered type name so the UI can
 label the target without ever seeing a raw internal class name (plan §3.1).
 """
@@ -131,9 +131,6 @@ class Report:
 
     def warnings(self) -> tuple:
         return tuple(f for f in self._findings if f.severity is Severity.WARNING)
-
-    def infos(self) -> tuple:
-        return tuple(f for f in self._findings if f.severity is Severity.INFO)
 
     def blocking(self) -> tuple:
         """Findings that stop generation: every ERROR."""

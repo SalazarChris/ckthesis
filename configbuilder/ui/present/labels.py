@@ -69,7 +69,7 @@ def finding_context_label(field_path) -> str:
 
 
 # Severity is always a word AND a symbol (plan §16.6: meaning survives
-# without colour). The plain-line renderer prints both.
+# without colour). Both are printed on every finding card.
 SEVERITY_SYMBOLS = {"ERROR": "[x]", "WARNING": "[!]", "INFO": "[i]"}
 
 # The plan's exact card tokens: "ERROR  [x]", "WARNING [!]", "INFO [i]".
@@ -96,8 +96,8 @@ def finding_reference_label(number: int, severity, field_path) -> str:
 
 
 def action_description(description_key: str) -> str:
-    """An action's wording, from the wizard string registry (the
-    traceability registry is for domain *types*, not chrome)."""
+    """An action's wording, from the string registry (the traceability
+    registry is for domain *types*, not chrome)."""
     return _text(description_key)
 
 

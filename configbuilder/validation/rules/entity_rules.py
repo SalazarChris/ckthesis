@@ -8,7 +8,6 @@ R-ENT-001 re-affirms it structurally.
 
 from __future__ import annotations
 
-from configbuilder.identity import DuplicateIdError, EntityId, IdentityError, IdentityRegistry
 from configbuilder.model import (
     ByCode,
     ByNotation,
@@ -84,7 +83,7 @@ def check_r_ent_002(configuration: Configuration, report: Report, rule: Rule) ->
             else:
                 seen[entity_id.value] = record.ids
     # Also surface registry-level duplicate refusals that occurred during
-    # interactive construction (e.g. the wizard called assign() and was
+    # interactive construction (e.g. a front end called assign() and was
     # refused): they are converted at this boundary per plan §8.1.
     for value in sorted(getattr(registry, "_pending_duplicate_refusals", ())):
         _add(

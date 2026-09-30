@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import re
 
-from configbuilder.identity import IdentityRegistry
 from configbuilder.model import Configuration
 from configbuilder.validation.catalogue import Rule
 from configbuilder.validation.report import FieldPath, Finding, Report
