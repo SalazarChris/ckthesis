@@ -199,7 +199,11 @@ def _modifications_list(record):
 
 def _templates_field(record: FamilyARecord):
     """ReferenceSet -> omitted / list; index_map -> parallel arrays with the
-    stored 0-based values, never adjusted (MAP-703/704)."""
+    stored 0-based values, never adjusted (MAP-703/704). Both arrays are
+    always emitted, empty when the mapping has no pairs: the AlphaFold 3
+    parser indexes ``queryIndices`` directly, so a template entry without
+    the arrays is rejected (``KeyError``), while a pair of empty arrays is a
+    legitimate empty mapping."""
 
     def on_search_allowed():
         return OMITTED
@@ -215,9 +219,8 @@ def _templates_field(record: FamilyARecord):
                 return {"mmcifPath": path.raw}
 
             entry = fold_resource(item.source, on_inline, on_external)
-            if item.index_map:
-                entry["queryIndices"] = [pair.query for pair in item.index_map]
-                entry["templateIndices"] = [pair.template for pair in item.index_map]
+            entry["queryIndices"] = [pair.query for pair in item.index_map]
+            entry["templateIndices"] = [pair.template for pair in item.index_map]
             templates.append(entry)
         return templates
 

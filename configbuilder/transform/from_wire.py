@@ -349,9 +349,21 @@ def _import_entity(family: str, payload, where: str, notes):
             )
     id_texts = _id_texts(entity.get("id"), "%s id" % where)
 
+    # Read once, before the family dispatch: §4's ``description`` applies to
+    # protein, RNA, DNA *and* ligand entries, so every branch below must carry
+    # it through. Reading it after the ligand branch (as this did) silently
+    # dropped a ligand's description, and the DNA branch never passed it on.
+    description = _import_description(entity)
+
     if family == "ligand":
         representation = _import_ligand_representation(entity, where)
-        return [ComponentRecord(ids=Multiplicity(id_texts), representation=representation)]
+        return [
+            ComponentRecord(
+                ids=Multiplicity(id_texts),
+                representation=representation,
+                description=description,
+            )
+        ]
 
     sequence = entity.get("sequence")
     if not isinstance(sequence, str) or not sequence:
@@ -362,10 +374,16 @@ def _import_entity(family: str, payload, where: str, notes):
         _reject("%s: %s" % (where, error))
 
     modifications = _import_modifications(entity, where)
-    description = _import_description(entity)
 
     if family == "dna":
-        return [FamilyCRecord(ids=Multiplicity(id_texts), sequence=text, modifications=modifications)]
+        return [
+            FamilyCRecord(
+                ids=Multiplicity(id_texts),
+                sequence=text,
+                modifications=modifications,
+                description=description,
+            )
+        ]
 
     if family == "rna":
         return [

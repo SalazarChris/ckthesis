@@ -90,7 +90,6 @@ class GenerationService:
         # An ``output.FileView`` (read-only) for planning; ``None`` means
         # the real filesystem — exactly ``plan``'s own default.
         self._filesystem = filesystem
-        self._reviewed = None  # the OutputPlan behind the last successful plan()
 
     # -- the fixed sequence (§15) ------------------------------------------------
 
@@ -102,11 +101,23 @@ class GenerationService:
         would contain (plan §15's single-serialization discipline). No
         state changes. Returns ``(text, None)`` on success or
         ``(None, message)`` when nothing can be shown.
+
+        The base is gated by the *same* validation the export runs, so the
+        preview can never show a document that generation would refuse. An
+        ungated preview happily printed ``"sequences": []`` for a job with
+        no entities — syntactically valid JSON that standalone AF3 rejects
+        (BUG-003).
         """
         project = self._projects._require_project()
         if project is None:
             return None, "no project is open"
         if key is None:
+            base_validation = self._validation.validate_base()
+            if not base_validation.ok:
+                return None, (
+                    "the job is not ready to be written yet; "
+                    "see Review configuration for what is missing"
+                )
             selection = (("base", project.configuration),)
         else:
             previewed = self._variants.preview(key)
@@ -317,7 +328,6 @@ class GenerationService:
         )
         planned = _plan_with_manifest(planned, manifest_entry)
 
-        self._reviewed = planned
         if planned.conflicts:
             return GenerationPlan(
                 ok=False,
@@ -358,6 +368,7 @@ class GenerationService:
             format_version=max(format_versions.values()),
             project_name=project_name,
             output_root=output_root,
+            reviewed=planned,
         )
 
     # -- execution (§15: writes only) --------------------------------------------
@@ -472,7 +483,7 @@ class GenerationService:
 
         # The review surface for execute(): what the user confirmed is
         # exactly what execute() writes (the same discipline as plan()).
-        self._reviewed = OutputPlan(
+        reviewed = OutputPlan(
             project_slug=project_slug,
             output_root=output_root,
             overwrite_policy=overwrite,
@@ -489,7 +500,7 @@ class GenerationService:
                     BASE_PLAN_KEY,
                     file_path,
                     action,
-                    self._reviewed.entries[0].payload_fingerprint,
+                    reviewed.entries[0].payload_fingerprint,
                 ),
             ),
             conflicts=(),
@@ -497,24 +508,26 @@ class GenerationService:
             format_version=result.version,
             project_name=project_name,
             output_root=output_root,
+            reviewed=reviewed,
         )
 
     def execute(self, generation_plan: GenerationPlan) -> PlanOutput:
         """Write what was reviewed. Nothing here re-derives content: the
-        payloads live inside the plan ``plan()`` produced."""
+        payloads travel inside the plan object ``plan()`` returned, so
+        executing one plan can never write another one's bytes (BUG-011)."""
         if generation_plan is None or not generation_plan.ok:
             return PlanOutput(
                 ok=False,
                 failure_reason=FailureReason.NO_PATH,
                 message="execute needs a successful plan; run plan() first",
             )
-        if self._reviewed is None:
+        planned = generation_plan.reviewed
+        if planned is None:
             return PlanOutput(
                 ok=False,
                 failure_reason=FailureReason.NO_PATH,
                 message="no reviewed plan is held; run plan() first",
             )
-        planned = self._reviewed
         if planned.conflicts:
             return PlanOutput(
                 ok=False,

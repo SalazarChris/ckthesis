@@ -19,6 +19,7 @@ module only turns file bytes into numbered, cleaned lines.
 
 from __future__ import annotations
 
+import os
 from typing import Tuple
 
 from configbuilder.persistence.store import PersistenceError
@@ -48,6 +49,12 @@ def read_sequence_file(path: str) -> Tuple[Tuple[int, str], ...]:
     or non-UTF-8 file is a ``PersistenceError`` naming the cause — never
     a raw ``OSError`` leaking into the application layer.
     """
+    if os.path.isdir(path):
+        # A folder is an ordinary slip at the file picker — its listing
+        # shows directories too. Windows reports reading one as
+        # ``Permission denied``, which points the user at a permissions
+        # problem they do not have.
+        raise PersistenceError("that path is a directory, not a sequence file")
     try:
         with open(path, "r", encoding="utf-8") as handle:
             payload = handle.read()

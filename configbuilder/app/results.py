@@ -233,6 +233,7 @@ class GenerationPlan:
         "project_name",
         "output_root",
         "findings",
+        "reviewed",
     )
 
     def __init__(
@@ -248,6 +249,7 @@ class GenerationPlan:
         failure_reason=None,
         message="",
         findings=(),
+        reviewed=None,
     ) -> None:
         self.ok = bool(ok)
         self.entries = tuple(entries)
@@ -263,6 +265,11 @@ class GenerationPlan:
         # (VALIDATION_BLOCKED): the UI renders these instead of leaving the
         # user with a message that names no cause. Empty otherwise.
         self.findings = tuple(findings)
+        # The reviewed ``output.OutputPlan`` this result describes. It travels
+        # *inside* the result so ``execute`` writes the plan it was handed
+        # rather than whatever was planned last — a service-held "last plan"
+        # made two plans in a row ambiguous (BUG-011).
+        self.reviewed = reviewed
 
     def __repr__(self) -> str:
         return "GenerationPlan(ok=%r, entries=%d, conflicts=%d)" % (

@@ -11,6 +11,7 @@ from configbuilder.model import (
     FamilyARecord,
     FamilyBRecord,
     FamilyCRecord,
+    fold_representation,
 )
 from configbuilder.validation.catalogue import Rule
 from configbuilder.validation.report import FieldPath, Finding, Report
@@ -129,10 +130,28 @@ def check_r_bnd_002(configuration: Configuration, report: Report, rule: Rule) ->
                 )
 
 
+def _ligand_residue_count(representation) -> int:
+    """How many residues one ligand record stands for.
+
+    AF3 numbers a ligand's residues one per CCD code -- ``Ligand.__len__`` in
+    ``alphafold3.common.folding_input`` is ``len(ccd_ids)`` -- which is what
+    makes a multi-CCD glycan addressable. The official
+    ``examples/rnaseb_glycosylated.json`` bonds residues 1..5 of a five-code
+    ligand for exactly that reason. A SMILES ligand is a single residue (and
+    cannot be a bond endpoint at all -- R-BND-002).
+    """
+    return fold_representation(
+        representation,
+        on_code=lambda codes: len(codes),
+        on_notation=lambda _text: 1,
+    )
+
+
 def check_r_bnd_003(configuration: Configuration, report: Report, rule: Rule) -> None:
     """Bond endpoints resolve to entity/residue/atom triples: the entity ID
     must resolve through identity, the residue must be 1-based within the
-    target (for polymers: within sequence length; for ligands: residue 1)."""
+    target (for polymers: within sequence length; for ligands: within the
+    number of CCD components, which is 1 for a single-code ligand)."""
     registry = configuration.identity
     by_id = _records_by_id(configuration)
     for linkage in configuration.linkages:
@@ -159,14 +178,28 @@ def check_r_bnd_003(configuration: Configuration, report: Report, rule: Rule) ->
                         "endpoint residue %d out of range 1..%d" % (endpoint.residue.value, length),
                         (FieldPath("LinkEndpoint", endpoint.entity.value, "bond"),),
                     )
-            elif isinstance(record, ComponentRecord) and endpoint.residue.value != 1:
-                _add(
-                    report,
-                    rule,
-                    "A single-residue ligand uses residue 1 for a bond endpoint.",
-                    "endpoint on ligand %r uses residue %d" % (endpoint.entity.value, endpoint.residue.value),
-                    (FieldPath("LinkEndpoint", endpoint.entity.value, "bond"),),
-                )
+            elif isinstance(record, ComponentRecord):
+                count = _ligand_residue_count(record.representation)
+                if not (1 <= endpoint.residue.value <= count):
+                    if count == 1:
+                        _add(
+                            report,
+                            rule,
+                            "A single-residue ligand uses residue 1 for a bond endpoint.",
+                            "endpoint on ligand %r uses residue %d" % (endpoint.entity.value, endpoint.residue.value),
+                            (FieldPath("LinkEndpoint", endpoint.entity.value, "bond"),),
+                        )
+                    else:
+                        _add(
+                            report,
+                            rule,
+                            "Bond residue %d lies outside the %d-component ligand %r "
+                            "(residues are numbered 1..%d, one per CCD code)."
+                            % (endpoint.residue.value, count, endpoint.entity.value, count),
+                            "endpoint on multi-component ligand %r uses residue %d, expected 1..%d"
+                            % (endpoint.entity.value, endpoint.residue.value, count),
+                            (FieldPath("LinkEndpoint", endpoint.entity.value, "bond"),),
+                        )
 
 
 def check_r_bnd_004(configuration: Configuration, report: Report, rule: Rule) -> None:

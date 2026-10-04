@@ -74,10 +74,17 @@ input, and the deployment's wider comparison policy (ten seeds) is a
 project choice the user can opt into — never a requirement to get started.
 """
 
-DEFAULT_VERSION = 3
+DEFAULT_VERSION = 4
 """The format version a new job pins, so an export never needs a
 version/evidence ritual first (spec §18: the pin is an explicit choice, and
-this is the builder's documented starting choice)."""
+this is the builder's documented starting choice).
+
+Deliberately the *current* AlphaFold 3 input version: the reference
+implementation carries ``JSON_VERSIONS = (1, 2, 3, 4)`` and emits 4. Version
+4 is the one that covers every documented field, including the per-chain
+``description`` fields this builder can set (v2 added the external MSA and
+template file fields, v3 the external user-CCD field).
+"""
 
 
 def default_job_name(index: int) -> str:

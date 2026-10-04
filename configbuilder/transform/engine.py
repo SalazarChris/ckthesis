@@ -26,6 +26,7 @@ from configbuilder.model import (
 from configbuilder.transform.mappings import (
     DNA_FIELDS,
     LIGAND_FIELDS,
+    PATH_FEATURE_MIN_VERSIONS,
     PROTEIN_FIELDS,
     RNA_FIELDS,
     ROOT_FIELDS,
@@ -109,7 +110,13 @@ def _select_version(configuration: Configuration) -> int:
 
 
 def _used_features(configuration: Configuration) -> set:
-    """The wire features this configuration uses that have a minimum version."""
+    """The wire features this configuration uses that have a minimum version.
+
+    ``description`` is the v4 textual field; the external file fields
+    (``unpairedMsaPath``, ``pairedMsaPath``, ``mmcifPath``, ``userCCDPath``)
+    are the v2/v3 fields that point at a file rather than carrying text. The
+    minimum versions come from the mapping layer, never from here.
+    """
     features = set()
     for record in configuration.records:
         if not isinstance(record, (FamilyARecord, FamilyBRecord, FamilyCRecord, ComponentRecord)):
@@ -118,6 +125,10 @@ def _used_features(configuration: Configuration) -> set:
 
         if isinstance(record.description, Present):
             features.add(("description", DESCRIPTION_MIN_VERSION))
+    for requirement in _collect_external_resources(configuration):
+        min_version = PATH_FEATURE_MIN_VERSIONS.get(requirement.kind)
+        if min_version is not None:
+            features.add((requirement.kind, min_version))
     return features
 
 

@@ -279,6 +279,22 @@ class MenuApp:
     def _ask(self, prompt_key: str) -> str:
         return self._console.prompt(_text(prompt_key)).strip()
 
+    def _ask_whole_number(self, prompt_key: str):
+        """A positive whole number, asked in the user's own terms.
+
+        Returns the integer, or ``None`` when the user cancelled or typed
+        something that is not a positive whole number — in which case the
+        reason is said here, in registered wording, instead of a Python
+        ``int()`` message reaching the screen (BUG-002).
+        """
+        raw = self._ask(prompt_key)
+        if raw in ("", "0", "q", "back"):
+            return None
+        if raw.isdigit() and int(raw) >= 1:
+            return int(raw)
+        self._say(_text("menu.need_whole_number") % raw)
+        return None
+
     def _select(self) -> str:
         return self._console.prompt(_text("menu.select_prompt")).strip().lower()
 
@@ -399,7 +415,12 @@ class MenuApp:
                 self._say_status(status)
             self._say()
             self._say(_text("menu.variants") % len(project.specs))
-            self._say(_text("menu.work_held"))
+            # BUG-013: the hint must name the action by the label this very
+            # menu shows. "Open saved work" is the *start screen's* wording;
+            # here the action is option 6. Naming a label the user cannot see
+            # on this screen is how BUG-007 misled them in the first place.
+            self._say(_text("menu.work_held_master"))
+            self._say(_text("menu.save_job_summary"))
             self._say()
             self._say(_text("menu.master_actions"))
             self._say()
@@ -416,8 +437,10 @@ class MenuApp:
             elif choice == "4":
                 self._generate_menu()
             elif choice == "5":
-                self._load_project()
+                self._save_job()
             elif choice == "6":
+                self._load_project()
+            elif choice == "7":
                 self._import_json()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
@@ -441,6 +464,53 @@ class MenuApp:
         elif choice == "3":
             self._import_json()
         # anything else (blank, unknown, EOF) declines and lets the caller exit
+
+    def _save_job(self) -> None:
+        """Save the current job: write its AF3 JSON, and say where it went.
+
+        Until this existed, the only way to get a file out was the Generate
+        screen — so a user who finished a job had no labelled way to save it,
+        and the master menu's "working copy is kept automatically" line read
+        as "your file is already saved" (BUG-007). The write goes through the
+        *same* reviewed plan the Generate screen uses: validate, transform,
+        encode, plan, confirm, execute — one serialization path, and nothing
+        is written before the confirm.
+        """
+        from configbuilder.ui.present import format_findings
+
+        project = self._project()
+        if project is None:
+            return
+        generation_plan = self._services.generation.plan_base(self._output_dir)
+        if not generation_plan.ok:
+            if generation_plan.failure_reason == "validation_blocked":
+                self._say(_text("menu.save_job_blocked"))
+            self._plan_failure(generation_plan, format_findings)
+            return
+        self._say()
+        for entry in generation_plan.entries:
+            self._say(_text("menu.export_action_line") % (entry.action, entry.path))
+        for warning in generation_plan.warnings:
+            self._say(_text("menu.export_warning") % warning)
+        entries = [
+            (_text("menu.save_job_yes"), True),
+            (_text("menu.save_job_no"), False),
+        ]
+        proceed = self._numbered_choice(
+            _text("menu.save_job_confirm"), entries, back_note=False
+        )
+        if not proceed:
+            self._say(_text("menu.save_cancelled"))
+            return
+        result = self._services.generation.execute(generation_plan)
+        if result.ok:
+            for path in result.written:
+                self._say(_text("menu.save_job_wrote") % path)
+            for path in result.skipped:
+                self._say(_text("menu.export_skipped") % path)
+        else:
+            for error in result.errors:
+                self._say(_text("menu.not_applied") % error)
 
     def _import_json(self) -> None:
         """Load an existing AF3 JSON as the current job (§7 of the import
@@ -488,10 +558,9 @@ class MenuApp:
         self._say(_text("menu.import_loaded"))
 
     def _load_project(self) -> None:
-        """Open saved work: restore the most recent working copy — no file
-        listing, no path choice. When the open job *is* that copy, the
-        refusal says so instead of silently doing nothing. JSON files
-        enter through Import (option 6)."""
+        """Recover the most recent working copy — no file listing, no path
+        choice. When the open job *is* that copy, the refusal says so instead
+        of silently doing nothing. AF3 JSON files enter through Import."""
         result = self._services.projects.load_saved_work()
         if result.ok:
             name = result.project.configuration.metadata.name
@@ -655,7 +724,7 @@ class MenuApp:
                 return None
             if raw.strip().isdigit() and int(raw) >= 1:
                 return int(raw)
-            self._say(_text("menu.series_bad_value"))
+            self._say(_text("menu.quantity_bad_value"))
 
     def _ligand_kind(self):
         """The CCD-or-SMILES submenu. Returns "ccd", "smiles", or None
@@ -676,10 +745,18 @@ class MenuApp:
         if family == "ligand":
             kind = self._ligand_kind()
             if kind is None:
+                self._say(_text("menu.add_cancelled"))
                 return
             representation = self._ask("menu.add_ligand_value_prompt")
+            if not representation:
+                self._say(_text("menu.add_cancelled"))
+                return
             copies = self._ask_quantity()
             if copies is None:
+                # Cancelling a submenu is not a mistake, but it *is* the end
+                # of the add: saying so stops the user believing they went
+                # back one step when the entity was abandoned (BUG-005).
+                self._say(_text("menu.add_cancelled"))
                 return
             self._report(
                 self._services.configuration.add_record(
@@ -688,10 +765,12 @@ class MenuApp:
                 )
             )
             return
+        sequence = self._ask(prompts[family])
+        if not sequence:
+            self._say(_text("menu.add_cancelled"))
+            return
         if not self._report(
-            self._services.configuration.add_record(
-                family, self._ask(prompts[family])
-            )
+            self._services.configuration.add_record(family, sequence)
         ):
             return
         if family not in ("protein", "rna"):
@@ -957,17 +1036,29 @@ class MenuApp:
             self._say(_text("menu.linkage_removed"))
 
     def _add_linkage(self, configuration) -> None:
-        """Both endpoints chosen by number from the entity picker."""
+        """Both endpoints chosen by number from the entity picker. Residue
+        numbers go through the whole-number prompt, so a typo is answered in
+        the user's own terms rather than with a Python message (BUG-002)."""
         a_key = self._select_entity(title=_text("menu.link_first_entity"))
         if a_key is None:
             return
-        a_residue = self._ask("menu.ask_residue_a")
+        a_residue = self._ask_whole_number("menu.ask_residue_a")
+        if a_residue is None:
+            return
         a_atom = self._ask("menu.ask_atom_a")
+        if not a_atom:
+            self._say(_text("menu.link_cancelled"))
+            return
         b_key = self._select_entity(title=_text("menu.link_second_entity"))
         if b_key is None:
             return
-        b_residue = self._ask("menu.ask_residue_b")
+        b_residue = self._ask_whole_number("menu.ask_residue_b")
+        if b_residue is None:
+            return
         b_atom = self._ask("menu.ask_atom_b")
+        if not b_atom:
+            self._say(_text("menu.link_cancelled"))
+            return
         if self._report(
             configuration.add_linkage(a_key, a_residue, a_atom, b_key, b_residue, b_atom)
         ):
@@ -981,12 +1072,28 @@ class MenuApp:
             self._say(_text("menu.component_set"))
 
     def _add_modification(self, configuration) -> None:
-        """The carrier is chosen by number from the entity picker."""
-        record_key = self._select_entity(title=_text("menu.mod_target_entity"))
+        """The carrier is chosen by number from the polymer picker.
+
+        Only the families that *carry* modifications are offered. A ligand
+        used to be offered and then refused with a message about editing
+        ligands — the wrong subject, and a dead end the user had to guess
+        their way out of (BUG-006).
+        """
+        record_key = self._select_entity(
+            family=("protein", "rna", "dna"),
+            title=_text("menu.mod_target_entity"),
+            empty_note="menu.no_modification_target",
+        )
         if record_key is None:
             return
         code = self._ask("menu.ask_code")
-        position = self._ask("menu.ask_position")
+        if not code:
+            self._say(_text("menu.mod_cancelled"))
+            return
+        position = self._ask_whole_number("menu.ask_position")
+        if position is None:
+            self._say(_text("menu.mod_cancelled"))
+            return
         if self._report(configuration.add_modification(record_key, code, position)):
             self._say(_text("menu.modification_added"))
 
@@ -1190,13 +1297,21 @@ class MenuApp:
         if back_note:
             self._say()
             self._say(_text("menu.back"))
-        choice = self._select()
-        if choice in ("0", "q", "back", ""):
-            return None
-        if choice.isdigit() and 1 <= int(choice) <= len(entries):
-            return entries[int(choice) - 1][1]
-        self._say(_text("menu.invalid") % choice)
-        return self._numbered_choice(None, entries, back_note)  # re-ask
+        # Re-ask in a loop, never by recursing: an input stream that never
+        # produces a valid choice would otherwise grow the stack on every
+        # keystroke (BUG-009).
+        while True:
+            choice = self._select()
+            if choice in ("0", "q", "back", ""):
+                return None
+            if choice.isdigit() and 1 <= int(choice) <= len(entries):
+                return entries[int(choice) - 1][1]
+            self._say(_text("menu.invalid") % choice)
+            for index, (label, _) in enumerate(entries, start=1):
+                self._say(_text("menu.choice_line") % (index, label))
+            if back_note:
+                self._say()
+                self._say(_text("menu.back"))
 
     def _choice_menu(self, title, choices):
         """Numbered menu over ``VariantChoice`` rows → the payload value.
@@ -1490,12 +1605,22 @@ class MenuApp:
     def _select_entity(self, family=None, title=None, empty_note=None):
         """Numbered entity selection → the record key (or ``None``).
 
-        ``family`` restricts the picker to one family; without it every
-        record is offered. ``empty_note`` names the line to say when the
-        family has no record to offer — a setting that belongs to one
-        family should say why its picker is empty, not "add an entity".
+        ``family`` restricts the picker to one family, or to the families
+        in a tuple (a setting that lives on more than one family); without
+        it every record is offered. ``empty_note`` names the line to say
+        when the picker has nothing to offer — a setting that belongs to
+        some families should say why its picker is empty, not "add an
+        entity".
         """
-        if family:
+        if isinstance(family, tuple):
+            # The choice rows carry "entity" as their kind (they span every
+            # family), so the family comes from the record itself.
+            choices = tuple(
+                choice
+                for choice in self._services.variants.all_entity_choices()
+                if self._record_family(choice.value) in family
+            )
+        elif family:
             choices = self._services.variants.entity_choices(family)
         else:
             choices = self._services.variants.all_entity_choices()
@@ -1657,25 +1782,20 @@ class MenuApp:
         return True
 
     def _collect_alignment(self, key: str) -> bool:
-        """The variant's MSA change on one record. Protein only: the
-        variant vocabulary carries the protein alignment cases, and a
-        chain that cannot hold an alignment is never offered as its
-        target."""
+        """The variant's MSA change on one record. Protein or RNA — the
+        two chains that carry an alignment — and the mode menu, with its
+        source question, is the chosen family's own."""
         record_key = self._select_entity(
-            family="protein",
+            family=("protein", "rna"),
             title=_text("menu.select_entity"),
-            empty_note="menu.no_protein_target",
+            empty_note="menu.no_alignment_target",
         )
         if record_key is None:
             return False
-        entries = [
-            (_text("menu.msa_mode_auto"), "automatic"),
-            (_text("menu.msa_mode_unpaired"), "unpaired"),
-            (_text("menu.msa_mode_paired"), "paired"),
-            (_text("menu.msa_mode_both"), "both"),
-            (_text("menu.msa_mode_free"), "free"),
-        ]
-        mode = self._numbered_choice(_text("menu.msa_mode_menu"), entries)
+        family = self._record_family(record_key)
+        if family is None:
+            return False
+        mode = self._collect_msa_mode(family)
         if mode is None:
             return False
         source = None
@@ -1842,6 +1962,7 @@ class MenuApp:
         """Batch generation with a confirm step: pick the file, show what
         was detected (the parsed entries, before anything is created),
         then create — through the same all-or-nothing service call."""
+        self._say(_text("menu.batch_format"))
         path = self._pick_path("menu.ask_sequence_file")
         if not path:
             return
@@ -1906,16 +2027,18 @@ class MenuApp:
                 return
             elif choice == "1":
                 self._generate_base_json()
-            elif choice == "2" and has_variants:
+            elif choice in ("2", "3") and not has_variants:
+                # The row is on screen so the numbering never shifts; what it
+                # cannot do yet is said rather than silently missing (BUG-008).
+                self._say(_text("menu.generate_needs_variants"))
+            elif choice == "2":
                 self._export(None, format_findings)
-            elif choice == "3" and has_variants:
+            elif choice == "3":
                 keys = self._select_variants_multi()
                 if not keys:
                     continue  # cancelled or empty: nothing is generated
                 self._export(keys, format_findings)
-            elif choice == "4" and has_variants:
-                self._change_output_dir()
-            elif choice == "2" and not has_variants:
+            elif choice == "4":
                 self._change_output_dir()
             elif choice:
                 self._say(_text("menu.invalid") % choice)

@@ -484,15 +484,26 @@ class VariantService:
                 return self._refuse(str(error))
             return self._append_edit(key, edit)
         if kind == "alignment":
+            # The alignment case is the target's own: a protein carries the
+            # paired/unpaired cases (``SetAlignment``), an RNA the single one
+            # (``SetSingleAlignment``). Any other family has no MSA field in
+            # the input format at all.
             try:
-                alignment = self._alignment_case(value)
-            except ChoiceError as error:
-                return self._refuse(str(error))
-            try:
-                edit = self._edit_class("SetAlignment")(
-                    EntityId(record_key), alignment
-                )
-            except (EditError, ValueError, TypeError) as error:
+                family = self._family_of_key(project, record_key)
+                if family == "rna":
+                    edit = self._edit_class("SetSingleAlignment")(
+                        EntityId(record_key), self._single_alignment_case(value)
+                    )
+                elif family == "protein":
+                    edit = self._edit_class("SetAlignment")(
+                        EntityId(record_key), self._alignment_case(value)
+                    )
+                else:
+                    return self._refuse(
+                        "record %r is a %s chain; an alignment belongs to a "
+                        "protein or an RNA chain" % (record_key, family)
+                    )
+            except (EditError, ChoiceError, ValueError, TypeError) as error:
                 return self._refuse(str(error))
             return self._append_edit(key, edit)
         if kind == "references":
@@ -585,6 +596,31 @@ class VariantService:
         if mode == "both":
             return AlignmentBoth(payload)
         raise ChoiceError("unknown alignment mode %r" % (mode,))
+
+    @staticmethod
+    def _single_alignment_case(value):
+        """The RNA alignment case for the collected mode/source: automatic
+        (search), free (MSA-free), provided (a source is required)."""
+        from configbuilder.model import (
+            External,
+            Inline,
+            PathSpec,
+            SingleAutomatic,
+            SingleFree,
+            SingleProvided,
+        )
+
+        mode, source = value
+        if mode == "automatic":
+            return SingleAutomatic()
+        if mode == "free":
+            return SingleFree()
+        if source is None:
+            raise ChoiceError("mode %r carries an MSA source; none was given" % (mode,))
+        payload = Inline(source[1]) if source[0] == "inline" else External(PathSpec(source[1]))
+        if mode == "provided":
+            return SingleProvided(payload)
+        raise ChoiceError("unknown RNA alignment mode %r" % (mode,))
 
     @staticmethod
     def _reference_set_case(value):

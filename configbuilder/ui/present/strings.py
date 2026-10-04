@@ -47,6 +47,10 @@ STRINGS = {
     "menu.current": "Current job: %s",
     "menu.variants": "Variants: %d",
     "menu.work_held": "Working copy: kept automatically — re-open it any time with Open saved work",
+    "menu.work_held_master": (
+        "Working copy: kept automatically — restore it any time with "
+        "'Recover the last working copy'"
+    ),
     "menu.base_entities": "Base entities: %d",
     "menu.current_settings": "Current name: %s",
     "menu.current_version": "Version: %s",
@@ -65,6 +69,9 @@ STRINGS = {
     "menu.fail": "  FAIL %s",
     "menu.export_dir": "Output directory: %s",
     "menu.generate_title": "Generate JSON",
+    # One numbering, always: the same digit reaches the same action whether
+    # or not variants exist. The variant rows say what they need instead of
+    # disappearing and silently renumbering the rest (BUG-008).
     "menu.generate_actions": (
         "  1) Generate this job's JSON\n"
         "  2) Generate all variant JSONs\n"
@@ -73,7 +80,12 @@ STRINGS = {
     ),
     "menu.generate_actions_base": (
         "  1) Generate this job's JSON\n"
-        "  2) Change the output directory"
+        "  2) Generate all variant JSONs  (no variants defined yet)\n"
+        "  3) Select variant JSONs to generate  (no variants defined yet)\n"
+        "  4) Change the output directory"
+    ),
+    "menu.generate_needs_variants": (
+        "There are no variants to write yet — create one under Variants first."
     ),
     "menu.export_select_title": "Select variants to export",
     "menu.export_select_hint": "Type the numbers to export (e.g. 1 3), or 0 to cancel.",
@@ -144,10 +156,10 @@ STRINGS = {
     "menu.spec_entry": "  %d) %s — %s",
     "menu.spec_edits_line": "     %s",
     "menu.spec_add_record": "entity added",
-    "menu.change_name": "job name → %s",
+    "menu.change_name": "job name -> %s",
     "menu.change_description": "job description set",
     "menu.change_record_description": "record %s description set",
-    "menu.change_seeds": "model seeds → %s",
+    "menu.change_seeds": "model seeds -> %s",
     "menu.change_sequence": "sequence of %s",
     "menu.change_add_mod": "mod %s: %s @ %s",
     "menu.change_remove_mod": "modification #%d removed",
@@ -165,7 +177,8 @@ STRINGS = {
     "menu.delete_entity_title": "Select the entity to delete:",
     "menu.select_change": "What would you like to change?",
     "menu.entity_add_note": "Nothing to choose yet — add an entity first.",
-    "menu.no_protein_target": "No protein chain to change — alignments and templates live on one.",
+    "menu.no_protein_target": "No protein chain to change — templates live on one.",
+    "menu.no_alignment_target": "No protein or RNA chain to change — an alignment lives on one of those.",
     "menu.name_menu": "Naming:",
     "menu.name_custom": "Enter a custom name",
     "menu.name_auto": "Generate name automatically",
@@ -214,7 +227,19 @@ STRINGS = {
     "menu.batch_what_now": "What would you like to do?",
     "menu.batch_create_all": "Create a variant for each entry",
     "menu.batch_cancel": "Cancel",
-    "menu.ask_sequence_file": "Sequence file (one sequence per line): ",
+    # The accepted format is stated where the file is asked for: a beginner
+    # cannot guess that blank lines are ignored, that duplicates are refused,
+    # and that bad lines are reported by line number (BUG-012).
+    "menu.ask_sequence_file": (
+        "Sequence file (one protein sequence per line; blank lines are "
+        "ignored): "
+    ),
+    "menu.batch_format": (
+        "Format: one protein sequence per line using the standard one-letter "
+        "codes. Blank lines are ignored. Duplicate sequences and lines with "
+        "unsupported characters are reported with their line numbers, and "
+        "nothing is created unless every line is valid."
+    ),
     "menu.batch_done": "Batch applied: %s",
     "menu.msa_skip": "Skipped — edit the entity to set it later.",
     "menu.msa_skip_edit": "Skipped — the alignment is unchanged.",
@@ -279,6 +304,20 @@ STRINGS = {
     "menu.status_none": "none",
     "menu.status_ready": "  STATUS: READY",
     "menu.status_incomplete": "  STATUS: INCOMPLETE",
+    # -- what a cancelled submenu means, and how a bad number is answered --
+    # A cancellation is a legitimate ending, but it must be *said*: silently
+    # returning to a previous screen looks like the operation is still
+    # pending (BUG-005).
+    "menu.add_cancelled": "Cancelled — nothing was added.",
+    "menu.mod_cancelled": "Cancelled — nothing was added to this record.",
+    "menu.link_cancelled": "Cancelled — no bond was added.",
+    "menu.save_cancelled": "Cancelled — nothing was written.",
+    "menu.need_whole_number": "%r is not a whole number — enter digits only (for example 12).",
+    "menu.quantity_bad_value": "Enter a whole number of copies, at least 1.",
+    "menu.no_modification_target": (
+        "No protein, RNA, or DNA chain to modify yet — add one first "
+        "(ligands carry no modifications)."
+    ),
     "menu.incomplete_header": "Configuration is incomplete.",
     "menu.incomplete_missing": "Missing required information:",
     "menu.incomplete_row": "  %s — %s",
@@ -301,8 +340,9 @@ STRINGS = {
         "  2) Review configuration\n"
         "  3) Variants\n"
         "  4) Generate JSON\n"
-        "  5) Open saved work\n"
-        "  6) Import an AF3 JSON file"
+        "  5) Save the job (write its AF3 JSON)\n"
+        "  6) Recover the last working copy\n"
+        "  7) Import an AF3 JSON file"
     ),
     "menu.start_actions": (
         "  1) New job\n"
@@ -325,6 +365,13 @@ STRINGS = {
     "menu.mod_remove_entity": "Which entity holds the modification:",
     "menu.no_mods_on_record": "This record carries no modifications.",
     "menu.open_saved_loaded": "Recovered %s.",
+    "menu.ask_save_path": "Output directory for the JSON (blank = %s): ",
+    "menu.save_job_confirm": "Write this job's JSON?",
+    "menu.save_job_yes": "Write the JSON",
+    "menu.save_job_no": "Cancel",
+    "menu.save_job_blocked": "This job cannot be written yet:",
+    "menu.save_job_wrote": "Saved to %s",
+    "menu.save_job_summary": "Nothing is written to disk until you save or generate.",
     "menu.ask_import_path": "AF3 JSON file to import: ",
     "menu.builder_title": "Edit the job",
     "menu.builder_actions": (

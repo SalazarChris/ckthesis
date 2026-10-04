@@ -118,14 +118,25 @@ class ConfigurationService:
         return MutationOutput(ok=False, failure_reason=FailureReason.NO_PATH, message=message)
 
     def _record_for(self, configuration, primary: EntityId):
-        """The record whose primary identifier is ``primary``, or None."""
+        """The record that carries ``primary``, or None.
+
+        Resolution is by **membership**: the registry is the authority on
+        whether an identifier is assigned, and the record that carries it is
+        found by asking each record's own multiplicity. Comparing the
+        registry's multiplicity for ``primary`` against the record's
+        multiplicity looks equivalent but is not — a record holding several
+        copies (``['A', 'B', 'C']``) is indexed per identifier, so
+        ``multiplicity_of('A')`` answers with the singleton ``['A']`` and the
+        equality never held. Every record with more than one copy was then
+        invisible to ``update_record``, ``remove_record``, ``add_modification``
+        and the alignment/reference setters (BUG-004).
+        """
         try:
-            multiplicity = configuration.identity.multiplicity_of(primary)
+            configuration.identity.multiplicity_of(primary)
         except IdentityError:
             return None
-        wanted = tuple(entity.value for entity in multiplicity)
         for record in configuration.records:
-            if tuple(entity.value for entity in record.ids) == wanted:
+            if record.ids.contains(primary):
                 return record
         return None
 
@@ -319,25 +330,33 @@ class ConfigurationService:
                 return ByNotation(text)
             except ValueError as error:
                 return self._refused(str(error))
-        if kind == "ccd":
-            return self._ccds(text)
-        if " " in text or "," in text or ";" in text:
-            # Multi-code entry: every whitespace/comma-separated token is a CCD code.
-            try:
-                codes = tuple(ComponentCode(token) for token in text.replace(",", " ").split())
-            except ValueError as error:
-                return self._refused(str(error))
-            return ByCode(codes)
+        # ``ccd``, or no explicit kind: one or more CCD codes. Every token is
+        # a component of the same ligand -- the contract's multi-component
+        # representation (a glycan, an ion/water group) -- so both routes must
+        # read the text the same way.
         return self._ccds(text)
 
     def _ccds(self, text: str):
+        """One or more CCD component codes: whitespace, commas and semicolons
+        separate the components of a single ligand.
+
+        The ligand submenu promises "CCD code(s) - e.g. ATP, or several
+        separated by spaces", and the contract's multi-component ligand (a
+        glycan, an ion mix) depends on it. Treating the whole text as one code
+        made that promise false through the submenu's explicit CCD route: the
+        five-code glycan ``NAG NAG BMA MAN MAN`` became a single component of
+        that name, which no CCD contains.
+        """
+        tokens = text.replace(",", " ").replace(";", " ").split()
+        if not tokens:
+            return self._refused("a ligand representation cannot be empty")
         try:
-            code = ComponentCode(text)
+            codes = tuple(ComponentCode(token) for token in tokens)
         except ValueError:
             return self._refused(
                 "%r is not a CCD component code; choose SMILES in the submenu for notation input" % text
             )
-        return ByCode((code,))
+        return ByCode(codes)
 
     def update_record(self, record_key: str, sequence=None, description=None) -> MutationOutput:
         """Change a record's sequence and/or description, identified
@@ -419,7 +438,12 @@ class ConfigurationService:
         doomed = (record,) if partner is None else (record, partner)
         released = []
         for target in doomed:
-            released.extend(configuration.identity.multiplicity_of(target.ids.primary))
+            # Release the record's *own* multiplicity, not the registry's
+            # answer for its primary: a multi-copy record is indexed per
+            # identifier, so ``multiplicity_of(primary)`` returns the
+            # singleton and left the sibling copies reserved forever — the
+            # same root cause as BUG-004, on the release side.
+            released.extend(target.ids.ids)
         released_values = {entity.value for entity in released}
         records = tuple(r for r in configuration.records if r not in doomed)
         linkages = tuple(
@@ -454,7 +478,11 @@ class ConfigurationService:
             return self._unknown_record(record_key)
         try:
             modification = ModificationRecord(ComponentCode(code), Position(int(position)))
-        except (ValueError, TypeError) as error:
+        except (ModelError, ValueError, TypeError) as error:
+            # ``ModelError`` is the model's own base for a refused value
+            # (``ValueTypeError``); it does **not** derive from ``ValueError``,
+            # so catching only ``ValueError`` let a blank code escape as a
+            # traceback (BUG-001).
             return self._refused(str(error))
         updated = record.with_modifications(record.modifications + (modification,))
         records = tuple(updated if existing is record else existing for existing in configuration.records)
@@ -506,7 +534,9 @@ class ConfigurationService:
                 representation = ByNotation(notation)
             else:
                 return self._refused("a representation needs codes or a notation")
-        except (ValueError, TypeError) as error:
+        except (ModelError, ValueError, TypeError) as error:
+            # Same guard as ``add_modification``: an empty code raises the
+            # model's ``ValueTypeError``, which is not a ``ValueError`` (BUG-010).
             return self._refused(str(error))
         updated = record.with_representation(representation)
         records = tuple(updated if existing is record else existing for existing in configuration.records)
@@ -627,7 +657,7 @@ class ConfigurationService:
                 try:
                     pairs = tuple(IndexPair(int(q), int(t)) for q, t in entry.pairs)
                     built.append(ReferenceRecord(source, pairs))
-                except (ValueError, TypeError) as error:
+                except (ModelError, ValueError, TypeError) as error:
                     return self._refused(str(error))
             reference_set = Explicit(tuple(built))
         updated = record.with_references(reference_set)
@@ -659,7 +689,7 @@ class ConfigurationService:
             endpoint_a = LinkEndpoint(registry.resolve_strict(EntityId(a_key)), ResidueRef(int(a_residue)), a_atom)
             endpoint_b = LinkEndpoint(registry.resolve_strict(EntityId(b_key)), ResidueRef(int(b_residue)), b_atom)
             linkage = Linkage(endpoint_a, endpoint_b)
-        except (IdentityError, ValueError, TypeError) as error:
+        except (ModelError, IdentityError, ValueError, TypeError) as error:
             return MutationOutput(ok=False, failure_reason=FailureReason.UNKNOWN_RECORD, message=str(error))
         return self._commit(configuration.with_linkages(configuration.linkages + (linkage,)))
 

@@ -119,24 +119,51 @@ def execute(plan: OutputPlan) -> OutputResult:
     pre_existing = {path for path in directories_needed if os.path.isdir(path)}
     outcomes = []
     copied_resources = []
-    wrote_something = False
+    created = tuple(sorted(directories_needed - pre_existing))
+    target = None
+    creating = False
     try:
         for directory in sorted(directories_needed - pre_existing):
+            target = directory
+            creating = True
             os.makedirs(directory, exist_ok=True)
+        creating = False
         for entry in plan.entries:
             if entry.action == "skip":
                 outcomes.append(WriteOutcome(entry.path, "skip", False, 0))
                 continue
+            target = entry.path
             outcomes.append(WriteOutcome(entry.path, entry.action, True, _atomic_write(entry.path, entry.payload)))
-            wrote_something = True
         for resource in plan.resources:
             if resource.planned_path is None or not resource.copied:
                 continue
+            target = resource.planned_path
             _copy_atomic(resource.raw_path, resource.planned_path)
             copied_resources.append((resource.raw_path, resource.planned_path))
-    except Exception:
-        if not wrote_something:
-            raise  # nothing written; surface the infrastructure failure
-        raise  # per-file atomicity holds; plan-level rollback is the caller's review duty
-    created = tuple(sorted(directories_needed - pre_existing))
+    except OSError as error:
+        # A filesystem refusal is a user-caused condition like every other
+        # one this function reports: the destination may be a name the
+        # platform reserves (Windows devices such as ``nul``), a path whose
+        # parent is an existing *file*, or a directory the user cannot write.
+        # Raising sent a traceback to a beginner who had merely typed a name;
+        # the caller prints ``errors`` and can offer another path. Only
+        # ``OSError`` is caught -- a genuine defect in this code must still
+        # fail loudly. Per-file atomicity is unchanged: each file is its old
+        # content or its new content, never a partial write.
+        reason = error.strerror or error
+        if creating:
+            # Name what actually failed: the user typed an output directory
+            # whose parent is a file, or a name the platform reserves.
+            detail = "could not create the directory %r: %s" % (target, reason)
+            if os.path.isfile(plan.output_root):
+                detail += "; the output directory %r is a file" % plan.output_root
+        else:
+            detail = "could not write %r: %s" % (target, reason)
+        written = [outcome for outcome in outcomes if outcome.written]
+        if written:
+            # Only reachable when a later file fails after earlier ones were
+            # replaced (e.g. base written, then a variant's directory cannot
+            # be created). Say so rather than leaving the user to guess.
+            detail += "; %d file(s) already written were left in place" % len(written)
+        return OutputResult(outcomes, copied_resources, created, errors=(detail,))
     return OutputResult(outcomes, copied_resources, created)

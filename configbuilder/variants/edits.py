@@ -772,11 +772,12 @@ def describe_edit(edit) -> dict:
         if edit._definition is None:
             return {**base, "definition": None}
 
-        def on_inline(inline):
-            return {"form": "inline", "text": inline.text}
+        def on_inline(text):
+            return {"form": "inline", "text": text}
 
-        def on_external(external):
-            return {"form": "external", "path": external.path.raw}
+        # ``fold_resource`` hands the handler the PathSpec itself.
+        def on_external(path):
+            return {"form": "external", "path": path.raw}
 
         return {**base, "definition": fold_resource(edit._definition, on_inline, on_external)}
     if isinstance(edit, SetFormatTarget):
@@ -847,17 +848,18 @@ def _references(references):
         return {"form": "SearchAllowed"}
 
     def on_explicit(items):
-        records = []
-        for item in items:
-            records.append(
+        return {
+            "form": "Explicit",
+            "items": [
                 {
-                    "code": item.code.value,
-                    "chain": item.chain,
-                    "aligned": [list(pair) for pair in item.aligned],
                     "source": describe_edit._resource(item.source),
+                    "index_map": [
+                        [pair.query, pair.template] for pair in item.index_map
+                    ],
                 }
-            )
-        return {"form": "Explicit", "items": records}
+                for item in items
+            ],
+        }
 
     return fold_reference_set(references, on_allowed, on_explicit)
 
@@ -873,11 +875,12 @@ def _representation(representation):
 
 
 def _resource(source):
-    def on_inline(inline):
-        return {"form": "inline", "text": inline.text}
+    def on_inline(text):
+        return {"form": "inline", "text": text}
 
-    def on_external(external):
-        return {"form": "external", "path": external.path.raw}
+    # ``fold_resource`` hands the handler the PathSpec itself.
+    def on_external(path):
+        return {"form": "external", "path": path.raw}
 
     return fold_resource(source, on_inline, on_external)
 

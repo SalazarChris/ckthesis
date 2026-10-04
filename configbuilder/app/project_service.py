@@ -70,6 +70,11 @@ class ProjectService:
         self._dirty = False
         self._validate = validate
         self._automatic_names = 0  # how many automatic job names this session minted
+        # The parse result of the most recent successful preview, waiting to
+        # be confirmed: ``(path, configuration, notes)``. It is what the
+        # confirm installs, so the file cannot change under the user between
+        # the screen and the answer.
+        self._prepared_import = None
 
     # -- internal working copy ------------------------------------------------
 
@@ -228,38 +233,86 @@ class ProjectService:
 
     # -- AF3 JSON import (§7 of the import feature; the same canonical model) --
 
-    def import_json_preview(self, path: str) -> ImportPreview:
-        """Parse and validate an AF3 JSON file **without installing it**.
+    def _directory_refusal(self, path: str) -> str:
+        """The reason a directory cannot be imported, or ``""``.
 
-        Returns the summary rows and any ImportNotes for the confirm
-        screen; the current project is untouched whatever happens here.
+        Pointing the picker at a folder is an ordinary mistake — the file
+        listing shows directories too. Windows reports *reading* one as
+        ``Permission denied``, which sends the user looking for a
+        permissions problem they do not have; say what is actually wrong.
+        """
+        if os.path.isdir(path):
+            return "that path is a directory, not an AF3 JSON file"
+        return ""
+
+    def _prepare_import(self, path: str):
+        """Parse an AF3 JSON file for import.
+
+        Returns ``(configuration, notes, refusal)``: on success ``refusal``
+        is ``None``, and on any user-caused failure it is a
+        ``(FailureReason, message)`` pair instead of an exception. The
+        preview and a commit that has no preview to reuse both go through
+        this one function because they must parse *identically* — the two
+        copies had already drifted once, over what a directory path should
+        say (BUG-018).
         """
         from configbuilder.transform import WireImportError, from_wire
 
+        refusal = self._directory_refusal(path)
+        if refusal:
+            return None, (), (FailureReason.IO_ERROR, refusal)
         try:
             with open(path, "r", encoding="utf-8") as handle:
                 import json as _json
 
                 document = _json.load(handle)
         except OSError as error:
-            return ImportPreview(ok=False, failure_reason=FailureReason.IO_ERROR, message=str(error))
+            return None, (), (FailureReason.IO_ERROR, str(error))
         except ValueError as error:
-            return ImportPreview(
-                ok=False,
-                failure_reason=FailureReason.CORRUPT_FILE,
-                message="the file is not valid JSON: %s" % (error,),
+            return None, (), (
+                FailureReason.CORRUPT_FILE,
+                "the file is not valid JSON: %s" % (error,),
             )
         try:
             configuration, notes = from_wire(document)
         except WireImportError as error:
-            return ImportPreview(ok=False, failure_reason=FailureReason.CORRUPT_FILE, message=str(error))
+            return None, (), (FailureReason.CORRUPT_FILE, str(error))
         except (ModelError, ValueError, TypeError) as error:
-            return ImportPreview(ok=False, failure_reason=FailureReason.CORRUPT_FILE, message=str(error))
-        return ImportPreview(ok=True, summary=self._import_summary(configuration), notes=notes)
+            return None, (), (FailureReason.CORRUPT_FILE, str(error))
+        return configuration, notes, None
 
+    def import_json_preview(self, path: str) -> ImportPreview:
+        """Parse and validate an AF3 JSON file **without installing it**.
+
+        Returns the summary rows and any ImportNotes for the confirm
+        screen; the current project is untouched whatever happens here.
+
+        A successful preview is also kept as the *pending* import, so the
+        confirm that follows installs exactly the content this screen
+        described. A failed preview, or a preview of another path, replaces
+        or clears whatever was pending.
+        """
+        self._prepared_import = None
+        configuration, notes, refusal = self._prepare_import(path)
+        if refusal is not None:
+            return ImportPreview(
+                ok=False, failure_reason=refusal[0], message=refusal[1]
+            )
+        self._prepared_import = (path, configuration, notes)
+        return ImportPreview(
+            ok=True, summary=self._import_summary(configuration), notes=notes
+        )
 
     def import_json_commit(self, path: str) -> LoadOutput:
         """Install the previously previewed file as the current project.
+
+        What gets installed is the document that was **previewed**: the
+        parse result travels from ``import_json_preview`` as the pending
+        import, so what the confirm screen described is exactly what lands,
+        whatever happens to the file in between (these used to be two
+        independent reads of the file). The pending import is consumed — a
+        second commit, and any commit with no matching preview, reads and
+        parses the file itself, exactly as before.
 
         The file becomes the base configuration — a normal job, editable
         through every existing service, variant-able, and generatable;
@@ -267,27 +320,16 @@ class ProjectService:
         modified (the import output goes through the normal generation
         naming, which derives its own path from the project name).
         """
-        from configbuilder.transform import WireImportError, from_wire
-
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                import json as _json
-
-                document = _json.load(handle)
-        except OSError as error:
-            return LoadOutput(ok=False, failure_reason=FailureReason.IO_ERROR, message=str(error))
-        except ValueError as error:
-            return LoadOutput(
-                ok=False,
-                failure_reason=FailureReason.CORRUPT_FILE,
-                message="the file is not valid JSON: %s" % (error,),
-            )
-        try:
-            configuration, notes = from_wire(document)
-        except WireImportError as error:
-            return LoadOutput(ok=False, failure_reason=FailureReason.CORRUPT_FILE, message=str(error))
-        except (ModelError, ValueError, TypeError) as error:
-            return LoadOutput(ok=False, failure_reason=FailureReason.CORRUPT_FILE, message=str(error))
+        prepared = self._prepared_import
+        self._prepared_import = None
+        if prepared is not None and prepared[0] == path:
+            configuration, notes = prepared[1], prepared[2]
+        else:
+            configuration, notes, refusal = self._prepare_import(path)
+            if refusal is not None:
+                return LoadOutput(
+                    ok=False, failure_reason=refusal[0], message=refusal[1]
+                )
         report = None
         if self._validate is not None:
             report = self._validate(configuration)

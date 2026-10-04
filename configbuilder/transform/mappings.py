@@ -31,11 +31,32 @@ __all__ = [
     "DNA_FIELDS",
     "LIGAND_FIELDS",
     "DESCRIPTION_MIN_VERSION",
+    "MSA_PATH_MIN_VERSION",
+    "TEMPLATE_PATH_MIN_VERSION",
+    "USER_CCD_PATH_MIN_VERSION",
+    "PATH_FEATURE_MIN_VERSIONS",
 ]
+
+# Features added by later input versions (AlphaFold 3 docs/input.md,
+# "Versions"): v2 added the external MSA and template file fields, v3 the
+# external user-CCD field, v4 the textual description fields.
+MSA_PATH_MIN_VERSION = 2
+TEMPLATE_PATH_MIN_VERSION = 2
+USER_CCD_PATH_MIN_VERSION = 3
 
 # The description fields are confirmed in JSON v4 only (MAP-206, MAP-306,
 # MAP-356, MAP-404: "CONFIRMED in JSON v4").
 DESCRIPTION_MIN_VERSION = 4
+
+# Wire fields that point at an external file, and the input version that
+# introduced them. The engine derives the *used* features from the external
+# resource requirements, so these numbers live here once.
+PATH_FEATURE_MIN_VERSIONS = {
+    "unpairedMsaPath": MSA_PATH_MIN_VERSION,
+    "pairedMsaPath": MSA_PATH_MIN_VERSION,
+    "mmcifPath": TEMPLATE_PATH_MIN_VERSION,
+    "userCCDPath": USER_CCD_PATH_MIN_VERSION,
+}
 
 # (accessor-name, wire-field, mapping-id, emission-rule, min-version)
 #
@@ -56,7 +77,7 @@ ROOT_FIELDS: Tuple[Tuple[str, str, str, EmissionRule, int], ...] = (
     ("", "sequences", "MAP-103", EmissionRule.ALWAYS, 1),    ("dialect.value", "dialect", "MAP-107", EmissionRule.ALWAYS, 1),
     ("format_target.version", "version", "MAP-108", EmissionRule.ALWAYS, 1),
     ("component_definition.inline", "userCCD", "MAP-105", EmissionRule.INLINE_XOR_PATH, 1),
-    ("component_definition.path", "userCCDPath", "MAP-106", EmissionRule.INLINE_XOR_PATH, 1),
+    ("component_definition.path", "userCCDPath", "MAP-106", EmissionRule.INLINE_XOR_PATH, USER_CCD_PATH_MIN_VERSION),
     ("bond_pairs", "bondedAtomPairs", "MAP-104", EmissionRule.OMIT_IF_UNSET_ELSE_EMPTY, 1),
 )
 
@@ -78,7 +99,7 @@ PROTEIN_FIELDS: Tuple[Tuple[str, str, str, EmissionRule, int], ...] = (
         "unpairedMsaPath",
         "MAP-208",
         EmissionRule.OMIT_IF_UNSET_ELSE_EMPTY,
-        1,
+        MSA_PATH_MIN_VERSION,
     ),
     (
         "alignment.paired_msa",
@@ -92,7 +113,7 @@ PROTEIN_FIELDS: Tuple[Tuple[str, str, str, EmissionRule, int], ...] = (
         "pairedMsaPath",
         "MAP-210",
         EmissionRule.OMIT_IF_UNSET_ELSE_EMPTY,
-        1,
+        MSA_PATH_MIN_VERSION,
     ),
     ("templates", "templates", "MAP-211", EmissionRule.OMIT_IF_UNSET_ELSE_EMPTY, 1),
     (
@@ -122,7 +143,7 @@ RNA_FIELDS: Tuple[Tuple[str, str, str, EmissionRule, int], ...] = (
         "unpairedMsaPath",
         "MAP-308",
         EmissionRule.OMIT_IF_UNSET_ELSE_EMPTY,
-        1,
+        MSA_PATH_MIN_VERSION,
     ),
     (
         "description",
