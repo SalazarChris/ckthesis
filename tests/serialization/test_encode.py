@@ -53,7 +53,17 @@ def test_key_order_is_insertion_order_never_sorted():
     assert text.index('"version"') < text.index('"aaa"') < text.index('"zzz"')
 
 
-def test_encode_to_file_writes_exact_bytes(tmp_path):
+def test_encode_to_file_bytes_have_no_cr(tmp_path):
+    """``encode_to_file`` must write the same bytes ``encode`` returns.
+
+    This test previously carried the name
+    ``test_encode_to_file_writes_exact_bytes``, which collided with the later
+    definition of that name at the end of this module. Python keeps the last
+    definition, so pytest collected only one of them and this one never ran.
+    The name is now unique; the assertions are unchanged. The module-level
+    duplicate detector in ``tests/architecture/test_suite_integrity.py`` fails
+    the suite if a collision is ever reintroduced.
+    """
     target = tmp_path / "out.json"
     encode_to_file(_document(), target)
     raw = target.read_bytes()

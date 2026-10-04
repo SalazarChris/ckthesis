@@ -5,19 +5,59 @@ on:
     branches: [main]
   pull_request:
 
-# The repository ships the application source only (no tests, no docs): the
-# suite under tests/ is local development material (.gitignore). CI therefore
-# verifies what it *can* see: the package installs, imports, compiles on the
-# Python 3.9 baseline, both entry points start and end cleanly without a TTY,
-# and the full build pipeline runs end to end to a written AF3 JSON file.
+# The repository ships the application *and* its test suite: tests/, fixtures/,
+# docs/ and the AF3 validation tooling are version-controlled (see .gitignore,
+# which records what is deliberately excluded, and why).
+#
+# That distinction is not academic. An earlier revision of this file ran only
+# install + compile + import + a pipeline smoke on 3.9 and never executed the
+# suite. In that state the package passed CI on 3.9 while seven helpers in
+# configbuilder/variants/edits.py raised
+# "TypeError: 'staticmethod' object is not callable" on the very same
+# interpreter -- 30 tests failed locally that CI could not see. The `test` job
+# below exists so a version claim is backed by an actual run.
 jobs:
+  test:
+    name: suite (py${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        # 3.9 is the declared floor (requires-python = ">=3.9"); 3.11 is the
+        # development version. 3.12 extends coverage one release upward, on
+        # Linux only, to keep the matrix small.
+        python-version: ["3.9", "3.11"]
+        include:
+          - os: ubuntu-latest
+            python-version: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Assert the requested interpreter
+        run: python -c "import sys; print(sys.version); assert sys.version_info[:2] == tuple(map(int, '${{ matrix.python-version }}'.split('.'))), sys.version"
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      # -o addopts="" clears the project's `addopts = "-q"` so the summary line
+      # is printed. The exit status is identical either way.
+      - name: Full test suite
+        run: python -m pytest -o addopts="" -q
+
   smoke:
+    # Kept from the previous revision: proves the *installed* package (not the
+    # source tree) imports, compiles, starts both entry points without a TTY and
+    # builds one AF3 JSON end to end.
+    name: smoke (py${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.9"]
-    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -39,7 +79,7 @@ jobs:
         run: |
           python -c "import subprocess, sys; raise SystemExit(subprocess.call([sys.executable, '-m', 'configbuilder'], stdin=subprocess.DEVNULL))"
           python -c "import subprocess, sys; raise SystemExit(subprocess.call(['configbuilder'], stdin=subprocess.DEVNULL))"
-      - name: Pipeline smoke — build and write one AF3 JSON
+      - name: Pipeline smoke - build and write one AF3 JSON
         shell: python
         run: |
           import json, os, pathlib, tempfile
@@ -73,4 +113,9 @@ jobs:
       # The shipped source predates `ruff`'s default rule set (it produces
       # hundreds of pre-existing findings), so the gate is the correctness
       # subset: unused/undefined names, syntax errors, ambiguous names.
+      #
+      # Scope is `configbuilder` only, deliberately: the same subset over
+      # `tests/` reports about 60 pre-existing findings (unused imports in
+      # helpers), which is test hygiene rather than shipped-code correctness.
+      # Widening it is a separate, reviewable change.
       - run: ruff check --select E4,E7,E9,F configbuilder
