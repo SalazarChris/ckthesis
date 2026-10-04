@@ -37,15 +37,16 @@ Thumbs.db
 # Root-anchored: nothing under tests/fixtures/ is affected by this rule.
 /testdata/
 
-# The five planning/specification documents below describe how the project was
-# built rather than what it ships, and `configbuilder/` already carries the
-# traceability they provide (rule `spec_ref`s, `MAP-###` cross-references, plan
-# section citations). They remain on disk and untracked by decision, not by
-# accident. They used to be excluded by a broad `docs/` rule that also excluded
-# the two documents the code and tests *do* cite — see the note below.
+# The three planning documents below describe how the project was built rather
+# than what it ships, and they are read by nothing — no test, fixture or runtime
+# module. They stay on disk and untracked by decision, not by accident.
+#
+# `AUTHORITATIVE_SPEC.md` and `DOMAIN_MAPPING.md` are deliberately NOT here:
+# `tests/contract/test_catalogue_traceability.py` reads both files and fails
+# collection without them, so a clone that omitted them could not run the suite
+# at all. They are the contract this builder's rule catalogue is transcribed
+# from, i.e. test input, not commentary.
 IMPLEMENTATION_PLAN.md
-AUTHORITATIVE_SPEC.md
-DOMAIN_MAPPING.md
 HANDOFF.md
 CHECKLIST.md
 
@@ -53,12 +54,14 @@ CHECKLIST.md
 # Version-controlled project material (deliberately NOT ignored).
 #
 # `tests/`, `fixtures/` and `docs/` were excluded wholesale by earlier rules,
-# which left the 896-test suite, its fixtures and the contract-pin document
+# which left the whole suite, its fixtures and the contract-pin document
 # untracked: `git ls-files tests` returned 0 files, so no clone could reproduce
-# the audit's "895 passed, 1 skipped". They are tracked now.
+# the audit's test result. They are tracked now.
 #
-#   tests/     the suite, including tests/fixtures/af3_pipeline/ (checked in)
-#   fixtures/  golden recipes, compatibility .cbproj files, fixture builder
-#   docs/      CONTRACT_PIN.md (cited by tests) and PROJECT_AUDIT.md
+#   tests/                   the suite, including tests/fixtures/af3_pipeline/
+#   fixtures/                golden recipes, compatibility .cbproj files, builder
+#   docs/                    CONTRACT_PIN.md (cited by tests), PROJECT_AUDIT.md
+#   AUTHORITATIVE_SPEC.md    read by tests/contract/test_catalogue_traceability
+#   DOMAIN_MAPPING.md        read by tests/contract/test_catalogue_traceability
 #
 # `__pycache__/` above still excludes compiled test bytecode.
