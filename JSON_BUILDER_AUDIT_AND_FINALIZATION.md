@@ -1192,10 +1192,9 @@ time, so two runs racing between plan and write are not guarded.
 
 ## G. Release Readiness and Reproducibility (2026-10-04, later pass)
 
-> **Contents.** The subsections below are numbered F.13.1-F.13.10 for
-> historical continuity with the numbered changes in F.13.1; they belong to this
-> section. G.2 and G.3 carry the Python 3.9 defects and the final figures, and
-> supersede every earlier number in F and in F.13.
+> **Contents.** Subsections are numbered F.13.1-F.13.10 for historical continuity
+> with the numbered change table in F.13.1; they belong to this section. G.2 and
+> G.3 carry the Python 3.9 defects and the final figures.
 
 > **This section supersedes every numeric claim above that it contradicts.** It
 > was written after the workspace was actually put under version control, a fresh
