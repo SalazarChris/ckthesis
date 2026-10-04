@@ -833,7 +833,7 @@ Note on the command: `pyproject.toml` sets `addopts = "-q"`, so typing
 
 > **Corrected by §G.** The `895 passed` figure above is stale. Now that `tests/`
 > is under version control the count is reconcilable, and the actual result is
-> **917 passed, 1 skipped, exit 0** (918 collected). Two regression tests were
+> **921 passed, 1 skipped, exit 0** (922 collected). Two regression tests were
 > added later, and §G.13.3 records the reconciliation against the 895 figure as
 > it stood before them.
 
@@ -995,7 +995,7 @@ afterwards; the first thirteen were found by the code-and-menu audit.
 ### F.7 Known limitations
 
 > **Two items below were closed by §G and are kept as the state at the time.**
-> Python 3.9 *has* since been executed: **917 passed, 1 skipped on 3.9.25**,
+> Python 3.9 *has* since been executed: **921 passed, 1 skipped on 3.9.25**,
 > but only after two real 3.9 defects were fixed (§G.2)
 > (§G.13.6). And `tests/`, `fixtures/`, `docs/` are no longer git-ignored
 > (§G.13.1, §G.13.4), so a clone now carries the suite. The "no AF3 run"
@@ -1194,7 +1194,8 @@ time, so two runs racing between plan and write are not guarded.
 
 > **Contents.** Subsections are numbered F.13.1-F.13.10 for historical continuity
 > with the numbered change table in F.13.1; they belong to this section. G.2 and
-> G.3 carry the Python 3.9 defects and the final figures.
+> G.3 carry the Python 3.9 defects and the figures as they stood then; G.4 adds a
+> shadowed test and the CI gap, and G.5 carries the final counts.
 
 > **This section supersedes every numeric claim above that it contradicts.** It
 > was written after the workspace was actually put under version control, a fresh
@@ -1223,6 +1224,8 @@ downloaded with `uv` for the compatibility run.
 | 7 | Added `.gitattributes` pinning LF for the two byte-compared fixture trees (`2e348af`) | A third fresh clone failed three golden tests: `core.autocrlf=true` (system default here) rewrote every LF fixture to CRLF, so the committed bytes could not equal the encoder's. Detail in §F.13.1.1. |
 | 8 | Dropped the `staticmethod` wrapper on `describe_edit`'s seven attached helpers (`23df6c4`) | **DEFECT-PY39-1.** `staticmethod` objects are not callable before Python 3.10, so on the declared floor (3.9) 29 tests failed and variant alignment/template/description edits could not round-trip. Found by running 3.9 for the first time. §G.2.1. |
 | 9 | Replaced `Path.glob("*/")` with `iterdir()` + `is_dir()` in the golden provenance guard; added three regression tests (`23df6c4`) | **DEFECT-PY39-2.** On 3.9 that glob also yields plain files, so `external/.gitkeep` was reported as a fixture with no `provenance.json`. §G.2.2. |
+| 10 | Renamed a shadowed test in `tests/serialization/test_encode.py` and added `tests/architecture/test_suite_integrity.py` (`4e755d7`) | **DEFECT-SUITE-1.** Two module-level functions shared the name `test_encode_to_file_writes_exact_bytes`, so one body never ran. §G.4.1. |
+| 11 | Added a `test` job running the full suite to `.github/workflows/ci.yml` (`4e755d7`) | **DEFECT-CI-1.** CI asserted Python 3.9 compliance without ever running the suite, which is why DEFECT-PY39-1 passed there. §G.4.2. |
 
 Three of these changes are code or test **edits**, not tracking decisions: items 7,
 8 and 9. Items 1-6 are Git and documentation housekeeping. No change was made to
@@ -1339,7 +1342,7 @@ $ python -m pytest -o addopts="" --collect-only -q
 === EXIT: 0 ===
 ```
 
-The suite is **915 collected: 914 passed, 1 skipped, 0 failed, exit 0**. The
+The suite is **922 collected: 921 passed, 1 skipped, 0 failed, exit 0**. The
 single skip is by design and names its platform reason:
 
 ```console
@@ -1375,7 +1378,7 @@ After (`git ls-files` at `6a5619d`):
 
 | Path | Files |
 |---|---|
-| `tests/` | 124 (including 39 checked-in AF3 fixture documents) |
+| `tests/` | 125 (including 39 checked-in AF3 fixture documents) |
 | `configbuilder/` | 72 |
 | `fixtures/` | 11 |
 | `tools/af3_validation/` | 4 |
@@ -1450,8 +1453,8 @@ real install.
 
 | Interpreter | Available | Suite run | Result |
 |---|---|---|---|
-| **3.9.25** | yes — downloaded with `uv` for this pass | **yes** | **914 passed, 1 skipped, exit 0** |
-| 3.11.15 | yes (project interpreter) | yes | 917 passed, 1 skipped, exit 0 |
+| **3.9.25** | yes — downloaded with `uv` for this pass | **yes** | **921 passed, 1 skipped, exit 0** (final; see §G.5) |
+| 3.11.15 | yes (project interpreter) | yes | 921 passed, 1 skipped, exit 0 |
 | 3.12.7 | yes (Anaconda) | no | not exercised |
 | 3.13.2 | yes (uv) | no | not exercised |
 
@@ -1465,12 +1468,17 @@ $ .venv39py39\Scripts\python -c "import sys; print(sys.version)"
 3.9.25 (main, Oct 31 2025, 22:56:13) [MSC v.1929 64 bit (AMD64)]
 $ .venv39py39\Scripts\python -m pip install pytest hypothesis
 $ .venv39py39\Scripts\python -m pytest -o addopts="" -q
-917 passed, 1 skipped in 44.02s
+921 passed, 1 skipped in 44.02s
 === EXIT: 0 ===
 ```
 
 This is a run, not an inspection. The CI matrix (`.github/workflows/ci.yml`)
-gates on 3.9 on Ubuntu and Windows; the local run agrees with it on Windows.
+gates on 3.9 on Ubuntu and Windows, and now runs the suite rather than a
+smoke test (§G.4.2); the local run agrees with it on Windows.
+
+The figures in this subsection are the ones measured when it was written.
+§G.5 carries the final counts after §G.4 recovered a shadowed test and added
+three integrity tests: 922 collected, 921 passed, 1 skipped.
 
 #### F.13.7 AlphaFold 3 parser validation, re-run
 
@@ -1563,13 +1571,13 @@ was re-measured at `23df6c4` with a clean working tree.
 | # | Gate | Command | Status |
 |---|---|---|---|
 | 1 | Working tree clean, all repairs committed | `git status --porcelain` | **PASS** — empty at `23df6c4` |
-| 2 | Suite in the working tree, 3.11.15 | `python -m pytest -o addopts="" -q` | **PASS** — 917 passed, 1 skipped, exit 0 |
+| 2 | Suite in the working tree, 3.11.15 | `python -m pytest -o addopts="" -q` | **PASS** — 921 passed, 1 skipped, exit 0 |
 | 3 | Suite with the summary suppressed | `python -m pytest -q` | **PASS** — exit 0 |
-| 4 | Collection count | `python -m pytest -o addopts="" --collect-only -q` | **PASS** — 918 collected |
-| 5 | Suite under the declared floor, 3.9.25 | `.venv39py39\Scripts\python -m pytest -o addopts="" -q` | **PASS** — 917 passed, 1 skipped, exit 0 (after G.2) |
-| 6 | Suite in a fresh clone, 3.11.15 | `git clone --no-hardlinks .`, `pip install -e ".[dev]"`, pytest | **PASS** — 917 passed, 1 skipped, exit 0 |
-| 7 | Suite in the same fresh clone, 3.9.25 | clone, `.venv39`, pytest | **PASS** — 917 passed, 1 skipped, exit 0 |
-| 8 | Clone carries the suite and fixtures | `git ls-files` in the clone | **PASS** — 220 files, 124 under `tests/` |
+| 4 | Collection count | `python -m pytest -o addopts="" --collect-only -q` | **PASS** — 922 collected |
+| 5 | Suite under the declared floor, 3.9.25 | `.venv39py39\Scripts\python -m pytest -o addopts="" -q` | **PASS** — 921 passed, 1 skipped, exit 0 (after G.2) |
+| 6 | Suite in a fresh clone, 3.11.15 | `git clone --no-hardlinks .`, `pip install -e ".[dev]"`, pytest | **PASS** — 921 passed, 1 skipped, exit 0 |
+| 7 | Suite in the same fresh clone, 3.9.25 | clone, `.venv39`, pytest | **PASS** — 921 passed, 1 skipped, exit 0 |
+| 8 | Clone carries the suite and fixtures | `git ls-files` in the clone | **PASS** — 221 files, 125 under `tests/` |
 | 9 | Clone is clean and fixtures are CR-free | `git status --porcelain`; byte inspection | **PASS** — empty; CR=0 |
 | 10 | Install from a clean environment | `uv venv --python 3.11 --seed .venv`, `pip install <root>` | **PASS** — 0.1.0, no runtime dependencies |
 | 11 | Both documented entry points start and exit cleanly | `configbuilder < NUL`; `python -m configbuilder < NUL` | **PASS** — exit 0 each |
@@ -1578,6 +1586,8 @@ was re-measured at `23df6c4` with a clean working tree.
 | 14 | Python 3.12 / 3.13 | — | **NOT RUN** — coverage gap above the declared floor |
 | 15 | AF3 model run / featurisation / inference | — | **OUT OF SCOPE** — no weights, no GPU runtime |
 | 16 | Real TTY behaviour | — | **NOT RUN** — driven through `ScriptedConsole` and piped stdin only |
+| 17 | CI actually runs the suite | `python -m pytest -o addopts="" -q` in `.github/workflows/ci.yml` | **PASS** — job added; validated by YAML parse and local run (§G.4.2) |
+| 18 | No test silently shadowed | `tests/architecture/test_suite_integrity.py` | **PASS** — detector proven non-vacuous (§G.4.1) |
 
 **Release recommendation.** The project is reproducible from a clone on the
 declared Python floor: the suite, its fixtures, the two contract documents it reads
@@ -1614,7 +1624,7 @@ $ git -C %TEMP%\cb-freshclone3 status --porcelain
                                    # empty: the clone is clean
 
 $ git -C %TEMP%\cb-freshclone3 ls-files | measure
-220 tracked files, of which 124 are under tests/
+221 tracked files, of which 125 are under tests/
 
 $ # the fixtures arrive as the bytes the encoder emits
 fixtures/golden/project/comprehensive_families_v4/golden.json   1212 bytes CR=0
@@ -1628,7 +1638,7 @@ install exit=0
 $ .venv\Scripts\python -m pytest -o addopts="" -q
 ........................................................................ [  7%]
 ... (13 progress lines) ...
-917 passed, 1 skipped in 51.10s
+921 passed, 1 skipped in 51.10s
 === FRESH CLONE EXIT: 0 ===
 ```
 
@@ -1759,13 +1769,13 @@ Everything below was measured at `23df6c4` with a clean working tree.
 
 | Check | Command | Result |
 |---|---|---|
-| Collection | `python -m pytest -o addopts="" --collect-only -q` | 918 collected |
-| Suite, 3.11.15 | `python -m pytest -o addopts="" -q` | **917 passed, 1 skipped**, exit 0 |
+| Collection | `python -m pytest -o addopts="" --collect-only -q` | 922 collected |
+| Suite, 3.11.15 | `python -m pytest -o addopts="" -q` | **921 passed, 1 skipped**, exit 0 |
 | Suite, 3.11, summary suppressed | `python -m pytest -q` | exit 0 |
-| Suite, 3.9.25 | `.venv39py39\Scripts\python -m pytest -o addopts="" -q` | **917 passed, 1 skipped**, exit 0 |
-| Fresh clone, 3.11.15 | clone + `pip install -e ".[dev]"` + pytest | **917 passed, 1 skipped**, exit 0 |
-| Fresh clone, 3.9.25 | same clone, `.venv39`, pytest | **917 passed, 1 skipped**, exit 0 |
-| Fresh clone contents | `git ls-files` | 220 files, 124 under `tests/` |
+| Suite, 3.9.25 | `.venv39py39\Scripts\python -m pytest -o addopts="" -q` | **921 passed, 1 skipped**, exit 0 |
+| Fresh clone, 3.11.15 | clone + `pip install -e ".[dev]"` + pytest | **921 passed, 1 skipped**, exit 0 |
+| Fresh clone, 3.9.25 | same clone, `.venv39`, pytest | **921 passed, 1 skipped**, exit 0 |
+| Fresh clone contents | `git ls-files` | 221 files, 125 under `tests/` |
 | Fresh clone cleanliness | `git status --porcelain` | empty |
 | Fixture line endings in the clone | byte inspection | CR-free |
 | Install and both entry points | `pip install <root>`; `configbuilder < NUL`; `python -m configbuilder < NUL` | exit 0 each |
@@ -1776,3 +1786,140 @@ Everything below was measured at `23df6c4` with a clean working tree.
 
 The single skip is `tests/unit/persistence/test_sequence_files.py:50`, by design:
 "Windows cannot express a read-denied file through chmod".
+
+#### G.4 A shadowed test, and a CI job that could not see the 3.9 defect
+
+Two further findings, both surfaced by work in this pass rather than by reading
+code. The final counts in G.3 are superseded by G.5.
+
+##### G.4.1 DEFECT-SUITE-1 — a test that had never run
+
+`tests/serialization/test_encode.py` defined
+`test_encode_to_file_writes_exact_bytes` **twice**, at lines 56 and 115:
+
+```python
+def test_encode_to_file_writes_exact_bytes(tmp_path):   # line 56
+    target = tmp_path / "out.json"
+    encode_to_file(_document(), target)
+    raw = target.read_bytes()
+    assert raw == encode(_document())
+    assert b"\r" not in raw                  # <-- this never executed
+
+...
+def test_encode_to_file_writes_exact_bytes(tmp_path):   # line 115, wins
+    target = tmp_path / "job.json"
+    encode_to_file(_document(), target)
+    assert target.read_bytes() == encode(_document())
+    assert not (tmp_path / "job.json.bak").exists()
+```
+
+Python keeps the last definition, so pytest collected **one** test. The first
+body never ran: the assertion that `encode_to_file` writes bytes containing no
+CR — the file-write half of the LF encoding policy — had no coverage at all.
+
+**Found by** running `ruff check --select E4,E7,E9,F tests` while deciding
+whether to widen the lint gate. Ruff's `F811` (redefinition of an unused name)
+pointed straight at it. It was not found by the audit, by the suite itself, or by
+CI, and it could not have been: a shadowed test keeps the suite green.
+
+**Fix.** Renamed to `test_encode_to_file_bytes_have_no_cr`. Assertions unchanged.
+Collection for that file went 14 → 15, which is the recovered coverage.
+
+**Regression pin.** A new `tests/architecture/test_suite_integrity.py` parses
+every test module with `ast` and fails if any module-level `test_*` name is
+defined twice. Two companion tests stop it from being vacuous:
+
+* `test_the_detector_would_catch_a_collision` parses a synthetic module and
+  requires exactly the two module-level definitions to be reported, while a
+  class method and a nested function of the same name are ignored;
+* `test_the_suite_actually_contains_test_functions` requires more than 500
+  discovered test functions, so a broken discovery root cannot pass silently.
+
+Verified non-vacuous by reintroducing the duplicate: the detector failed with
+`test_encode_to_file_writes_exact_bytes at lines 56 and 125`, then passed once
+it was removed.
+
+The same scan over `configbuilder/` (**72 files**) reports **no** shadowed
+module-level definitions, so this was confined to the test suite.
+
+##### G.4.2 DEFECT-CI-1 — CI asserted a version it never exercised
+
+`.github/workflows/ci.yml` opened with:
+
+```
+# The repository ships the application source only (no tests, no docs): the
+# suite under tests/ is local development material (.gitignore).
+```
+
+That comment was true when written and false by the time it mattered. The job
+installed, compiled, imported, started both entry points and ran a pipeline
+smoke — **and never ran the suite**, in either language version.
+
+The consequence is now measurable. The package passed CI on 3.9 while seven
+helpers in `configbuilder/variants/edits.py` raised
+`TypeError: 'staticmethod' object is not callable` on that same interpreter
+(DEFECT-PY39-1, G.2.1). CI was green on the version that was broken. Nothing in
+the pipeline called `describe_edit`.
+
+**Fix.** A new `test` job runs the real suite:
+
+```yaml
+- name: Install package with dev extras
+  run: python -m pip install -e ".[dev]"
+- name: Full test suite
+  run: python -m pytest -o addopts="" -q
+```
+
+across **3.9 and 3.11 on Ubuntu and Windows**, plus **3.12 on Ubuntu**. The
+`smoke` and `lint` jobs are unchanged in substance and now carry a comment
+explaining why the suite job exists, so it is not removed again as redundant.
+
+**Verification of the workflow itself**, since a broken CI file fails silently
+until it runs:
+
+| Check | Result |
+|---|---|
+| YAML parses | OK — jobs `lint`, `smoke`, `test` |
+| Every embedded `python -c` block compiles (`ast.parse`) | 5/5 OK |
+| Embedded `shell: python` block compiles | 1/1 OK |
+| `test` job installs `-e ".[dev]"` and runs pytest | confirmed by assertion on the parsed document |
+| The job's exact commands, run locally on 3.9 | `pip install -e ".[dev]"` exit 0, then **921 passed, 1 skipped**, exit 0 |
+
+The interpreter guard was also checked for direction: on 3.11 it accepts `3.11`
+and **fails** `3.9`, so the assertion cannot pass on the wrong interpreter.
+
+**What CI still does not cover, stated rather than implied:** the AF3 parser
+validation needs the network and a fetched AlphaFold 3 checkout, so it remains a
+manual step (`tools/af3_validation/`). The lint gate stays scoped to
+`configbuilder`, because the same rule subset over `tests/` reports about 60
+pre-existing findings (mostly unused imports in helpers) — test hygiene, not
+shipped-code correctness, and a separate reviewable change.
+
+#### G.5 Final counts, after G.4
+
+| Check | Command | Result |
+|---|---|---|
+| Collection | `python -m pytest -o addopts="" --collect-only -q` | **922 collected** |
+| Suite, 3.11.15 | `python -m pytest -o addopts="" -q` | **921 passed, 1 skipped**, exit 0 |
+| Suite, 3.11, summary suppressed | `python -m pytest -q` | exit 0 |
+| Suite, 3.9.25 | `.venv39\Scripts\python -m pytest -o addopts="" -q` | **921 passed, 1 skipped**, exit 0 |
+| Fresh clone, 3.11.15 | clone + `pip install -e ".[dev]"` + pytest | **921 passed, 1 skipped**, exit 0 |
+| Fresh clone, 3.9.25 | same clone, `.venv39`, pytest | **921 passed, 1 skipped**, exit 0 |
+| Lint gate | `ruff check --select E4,E7,E9,F configbuilder` | All checks passed |
+| AF3 parser suite | `python tools/af3_validation/run_all.py` | PASS; 13/13, 8/8, 21 accepted, 13/13 identical |
+| `userCCD` / `userCCDPath` | same | **UNVERIFIED** — needs AF3's compiled CIF parser |
+
+922 collected = 921 passed + 1 skipped. The skip is
+`tests/unit/persistence/test_sequence_files.py:50`, by design.
+
+The movement across this pass is worth reading as a whole, because each step was
+a defect rather than a formatting change:
+
+| Stage | Collected | Passed | What it exposed |
+|---|---|---|---|
+| Audit as written | 896 claimed | 895 claimed | unreproducible: `tests/` untracked |
+| Tracked suite | 915 | 914 | 1 test silently shadowed; CRLF broke 3 clones |
+| `.gitattributes` + clone | 918 | 917 | — |
+| Python 3.9 actually run | 918 | 917 | 30 failures, 2 real defects fixed |
+| G.4 shadowing fix + detectors | **922** | **921** | 1 recovered test, 3 new integrity tests |
+
