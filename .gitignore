@@ -8,6 +8,7 @@ build/
 dist/
 *.egg-info/
 .venv/
+.venv*/
 venv/
 
 # Application workspace state (Freebuff client) — not project content

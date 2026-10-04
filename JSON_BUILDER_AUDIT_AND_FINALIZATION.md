@@ -1,11 +1,11 @@
-# AlphaFold 3 JSON Builder — Audit & Finalization
+# AlphaFold 3 JSON Builder â€” Audit & Finalization
 
-**Status:** Phases 1–6 complete, plus parser-level validation against AlphaFold 3 itself, a real-surface playtest, and the import-continuity fix: **19 defects fixed**, the suite is green, and every document this builder emits has been checked with AF3's own input parser (§F.11). The defect register is §D; the verification record is §F.
+**Status:** Phases 1â€“6 complete, plus parser-level validation against AlphaFold 3 itself, a real-surface playtest, and the import-continuity fix: **19 defects fixed**, the suite is green, and every document this builder emits has been checked with AF3's own input parser (Â§F.11). The defect register is Â§D; the verification record is Â§F.
 **Audit date:** 2026-10-03
 **Repository:** `configbuilder` (package) / branch `main`
 **Audited by:** automated audit + scripted end-to-end CLI probes
 
-> **How to read this document.** Sections A–E are the *initial* audit and plan,
+> **How to read this document.** Sections Aâ€“E are the *initial* audit and plan,
 > written from the actual code and from real scripted CLI runs before any repair.
 > Section F is the **living verification record** and is updated after each phase.
 > Anything not backed by a command output or a test run is marked *unverified*.
@@ -19,8 +19,8 @@
 | Item | Value | Evidence |
 |---|---|---|
 | Declared console script | `configbuilder = "configbuilder.app.cli:main"` | `pyproject.toml` `[project.scripts]` |
-| Module entry point | `python -m configbuilder` → `configbuilder/__main__.py` → `configbuilder.app.cli:main` | `configbuilder/__main__.py` |
-| Composition root | `configbuilder/app/cli.py:main()` — builds `Services` and runs `MenuApp` | `app/cli.py` |
+| Module entry point | `python -m configbuilder` â†’ `configbuilder/__main__.py` â†’ `configbuilder.app.cli:main` | `configbuilder/__main__.py` |
+| Composition root | `configbuilder/app/cli.py:main()` â€” builds `Services` and runs `MenuApp` | `app/cli.py` |
 | Menu implementation | `configbuilder/ui/render/menus.py` (`MenuApp`, 2011 lines) | file size |
 | Return status | `main()` returns `0` on every deliberate end (exit choice, quit word, Ctrl+C, EOF) | `app/cli.py`, `MenuApp.run` |
 
@@ -43,7 +43,7 @@ Two screens exist. The **start screen** is shown only when no project is open:
                                  ConfigBuilder
 ================================================================================
 
-Working copy: kept automatically — re-open it any time with Open saved work
+Working copy: kept automatically â€” re-open it any time with Open saved work
 
   1) New job
   2) Open saved work
@@ -63,7 +63,7 @@ Current job: <name>
  STATUS: READY|INCOMPLETE>
 
 Variants: <n>
-Working copy: kept automatically — re-open it any time with Open saved work
+Working copy: kept automatically â€” re-open it any time with Open saved work
 
   1) Edit the job
   2) Review configuration
@@ -76,17 +76,17 @@ Working copy: kept automatically — re-open it any time with Open saved work
 Select:
 ```
 
-### A.3 Menu option → module map
+### A.3 Menu option â†’ module map
 
 | # | Label | Dispatch (menus.py) | Application service | Terminal effect |
 |---|---|---|---|---|
-| 1 | Edit the job | `_edit_job_menu` → `_entities_menu` / `_job_settings` / `_bonds_menu` | `ConfigurationService` | Mutates the in-memory configuration; `ProjectService._commit_project` autosaves the `.cbproj` working copy |
-| 2 | Review configuration | `_review_screen` → `_validate_review` / `_show_json` | `ValidationService`, `GenerationService.show_json` | Read-only |
-| 3 | Variants | `_variants_menu` → `_create_variant` / `_manage_variants` / `_batch_from_file` / `_quantity_series` | `VariantService` | Adds/edits/removes `VariantSpec`s on the project; autosaves |
-| 4 | Generate JSON | `_generate_menu` → `_generate_base_json` / `_export` / `_change_output_dir` | `GenerationService.plan_base` / `plan` / `execute` | Writes `<out>/<slug>/<slug>.json` (+ variant dirs + `manifest.json`) |
+| 1 | Edit the job | `_edit_job_menu` â†’ `_entities_menu` / `_job_settings` / `_bonds_menu` | `ConfigurationService` | Mutates the in-memory configuration; `ProjectService._commit_project` autosaves the `.cbproj` working copy |
+| 2 | Review configuration | `_review_screen` â†’ `_validate_review` / `_show_json` | `ValidationService`, `GenerationService.show_json` | Read-only |
+| 3 | Variants | `_variants_menu` â†’ `_create_variant` / `_manage_variants` / `_batch_from_file` / `_quantity_series` | `VariantService` | Adds/edits/removes `VariantSpec`s on the project; autosaves |
+| 4 | Generate JSON | `_generate_menu` â†’ `_generate_base_json` / `_export` / `_change_output_dir` | `GenerationService.plan_base` / `plan` / `execute` | Writes `<out>/<slug>/<slug>.json` (+ variant dirs + `manifest.json`) |
 | 5 | Open saved work | `_load_project` | `ProjectService.load_saved_work` | Replaces the current project with the newest `.configbuilder/*.cbproj` |
 | 6 | Import an AF3 JSON file | `_import_json` | `ProjectService.import_json_preview` / `import_json_commit` | Replaces the current project with the imported one (preview + numbered confirm first) |
-| 0 | Exit | `_master_menu` returns | — | Ends the session; working copy stays on disk |
+| 0 | Exit | `_master_menu` returns | â€” | Ends the session; working copy stays on disk |
 
 ### A.4 Current JSON-generation workflow
 
@@ -94,17 +94,17 @@ One authoritative path, used for preview *and* for writing:
 
 ```
 Configuration (model)
-  → ValidationService.validate_base()      gate: any ERROR ⇒ refuse
-  → VariantService.expand()                variants = base + edits (base untouched)
-  → transform.to_wire()                    model → AF3 wire document
-  → transform.with_wire_job_name()          wire "name" == slug == filename
-  → transform.with_emitted_resource_paths() §13.5 path policy
-  → serialize.encode()                     the single JSON serializer
-  → output.plan()                          create/overwrite/skip/conflict + manifest
-  → output.execute()                       atomic writes only
+  â†’ ValidationService.validate_base()      gate: any ERROR â‡’ refuse
+  â†’ VariantService.expand()                variants = base + edits (base untouched)
+  â†’ transform.to_wire()                    model â†’ AF3 wire document
+  â†’ transform.with_wire_job_name()          wire "name" == slug == filename
+  â†’ transform.with_emitted_resource_paths() Â§13.5 path policy
+  â†’ serialize.encode()                     the single JSON serializer
+  â†’ output.plan()                          create/overwrite/skip/conflict + manifest
+  â†’ output.execute()                       atomic writes only
 ```
 
-`GenerationService.show_json()` runs the *same* `to_wire → encode` pair, so the
+`GenerationService.show_json()` runs the *same* `to_wire â†’ encode` pair, so the
 preview is byte-identical to what a file would contain. The UI never serializes.
 
 ### A.5 Internal representation of jobs and variants
@@ -127,8 +127,8 @@ preview is byte-identical to what a file would contain. The UI never serializes.
 
 ### A.6 How and where JSON is saved
 
-* Base job → `<output_dir>/<project_slug>/<project_slug>.json` (`plan_base`).
-* A variant → `<output_dir>/<project_slug>/<project_slug>__<key>/<project_slug>__<key>.json`.
+* Base job â†’ `<output_dir>/<project_slug>/<project_slug>.json` (`plan_base`).
+* A variant â†’ `<output_dir>/<project_slug>/<project_slug>__<key>/<project_slug>__<key>.json`.
 * A variant run also writes `<output_dir>/<project_slug>/manifest.json`.
 * `output_dir` defaults to the relative string `"output"` (`MenuApp.__init__`)
   and is changed from the Generate screen (option "Change the output directory").
@@ -139,7 +139,7 @@ preview is byte-identical to what a file would contain. The UI never serializes.
 
 * **Import (option 6)** parses the file with `json.load`, converts it through
   `transform.from_wire`, and installs the result as an ordinary project
-  (preview → numbered confirm). Unsupported fields produce `ImportNote`s that
+  (preview â†’ numbered confirm). Unsupported fields produce `ImportNote`s that
   are printed. `from_wire` never mutates the source file.
 * Once imported, the job is a normal configuration: editable, variant-able,
   generatable. Re-generation goes through the normal naming, so the original
@@ -156,22 +156,22 @@ preview is byte-identical to what a file would contain. The UI never serializes.
 | Dev extras | `pytest>=7`, `hypothesis>=6` (`[project.optional-dependencies].dev`) |
 | Run all | `python -m pytest` |
 | Run one area | `python -m pytest tests/unit/ui -q` |
-| Baseline (audit date) | **824 tests, 1 skipped, 0 failed** — `python -m pytest -q` |
+| Baseline (audit date) | **824 tests, 1 skipped, 0 failed** â€” `python -m pytest -q` |
 | Scripted CLI harness | `ScriptedConsole` (`ui/render/console.py`) + shared keystroke scripts in `tests/unit/ui/menu_flows.py` |
 
 ### A.9 Dependencies and Python version
 
-* `requires-python = ">=3.9"`; **no runtime dependencies** — standard library only.
+* `requires-python = ">=3.9"`; **no runtime dependencies** â€” standard library only.
   The comment in `pyproject.toml` states nothing may move into
   `[project].dependencies` without amending `IMPLEMENTATION_PLAN.md`.
 * The audit environment ran Python **3.11.15** (Windows). Python 3.9
   compatibility is a *declared* constraint and is **not** exercised by any
-  test run in this audit (no 3.9 interpreter available) — see §F "limitations".
+  test run in this audit (no 3.9 interpreter available) â€” see Â§F "limitations".
 
 ### A.10 External assumptions that affect execution
 
 * The AF3 contract is pinned in `AUTHORITATIVE_SPEC.md` (dialect `alphafold3`,
-  JSON versions 1–4; v2 = external MSA/template paths, v3 = `userCCDPath`,
+  JSON versions 1â€“4; v2 = external MSA/template paths, v3 = `userCCDPath`,
   v4 = textual `description`). The builder pins **version 4** by default.
 * The `.cbproj` store and the default `output/` directory are **relative to the
   current working directory**, so where the user launches from determines where
@@ -183,17 +183,17 @@ preview is byte-identical to what a file would contain. The UI never serializes.
 
 ## B. Main Menu Audit
 
-Legend — **Status**: `working` / `partial` / `broken` / `unverified`.
+Legend â€” **Status**: `working` / `partial` / `broken` / `unverified`.
 
 ### B.1 Start screen
 
-| Field | Option 1 — New job |
+| Field | Option 1 â€” New job |
 |---|---|
 | Exact label | `  1) New job` (start screen) |
 | Intended purpose | Begin a fresh job, optionally naming it |
-| Actual implementation | `MenuApp._new_or_load` → `ProjectService.new(name)` |
+| Actual implementation | `MenuApp._new_or_load` â†’ `ProjectService.new(name)` |
 | Dependencies | none |
-| Input handling | `menu.ask_experiment`; blank ⇒ service mints `config-NNN` |
+| Input handling | `menu.ask_experiment`; blank â‡’ service mints `config-NNN` |
 | State changes | Replaces any current project; prunes `.configbuilder` to 50 |
 | Saving behavior | Immediately autosaves a `.cbproj` working copy |
 | JSON output | none yet |
@@ -201,41 +201,41 @@ Legend — **Status**: `working` / `partial` / `broken` / `unverified`.
 | Test coverage | `tests/unit/ui/test_menu.py`, `tests/e2e/test_app_pipeline.py` |
 | **Status** | **working** |
 
-| Field | Option 2 — Open saved work |
+| Field | Option 2 â€” Open saved work |
 |---|---|
 | Exact label | `  2) Open saved work` |
 | Intended purpose | Recover earlier work |
-| Actual implementation | `_load_project` → `ProjectService.load_saved_work()` |
+| Actual implementation | `_load_project` â†’ `ProjectService.load_saved_work()` |
 | Dependencies | a `.configbuilder/*.cbproj` file in the CWD |
 | Input handling | none (no prompt) |
 | State changes | Opens the newest working copy; if the open job *is* that copy, refuses with an explanation |
 | Saving behavior | n/a |
 | JSON output | none |
-| Failure cases | no saved work ⇒ `Not applied: there is no saved work to reopen` (verified) |
+| Failure cases | no saved work â‡’ `Not applied: there is no saved work to reopen` (verified) |
 | Test coverage | `tests/unit/app/test_work_preservation.py` |
 | **Status** | **working**, but see BUG-007 (label mismatch) |
 
-| Field | Option 3 — Import an AF3 JSON file |
+| Field | Option 3 â€” Import an AF3 JSON file |
 |---|---|
 | Exact label | `  3) Import an AF3 JSON file` |
 | Intended purpose | Load an existing AF3 JSON as the current job |
-| Actual implementation | `_import_json` → `import_json_preview` → numbered confirm → `import_json_commit` |
+| Actual implementation | `_import_json` â†’ `import_json_preview` â†’ numbered confirm â†’ `import_json_commit` |
 | Dependencies | a readable JSON file |
 | Input handling | `_pick_path` directory picker / literal path; numbered confirm |
 | State changes | Current project is replaced **only** after the confirm |
 | Saving behavior | Imported job is committed to the internal working copy immediately |
 | JSON output | none |
-| Failure cases | missing file, malformed JSON, unsupported fields — all verified to report a reason and leave the job untouched |
+| Failure cases | missing file, malformed JSON, unsupported fields â€” all verified to report a reason and leave the job untouched |
 | Test coverage | `tests/unit/transform/test_from_wire.py`, `tests/unit/app/*` |
 | **Status** | **working** |
 
 ### B.2 Master menu
 
-| Field | Option 1 — Edit the job |
+| Field | Option 1 â€” Edit the job |
 |---|---|
 | Exact label | `  1) Edit the job` |
 | Intended purpose | Change entities, job settings, structural extras |
-| Actual implementation | `_edit_job_menu` → `_entities_menu`, `_job_settings`, `_bonds_menu` |
+| Actual implementation | `_edit_job_menu` â†’ `_entities_menu`, `_job_settings`, `_bonds_menu` |
 | Dependencies | an open project |
 | Input handling | numbered menus + free-text prompts |
 | State changes | Mutates the configuration through `ConfigurationService` |
@@ -243,13 +243,13 @@ Legend — **Status**: `working` / `partial` / `broken` / `unverified`.
 | JSON output | none (Generate writes) |
 | Failure cases | **crashes on a blank modification code** (BUG-001); unhandled `ValueError` text for non-numeric residue/position (BUG-002) |
 | Test coverage | `tests/unit/ui/test_menu.py`, `test_numbered_flows.py` |
-| **Status** | **partial** — reachable and mostly working; two input-validation defects |
+| **Status** | **partial** â€” reachable and mostly working; two input-validation defects |
 
-| Field | Option 2 — Review configuration |
+| Field | Option 2 â€” Review configuration |
 |---|---|
 | Exact label | `  2) Review configuration` |
 | Intended purpose | See the job, validate it, look at its JSON |
-| Actual implementation | `_review_screen` → `_validate_review`, `_show_json` |
+| Actual implementation | `_review_screen` â†’ `_validate_review`, `_show_json` |
 | Dependencies | open project |
 | Input handling | numbered menu |
 | State changes | none |
@@ -257,51 +257,51 @@ Legend — **Status**: `working` / `partial` / `broken` / `unverified`.
 | JSON output | prints JSON to the transcript (does not write a file) |
 | Failure cases | **`Show the JSON` on a job with no entities prints `"sequences": []`**, which AF3 rejects (BUG-003) |
 | Test coverage | `tests/unit/ui/test_menu.py` |
-| **Status** | **partial** — review works; the JSON preview can show a structurally invalid document |
+| **Status** | **partial** â€” review works; the JSON preview can show a structurally invalid document |
 
-| Field | Option 3 — Variants |
+| Field | Option 3 â€” Variants |
 |---|---|
 | Exact label | `  3) Variants` |
 | Intended purpose | Create/manage variants, batch from file, concentration series |
-| Actual implementation | `_variants_menu` → `_create_variant`, `_manage_variants`, `_batch_from_file`, `_quantity_series` |
+| Actual implementation | `_variants_menu` â†’ `_create_variant`, `_manage_variants`, `_batch_from_file`, `_quantity_series` |
 | Dependencies | open project (a valid base is needed only at generate time) |
 | Input handling | numbered submenus, `_select_entity`/`_select_variant` pickers, `_ask_name` |
 | State changes | Adds/edits/removes specs on the project; base untouched |
 | Saving behavior | Autosaved with the project |
 | JSON output | none (Generate writes variant files) |
-| Failure cases | base with no ligand ⇒ `No variable components … in the current job.` (verified); see BUG-005 for the `Back` wording |
+| Failure cases | base with no ligand â‡’ `No variable components â€¦ in the current job.` (verified); see BUG-005 for the `Back` wording |
 | Test coverage | `tests/unit/variants/*`, `tests/unit/app/test_batch_variants.py`, `tests/variant/*` |
 | **Status** | **working** |
 
-| Field | Option 4 — Generate JSON |
+| Field | Option 4 â€” Generate JSON |
 |---|---|
 | Exact label | `  4) Generate JSON` |
 | Intended purpose | Preview and write the job's (and variants') JSON |
-| Actual implementation | `_generate_menu` → `_generate_base_json`, `_export`, `_change_output_dir` |
+| Actual implementation | `_generate_menu` â†’ `_generate_base_json`, `_export`, `_change_output_dir` |
 | Dependencies | a job that passes validation |
 | Input handling | `_pick_path` for the output dir; `y/N` for variant export; numbered confirm for base export |
 | State changes | none to the job |
 | Saving behavior | Writes JSON + `manifest.json`; atomic |
-| JSON output | `<out>/<slug>/<slug>.json`, `<out>/<slug>/<slug>__<key>/…json`, `<out>/<slug>/manifest.json` |
-| Failure cases | blocking findings ⇒ names each rule; existing differing file ⇒ `Conflict: … already exists with different content` (both verified) |
+| JSON output | `<out>/<slug>/<slug>.json`, `<out>/<slug>/<slug>__<key>/â€¦json`, `<out>/<slug>/manifest.json` |
+| Failure cases | blocking findings â‡’ names each rule; existing differing file â‡’ `Conflict: â€¦ already exists with different content` (both verified) |
 | Test coverage | `tests/unit/output/*`, `tests/golden/*`, `tests/e2e/*` |
 | **Status** | **working** |
 
-| Field | Option 5 — Open saved work |
+| Field | Option 5 â€” Open saved work |
 |---|---|
 | Exact label | `  5) Open saved work` |
 | Intended purpose | Recover earlier work |
 | Actual implementation | same as start-screen option 2 |
 | **Status** | **working**, but the label promises "saved work" while the app saves only JSON on request (BUG-007) |
 
-| Field | Option 6 — Import an AF3 JSON file |
+| Field | Option 6 â€” Import an AF3 JSON file |
 |---|---|
 | Exact label | `  6) Import an AF3 JSON file` |
 | Intended purpose | Replace the current job with a loaded JSON |
 | Actual implementation | same as start-screen option 3 |
 | **Status** | **working** |
 
-| Field | Option 0 — Exit |
+| Field | Option 0 â€” Exit |
 |---|---|
 | Exact label | `  0)  Exit` |
 | Intended purpose | Leave safely |
@@ -317,34 +317,34 @@ Legend — **Status**: `working` / `partial` / `broken` / `unverified`.
 | Entities | 1 Add / 2 Edit / 3 Delete | working |
 | Which kind of entity | 1 Protein / 2 DNA / 3 RNA / 4 Ligand | working |
 | Job Settings | 1 name / 2 AF3 version / 3 seeds / 4 generate seeds | working |
-| Bonds… | 1 add bond / 2 remove bond / 3 add modification / 4 remove modification / 5 custom component definition | **partial** — option 3 crashes on a blank code (BUG-001); a ligand picked as the carrier is refused with a misleading message (BUG-006) |
+| Bondsâ€¦ | 1 add bond / 2 remove bond / 3 add modification / 4 remove modification / 5 custom component definition | **partial** â€” option 3 crashes on a blank code (BUG-001); a ligand picked as the carrier is refused with a misleading message (BUG-006) |
 | Variants | 1 Create / 2 Manage / 3 From a sequence file / 4 Concentration-quantity series | working |
 | Manage variants | 1 Edit / 2 Duplicate / 3 Delete / 4 Preview / 5 Generate JSON | working |
-| Generate JSON | 1 this job / 2 all variants / 3 select variants / 4 change output dir (numbers shift when no variants exist) | **partial** — see BUG-008 |
+| Generate JSON | 1 this job / 2 all variants / 3 select variants / 4 change output dir (numbers shift when no variants exist) | **partial** â€” see BUG-008 |
 | MSA mode (protein) | Automatic / Unpaired / Paired / Both / Free | working |
 | MSA mode (RNA) | Automatic / Free / Provided | working |
 | Templates | Search allowed / Explicitly none / Provide a list | working |
 
 ### B.4 Menu findings (misleading / redundant / inaccessible / unfinished)
 
-1. **BUG-007 — "Open saved work" is ambiguous.** There is no user-facing *save
+1. **BUG-007 â€” "Open saved work" is ambiguous.** There is no user-facing *save
    project* action anywhere in the menu. JSON is written by Generate; the
    `.cbproj` is written silently. A beginner reading "Open saved work" cannot
    tell what is being opened, and may believe their job is already saved when
    it is only in the internal working copy. **The menu needs an explicit
    "Save the job" action that says what it wrote and where.**
-2. **BUG-008 — Generate menu numbering shifts.** With no variants the menu
+2. **BUG-008 â€” Generate menu numbering shifts.** With no variants the menu
    shows only two options (`1` = this job, `2` = change output dir); with
    variants it shows four (`1` = this job, `2` = all variants, `3` = select,
    `4` = change dir). The number for "change output directory" changes meaning
    between the two states, and the code dispatches on `choice == "2" and not
    has_variants`. This is a latent correctness trap, not just cosmetics.
-3. **BUG-005 — "Back" in the ligand quantity submenu silently discards the
+3. **BUG-005 â€” "Back" in the ligand quantity submenu silently discards the
    whole entity.** Choosing Back after typing a ligand value abandons the add
    without saying so; the user believes they went back one step.
-4. **BUG-006 — a ligand can be selected as a modification carrier**, and is
+4. **BUG-006 â€” a ligand can be selected as a modification carrier**, and is
    then refused with `A ligand has no sequence, alignment, or templates; change
-   it by deleting it and adding it again.` — a message about *editing*, not
+   it by deleting it and adding it again.` â€” a message about *editing*, not
    about PTM carriers. Ligands must not be offered for PTMs at all.
 5. **Reachable but undiscoverable:** the base-job JSON and the variant JSONs are
    both written from option 4, but nothing on the master menu says so, and the
@@ -360,7 +360,7 @@ Legend — **Status**: `working` / `partial` / `broken` / `unverified`.
 |---|---|
 | Create a new job | yes |
 | Add protein / DNA / RNA / ligand / ion | yes |
-| Configure MSA and templates | yes (inside the entity add/edit flow — but nothing on screen hints that MSA lives there) |
+| Configure MSA and templates | yes (inside the entity add/edit flow â€” but nothing on screen hints that MSA lives there) |
 | Add PTMs and bonds | yes |
 | Review and validate | yes |
 | Write the job's JSON | yes |
@@ -382,34 +382,34 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 
 | # | Journey | Result | Notes |
 |---|---|---|---|
-| 1 | Start the application | ✅ | Banner, start screen, exit all work |
-| 2 | Create a new job (named and blank) | ✅ | `config-001` minted for a blank name |
-| 3 | Enter a protein sequence | ✅ | Invalid characters refused with the offending set named |
-| 4 | Enter DNA and build the duplex | ✅ | `ATGC` → two records `ATGC` / `GCAT`, distinct ids |
-| 5 | Add RNA | ✅ | `ACGU` accepted; MSA question follows; no templates question (correct) |
-| 6 | Add ligands and ions | ✅ | CCD multi-code `HOH NA CL` → one record, 3 ids; SMILES → `ByNotation`; copies honoured |
-| 7 | Add PTMs | ⚠️ | Valid PTM works and is validated; **blank code crashes** (BUG-001); out-of-range position is accepted then caught by validation (by design, but only at generate time) |
-| 8 | Configure MSA and template paths | ✅ | Protein: automatic/unpaired/paired/both/free + inline or file source. RNA: automatic/free/provided. DNA/ligand: correctly not offered |
-| 9 | Load an existing JSON file | ✅ | Preview → confirm → installed; missing file, malformed JSON and unknown fields all reported |
-| 10 | Edit a loaded job | ✅ | Editing works on an imported job exactly like a native one |
-| 11 | Save the base job | ⚠️ | Only via Generate. No explicit save action, no path echo outside the Generate screen (BUG-007) |
-| 12 | Create variants from the base | ✅ | `base + edits`; base unchanged; change summaries rendered |
-| 13 | Batch variants from a text file | ✅ | Blank lines ignored; invalid lines reported **with line numbers**; all-or-nothing |
-| 14 | Concentration-style variants | ✅ | `start × factor^(n-1)`; preview shown before creation; three independent specs from the same base |
-| 15 | Preview the job and JSON | ⚠️ | Works; on an empty job it prints `"sequences": []` (BUG-003) |
-| 16 | Save generated JSON | ✅ | Atomic; conflict refusal names the file; identical bytes ⇒ `overwrite` |
-| 17 | Recover from invalid input / interruption | ⚠️ | Most paths recover; PTM blank code crashes; a few prompts echo raw Python exceptions (BUG-002) |
-| 18 | Return to the menu without losing work | ✅ | Every submenu returns; autosave keeps the working copy |
+| 1 | Start the application | âœ… | Banner, start screen, exit all work |
+| 2 | Create a new job (named and blank) | âœ… | `config-001` minted for a blank name |
+| 3 | Enter a protein sequence | âœ… | Invalid characters refused with the offending set named |
+| 4 | Enter DNA and build the duplex | âœ… | `ATGC` â†’ two records `ATGC` / `GCAT`, distinct ids |
+| 5 | Add RNA | âœ… | `ACGU` accepted; MSA question follows; no templates question (correct) |
+| 6 | Add ligands and ions | âœ… | CCD multi-code `HOH NA CL` â†’ one record, 3 ids; SMILES â†’ `ByNotation`; copies honoured |
+| 7 | Add PTMs | âš ï¸ | Valid PTM works and is validated; **blank code crashes** (BUG-001); out-of-range position is accepted then caught by validation (by design, but only at generate time) |
+| 8 | Configure MSA and template paths | âœ… | Protein: automatic/unpaired/paired/both/free + inline or file source. RNA: automatic/free/provided. DNA/ligand: correctly not offered |
+| 9 | Load an existing JSON file | âœ… | Preview â†’ confirm â†’ installed; missing file, malformed JSON and unknown fields all reported |
+| 10 | Edit a loaded job | âœ… | Editing works on an imported job exactly like a native one |
+| 11 | Save the base job | âš ï¸ | Only via Generate. No explicit save action, no path echo outside the Generate screen (BUG-007) |
+| 12 | Create variants from the base | âœ… | `base + edits`; base unchanged; change summaries rendered |
+| 13 | Batch variants from a text file | âœ… | Blank lines ignored; invalid lines reported **with line numbers**; all-or-nothing |
+| 14 | Concentration-style variants | âœ… | `start Ã— factor^(n-1)`; preview shown before creation; three independent specs from the same base |
+| 15 | Preview the job and JSON | âš ï¸ | Works; on an empty job it prints `"sequences": []` (BUG-003) |
+| 16 | Save generated JSON | âœ… | Atomic; conflict refusal names the file; identical bytes â‡’ `overwrite` |
+| 17 | Recover from invalid input / interruption | âš ï¸ | Most paths recover; PTM blank code crashes; a few prompts echo raw Python exceptions (BUG-002) |
+| 18 | Return to the menu without losing work | âœ… | Every submenu returns; autosave keeps the working copy |
 
 ### C.1 Broken transitions / invalid states found
 
-* `_add_modification` → blank code → **uncaught `ValueTypeError`** (BUG-001).
-* `_add_modification` / `_add_linkage` → non-numeric residue or position →
+* `_add_modification` â†’ blank code â†’ **uncaught `ValueTypeError`** (BUG-001).
+* `_add_modification` / `_add_linkage` â†’ non-numeric residue or position â†’
   user sees `invalid literal for int() with base 10: 'abc'` (BUG-002).
-* `_select_entity` → a record whose multiplicity has more than one id →
+* `_select_entity` â†’ a record whose multiplicity has more than one id â†’
   **the record cannot be edited or deleted** (BUG-004).
-* `_show_json` on a job with no entities → structurally invalid AF3 document (BUG-003).
-* `_ask_quantity` → Back → the whole ligand add is abandoned silently (BUG-005).
+* `_show_json` on a job with no entities â†’ structurally invalid AF3 document (BUG-003).
+* `_ask_quantity` â†’ Back â†’ the whole ligand add is abandoned silently (BUG-005).
 * `_add_modification` offers ligand records as PTM carriers (BUG-006).
 
 ---
@@ -421,23 +421,23 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 > **medium** = misleading/incorrect behaviour, recoverable;
 > **low** = cosmetic.
 
-### BUG-001 — Blank modification code crashes the application
+### BUG-001 â€” Blank modification code crashes the application
 * **Severity:** high
-* **Reproduction:** Edit the job → 3 Bonds, modifications & custom components →
-  3 Add a modification → pick a protein → press Enter at `Modification code`.
+* **Reproduction:** Edit the job â†’ 3 Bonds, modifications & custom components â†’
+  3 Add a modification â†’ pick a protein â†’ press Enter at `Modification code`.
 * **Expected:** the refusal is reported and the prompt returns.
 * **Actual:** `configbuilder.model.values.ValueTypeError: ComponentCode must be
   non-empty` propagates out of `MenuApp.run()` and terminates the session.
 * **Root cause:** `ConfigurationService.add_modification` catches
   `(ValueError, TypeError)`, but the model's `ValueTypeError` derives from
-  `ModelError(Exception)` — *not* from `ValueError` — so it escapes.
+  `ModelError(Exception)` â€” *not* from `ValueError` â€” so it escapes.
 * **Files:** `configbuilder/app/configuration_service.py:445-461`.
 * **Required correction:** catch `ModelError` (the model's actual error base).
 * **Regression test:** drive the menu with a blank code; assert no exception and
   that no modification was added.
-* **Status:** **FIXED & VERIFIED** — a blank code is refused. `add_modification` now catches `ModelError` like every other mutation, and the menu asks only for a non-empty code, reporting `menu.mod_cancelled` when it is blank. Pinned by `test_blank_modification_code_is_refused_not_raised` and `test_blank_modification_code_through_the_menu_says_cancelled`.
+* **Status:** **FIXED & VERIFIED** â€” a blank code is refused. `add_modification` now catches `ModelError` like every other mutation, and the menu asks only for a non-empty code, reporting `menu.mod_cancelled` when it is blank. Pinned by `test_blank_modification_code_is_refused_not_raised` and `test_blank_modification_code_through_the_menu_says_cancelled`.
 
-### BUG-002 — Raw Python exception text shown to the user
+### BUG-002 â€” Raw Python exception text shown to the user
 * **Severity:** medium
 * **Reproduction:** add a PTM with position `abc`; or add a bond with residue `abc`.
 * **Expected:** an actionable message naming the field and the expected format.
@@ -450,11 +450,11 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
   message, and/or convert the model error into a domain message.
 * **Regression test:** non-numeric residue/position yields the registered
   "whole number" message.
-* **Status:** **FIXED & VERIFIED** — numeric prompts have their own reader (`_ask_whole_number`) and a registered message (`'abc' is not a whole number — enter digits only (for example 12).`), so no `int()` text reaches the user. Pinned by `test_non_numeric_ptm_position_is_answered_in_user_terms` and `test_non_numeric_bond_residue_is_answered_in_user_terms`.
+* **Status:** **FIXED & VERIFIED** â€” numeric prompts have their own reader (`_ask_whole_number`) and a registered message (`'abc' is not a whole number â€” enter digits only (for example 12).`), so no `int()` text reaches the user. Pinned by `test_non_numeric_ptm_position_is_answered_in_user_terms` and `test_non_numeric_bond_residue_is_answered_in_user_terms`.
 
-### BUG-003 — JSON preview can show a document AF3 rejects
+### BUG-003 â€” JSON preview can show a document AF3 rejects
 * **Severity:** high
-* **Reproduction:** New job → 2 Review configuration → 2 Show the JSON.
+* **Reproduction:** New job â†’ 2 Review configuration â†’ 2 Show the JSON.
 * **Expected:** either a refusal explaining that entities are required, or a
   document that is valid AF3 input.
 * **Actual:** a complete document is printed containing `"sequences": []`.
@@ -465,16 +465,16 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
   `ui/render/menus.py:_show_json`.
 * **Required correction:** run the base validation gate in `show_json` (or have
   the UI refuse when the status is not ready) so preview and generation agree.
-* **Regression test:** empty job ⇒ `show_json` returns an error, not a document;
-  a ready job ⇒ preview equals the written file byte-for-byte.
-* **Status:** **FIXED & VERIFIED** — `show_json` runs the same `validate_base` gate as the writer and returns an error when the job is not ready (`Cannot build JSON: the job is not ready to be written yet; see Review configuration for what is missing`). Pinned by `test_json_preview_refuses_an_incomplete_job` and `test_json_preview_of_a_ready_job_matches_the_written_file`.
+* **Regression test:** empty job â‡’ `show_json` returns an error, not a document;
+  a ready job â‡’ preview equals the written file byte-for-byte.
+* **Status:** **FIXED & VERIFIED** â€” `show_json` runs the same `validate_base` gate as the writer and returns an error when the job is not ready (`Cannot build JSON: the job is not ready to be written yet; see Review configuration for what is missing`). Pinned by `test_json_preview_refuses_an_incomplete_job` and `test_json_preview_of_a_ready_job_matches_the_written_file`.
 
-### BUG-004 — Records with more than one copy cannot be edited or deleted
+### BUG-004 â€” Records with more than one copy cannot be edited or deleted
 * **Severity:** high
-* **Reproduction:** add a ligand with 3 copies, then Edit an entity → pick it.
+* **Reproduction:** add a ligand with 3 copies, then Edit an entity â†’ pick it.
 * **Expected:** the picked record is edited/deleted (all its copies).
 * **Actual:** `update_record` / `remove_record` return
-  `no record is identified by 'A'` — the record is invisible to the service.
+  `no record is identified by 'A'` â€” the record is invisible to the service.
 * **Root cause:** `ConfigurationService._record_for` compares
   `tuple(record.ids) == tuple(identity.multiplicity_of(primary))`. For a
   3-copy record `multiplicity_of('A')` returns **only** `['A']` while the record
@@ -487,11 +487,11 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
   contains the resolved identifier.
 * **Regression test:** a 3-copy ligand and a 2-copy ion are editable and
   deletable through the menu and through the service.
-* **Status:** **FIXED & VERIFIED** — `_record_for` resolves a record by membership (`record.ids.contains(primary)`) and `remove_record` releases the record's own multiplicity instead of the singleton, so identifiers are no longer leaked. A three-copy ligand is editable, modifiable and deletable from the menu. Pinned by `test_multi_copy_record_can_be_edited_and_deleted`, `test_multi_copy_record_releases_every_identifier_on_delete`, `test_multi_copy_ligand_is_deletable_through_the_menu` and `test_multi_copy_record_can_carry_a_modification`.
+* **Status:** **FIXED & VERIFIED** â€” `_record_for` resolves a record by membership (`record.ids.contains(primary)`) and `remove_record` releases the record's own multiplicity instead of the singleton, so identifiers are no longer leaked. A three-copy ligand is editable, modifiable and deletable from the menu. Pinned by `test_multi_copy_record_can_be_edited_and_deleted`, `test_multi_copy_record_releases_every_identifier_on_delete`, `test_multi_copy_ligand_is_deletable_through_the_menu` and `test_multi_copy_record_can_carry_a_modification`.
 
-### BUG-005 — "Back" in the quantity submenu silently discards the entity
+### BUG-005 â€” "Back" in the quantity submenu silently discards the entity
 * **Severity:** medium
-* **Reproduction:** Add an entity → Ligand → CCD → `ATP` → Back at
+* **Reproduction:** Add an entity â†’ Ligand â†’ CCD â†’ `ATP` â†’ Back at
   `How many copies?`.
 * **Expected:** return to the previous step (the ligand value) or say the add was
   cancelled.
@@ -501,13 +501,13 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 * **Files:** `ui/render/menus.py:_ask_quantity`, `_add_entity`.
 * **Required correction:** say the add was cancelled, and prefer offering a
   default copy count rather than a dead end.
-* **Regression test:** Back at the quantity menu ⇒ a cancellation notice and no
+* **Regression test:** Back at the quantity menu â‡’ a cancellation notice and no
   new record.
-* **Status:** **FIXED & VERIFIED** — every abandoned add announces itself (`menu.add_cancelled`: `Cancelled — nothing was added.`), so Back can no longer be mistaken for stepping back one screen. Pinned by `test_back_at_the_quantity_menu_says_nothing_was_added` and `test_back_at_the_ligand_kind_menu_says_nothing_was_added`.
+* **Status:** **FIXED & VERIFIED** â€” every abandoned add announces itself (`menu.add_cancelled`: `Cancelled â€” nothing was added.`), so Back can no longer be mistaken for stepping back one screen. Pinned by `test_back_at_the_quantity_menu_says_nothing_was_added` and `test_back_at_the_ligand_kind_menu_says_nothing_was_added`.
 
-### BUG-006 — Ligands are offered as modification carriers
+### BUG-006 â€” Ligands are offered as modification carriers
 * **Severity:** medium
-* **Reproduction:** Bonds… → 3 Add a modification → pick a ligand.
+* **Reproduction:** Bondsâ€¦ â†’ 3 Add a modification â†’ pick a ligand.
 * **Expected:** only polymers are offered.
 * **Actual:** the ligand is offered, then refused with a message about editing
   ligands (`menu.entity_no_fields`), which is the wrong subject.
@@ -519,9 +519,9 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
   add a registered "no polymer carries modifications yet" note.
 * **Regression test:** with only a ligand present, the PTM picker reports the
   registered note and adds nothing.
-* **Status:** **FIXED & VERIFIED** — the PTM picker is restricted to protein, RNA and DNA; when none exists the screen says `No protein, RNA, or DNA chain to modify yet — add one first (ligands carry no modifications).` Pinned by `test_ligand_is_not_offered_as_a_modification_carrier`.
+* **Status:** **FIXED & VERIFIED** â€” the PTM picker is restricted to protein, RNA and DNA; when none exists the screen says `No protein, RNA, or DNA chain to modify yet â€” add one first (ligands carry no modifications).` Pinned by `test_ligand_is_not_offered_as_a_modification_carrier`.
 
-### BUG-007 — No explicit save action; "Open saved work" is ambiguous
+### BUG-007 â€” No explicit save action; "Open saved work" is ambiguous
 * **Severity:** medium
 * **Reproduction:** create a job, look for a way to save it.
 * **Expected:** a clearly labelled save action that reports the path it wrote.
@@ -535,9 +535,9 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
   menu, reporting the exact path written and refusing to write an invalid job.
 * **Regression test:** the new option writes `<out>/<slug>/<slug>.json` and
   prints the path; on an incomplete job it refuses with the missing fields named.
-* **Status:** **FIXED & VERIFIED** — the master menu now offers `5) Save the job (write its AF3 JSON)`, which plans through the same reviewed serializer, confirms, writes and prints `Saved to <path>`; an incomplete job is refused with the missing-field list, and a cancellation writes nothing. Pinned by `test_save_action_writes_the_json_and_names_the_path`, `test_save_action_refuses_an_incomplete_job`, `test_save_action_cancelled_writes_nothing` and the end-to-end `test_option_5_save_reports_the_path_and_writes_valid_json`.
+* **Status:** **FIXED & VERIFIED** â€” the master menu now offers `5) Save the job (write its AF3 JSON)`, which plans through the same reviewed serializer, confirms, writes and prints `Saved to <path>`; an incomplete job is refused with the missing-field list, and a cancellation writes nothing. Pinned by `test_save_action_writes_the_json_and_names_the_path`, `test_save_action_refuses_an_incomplete_job`, `test_save_action_cancelled_writes_nothing` and the end-to-end `test_option_5_save_reports_the_path_and_writes_valid_json`.
 
-### BUG-008 — Generate menu numbering changes meaning between states
+### BUG-008 â€” Generate menu numbering changes meaning between states
 * **Severity:** medium
 * **Reproduction:** open Generate JSON with and without variants defined.
 * **Expected:** each number means one thing.
@@ -550,48 +550,48 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 * **Required correction:** always render the same numbering, disabling variant
   rows with a clear note when there are no variants.
 * **Regression test:** the same digits reach the same handlers in both states.
-* **Status:** **FIXED & VERIFIED** — the Generate screen always renders the same four rows; while no variants exist, rows 2 and 3 say `no variants to write yet` instead of the output-directory row moving up. Pinned by `test_generate_numbering_is_the_same_with_and_without_variants` and `test_generate_screen_numbering_is_stable_without_variants`.
+* **Status:** **FIXED & VERIFIED** â€” the Generate screen always renders the same four rows; while no variants exist, rows 2 and 3 say `no variants to write yet` instead of the output-directory row moving up. Pinned by `test_generate_numbering_is_the_same_with_and_without_variants` and `test_generate_screen_numbering_is_stable_without_variants`.
 
-### BUG-009 — An unrecognised menu choice re-renders silently in some submenus
+### BUG-009 â€” An unrecognised menu choice re-renders silently in some submenus
 * **Severity:** low
 * **Reproduction:** at any submenu type a letter that is not a number.
-* **Actual:** `Not a valid choice: 'x'` then the menu re-renders — correct. But
+* **Actual:** `Not a valid choice: 'x'` then the menu re-renders â€” correct. But
   `_numbered_choice` recurses into itself to re-ask, which is unbounded
   recursion on a stream that never ends.
 * **Root cause:** `return self._numbered_choice(None, entries, back_note)  # re-ask`.
 * **Files:** `ui/render/menus.py:_numbered_choice` (~line 1199).
 * **Required correction:** loop instead of recursing.
 * **Regression test:** a long run of invalid choices does not exhaust the stack.
-* **Status:** **FIXED & VERIFIED** — `_numbered_choice` re-asks in a loop instead of recursing, so an unrecognised choice is reported and the screen survives; a script of 200 invalid choices no longer raises. Pinned by `test_many_invalid_choices_do_not_exhaust_the_stack` and `test_invalid_master_choice_is_reported_and_the_menu_survives`.
+* **Status:** **FIXED & VERIFIED** â€” `_numbered_choice` re-asks in a loop instead of recursing, so an unrecognised choice is reported and the screen survives; a script of 200 invalid choices no longer raises. Pinned by `test_many_invalid_choices_do_not_exhaust_the_stack` and `test_invalid_master_choice_is_reported_and_the_menu_survives`.
   depth; Python's recursion limit makes it unlikely in practice)
 
-### BUG-010 — `set_representation` would crash on an empty CCD code
+### BUG-010 â€” `set_representation` would crash on an empty CCD code
 * **Severity:** low (currently unreachable from the menu)
 * **Reproduction:** call `ConfigurationService.set_representation(key, codes="")`.
 * **Actual:** `ComponentCode("")` raises `ValueTypeError`, escaping the
-  `(ValueError, TypeError)` handler — the same class of bug as BUG-001.
+  `(ValueError, TypeError)` handler â€” the same class of bug as BUG-001.
 * **Files:** `configbuilder/app/configuration_service.py:485-511`.
 * **Required correction:** catch `ModelError` here too (defensive, so a future
   menu route cannot reintroduce BUG-001).
-* **Status:** **FIXED & VERIFIED** — `set_representation` catches `ModelError`, so an empty CCD code is refused instead of raised. Pinned by `test_blank_ccd_representation_is_refused_not_raised`.
+* **Status:** **FIXED & VERIFIED** â€” `set_representation` catches `ModelError`, so an empty CCD code is refused instead of raised. Pinned by `test_blank_ccd_representation_is_refused_not_raised`.
 
-### BUG-011 — `GenerationService._reviewed` is shared mutable state
+### BUG-011 â€” `GenerationService._reviewed` is shared mutable state
 * **Severity:** medium
 * **Reproduction:** plan a base run, then call `execute()` twice, or plan a
   variant run and execute a stale base plan.
 * **Actual:** `execute(plan)` ignores the plan it is given and writes
-  `self._reviewed` — whatever was planned last.
+  `self._reviewed` â€” whatever was planned last.
 * **Root cause:** the reviewed plan is stashed on the service rather than
   carried by the returned plan object.
 * **Files:** `configbuilder/app/generation_service.py:plan`, `plan_base`, `execute`.
 * **Required correction:** carry the reviewed plan inside `GenerationPlan`.
 * **Regression test:** executing plan A after planning B writes A's payloads.
-* **Status:** **FIXED & VERIFIED** — the reviewed plan travels inside the `GenerationPlan` it belongs to (`GenerationPlan.reviewed`) instead of a shared `GenerationService._reviewed`, so executing one plan can no longer write another's bytes. Pinned by `test_execute_writes_the_plan_it_was_handed`.
+* **Status:** **FIXED & VERIFIED** â€” the reviewed plan travels inside the `GenerationPlan` it belongs to (`GenerationPlan.reviewed`) instead of a shared `GenerationService._reviewed`, so executing one plan can no longer write another's bytes. Pinned by `test_execute_writes_the_plan_it_was_handed`.
   executes immediately after planning, but it is a real correctness hazard.
 
-### BUG-012 — Batch sequence files are undocumented in the application
+### BUG-012 â€” Batch sequence files are undocumented in the application
 * **Severity:** low
-* **Reproduction:** Variants → 3 Generate variants from a sequence file.
+* **Reproduction:** Variants â†’ 3 Generate variants from a sequence file.
 * **Expected:** the accepted format is stated on screen.
 * **Actual:** the prompt says only `Sequence file (one sequence per line)`.
   The real format is: one protein sequence per line, blank lines ignored,
@@ -599,12 +599,12 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 * **Files:** `ui/present/strings.py:menu.ask_sequence_file`;
   `persistence/sequences.py:read_sequence_file`; `app/batch_variants.py`.
 * **Required correction:** state the format and the rejection rules in the prompt.
-* **Status:** **FIXED & VERIFIED** — the accepted format is stated on screen before the file picker: one protein sequence per line, blank lines ignored, duplicates and unsupported characters reported with their line numbers, and nothing created unless every line is valid. Pinned by `test_option_3_batch_from_a_sequence_file` (which asserts the on-screen format text) and `test_option_3_batch_reports_invalid_lines_by_number`.
+* **Status:** **FIXED & VERIFIED** â€” the accepted format is stated on screen before the file picker: one protein sequence per line, blank lines ignored, duplicates and unsupported characters reported with their line numbers, and nothing created unless every line is valid. Pinned by `test_option_3_batch_from_a_sequence_file` (which asserts the on-screen format text) and `test_option_3_batch_reports_invalid_lines_by_number`.
 
 ---
 
-### BUG-013 — The master menu's working-copy hint names an option that is not on it
-* **Severity:** low (menu clarity — the same class of defect as BUG-007)
+### BUG-013 â€” The master menu's working-copy hint names an option that is not on it
+* **Severity:** low (menu clarity â€” the same class of defect as BUG-007)
 * **Reproduction:** open a job and read the master menu.
 * **Expected:** a screen's hint refers to an action by the wording *that screen* displays.
 * **Actual:** the hint read `re-open it any time with Open saved work`, but
@@ -614,15 +614,15 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 * **Files:** `ui/present/strings.py:menu.work_held`; `ui/render/menus.py:_master_menu`.
 * **Required correction:** give the master menu its own hint naming its own option,
   and keep the start screen's wording, where "Open saved work" is the real label.
-* **Fix applied:** added `menu.work_held_master` (`Working copy: kept automatically — restore it any time with 'Recover the last working copy'`) and used it in
+* **Fix applied:** added `menu.work_held_master` (`Working copy: kept automatically â€” restore it any time with 'Recover the last working copy'`) and used it in
   `_master_menu`; `menu.work_held` stays on the start screen, where it is accurate.
-* **Status:** **FIXED & VERIFIED** — pinned by
+* **Status:** **FIXED & VERIFIED** â€” pinned by
   `test_master_menu_hint_names_a_label_shown_on_that_menu` and
   `test_start_screen_hint_still_names_its_own_option`.
 
 ---
 
-### BUG-014 — A multi-component ligand cannot be bonded residue by residue
+### BUG-014 â€” A multi-component ligand cannot be bonded residue by residue
 * **Severity:** high (a documented AF3 workflow could not be produced at all)
 * **Reproduction:** import AF3's own `examples/rnaseb_glycosylated.json` and
   generate; or add a five-code glycan and bond it at residue 2.
@@ -633,23 +633,23 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
   not be reproduced by the builder in any way.
 * **Root cause:** `check_r_bnd_003` treated every `ComponentRecord` as
   single-residue (`endpoint.residue.value != 1`). AF3 numbers a ligand's
-  residues one per CCD code — `Ligand.__len__` is `len(ccd_ids)` — and its
+  residues one per CCD code â€” `Ligand.__len__` is `len(ccd_ids)` â€” and its
   docs say residue is "1-based residue index *within* the chain. For
   single-residue ligands, this is simply set to 1".
 * **Files:** `validation/rules/bond_rules.py`.
 * **Fix applied:** the residue count is derived from the representation
-  (`fold_representation`: `ByCode` → number of codes, `ByNotation` → 1) and the
+  (`fold_representation`: `ByCode` â†’ number of codes, `ByNotation` â†’ 1) and the
   endpoint must fall in 1..N; the single-component message is unchanged.
-* **Status:** **FIXED & VERIFIED** — three rule tests, the corpus glycan case,
+* **Status:** **FIXED & VERIFIED** â€” three rule tests, the corpus glycan case,
   and AF3's parser accepting the emitted bonded glycan.
 
-### BUG-015 — A description is dropped on import for DNA and ligand entries
+### BUG-015 â€” A description is dropped on import for DNA and ligand entries
 * **Severity:** medium (silent data loss on a normal round trip)
 * **Reproduction:** import any AF3 example that annotates a DNA strand or a
   ligand, then generate. Six of AF3's thirteen examples do.
-* **Expected:** §4's `description` applies to protein, RNA, DNA and ligand
+* **Expected:** Â§4's `description` applies to protein, RNA, DNA and ligand
   entries alike and survives import.
-* **Actual:** protein and RNA kept it; DNA and ligand lost it — although the
+* **Actual:** protein and RNA kept it; DNA and ligand lost it â€” although the
   importer's own `_KNOWN_FAMILY_FIELDS` advertises the field for all four.
 * **Root cause:** `_import_entity` read the description *after* the ligand
   branch had already returned, and the DNA branch never passed it on.
@@ -657,15 +657,15 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 * **Fix applied:** read once before the family dispatch, then pass it to
   `ComponentRecord` and `FamilyCRecord`; absent stays `Unset` and empty stays
   `ExplicitEmpty`.
-* **Status:** **FIXED & VERIFIED** — four tests, and the round trip now matches
+* **Status:** **FIXED & VERIFIED** â€” four tests, and the round trip now matches
   AF3's own files field for field (13/13).
 
-### BUG-016 — The CCD submenu's "code(s)" route glued a multi-code ligand into one component
+### BUG-016 â€” The CCD submenu's "code(s)" route glued a multi-code ligand into one component
 * **Severity:** high (the advertised multi-component ligand was unusable, and
   the emitted file named a chemistry that does not exist)
-* **Reproduction:** Edit the job → Bonds, modifications & custom components →
-  add a ligand → choose `CCD code(s)` → type `NAG NAG BMA MAN MAN`.
-* **Expected:** the label promises "CCD code(s) — e.g. ATP, or several separated
+* **Reproduction:** Edit the job â†’ Bonds, modifications & custom components â†’
+  add a ligand â†’ choose `CCD code(s)` â†’ type `NAG NAG BMA MAN MAN`.
+* **Expected:** the label promises "CCD code(s) â€” e.g. ATP, or several separated
   by spaces"; the contract's multi-component ligand (a glycan, an ion/water
   group) is a *list* of codes.
 * **Actual:** `kind="ccd"` routed to `_ccds`, which read the whole text as one
@@ -676,41 +676,41 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 * **Files:** `app/configuration_service.py`.
 * **Fix applied:** `_ccds` splits on whitespace, commas and semicolons for every
   route, so the submenu, the typed route and the fixtures all agree.
-* **Status:** **FIXED & VERIFIED** — four tests (component list, wire
+* **Status:** **FIXED & VERIFIED** â€” four tests (component list, wire
   `ccdCodes`, unchanged single-code/SMILES routes, and a bonded glycan
   generated end to end), plus AF3 accepting the emitted document.
 
-### BUG-017 — An unusable output directory ended the session with a traceback
+### BUG-017 â€” An unusable output directory ended the session with a traceback
 * **Severity:** high (a typed name killed the session; the work in progress lived
   only in the working copy)
 * **How it surfaced:** playtesting the shipped CLI (``python -m configbuilder``)
-  with piped stdin — the user's own surface, not the scripted console. The
+  with piped stdin â€” the user's own surface, not the scripted console. The
   output directory was named after an existing **file**, and separately after
   ``nul``, the Windows reserved device name.
 * **Expected:** the same in-menu refusal every other unusable choice gets, with
   the session still running.
-* **Actual:** ``OSError`` propagated out of ``output.execute`` — both of its
-  ``except`` branches re-raised — so the user saw a Python traceback and the
+* **Actual:** ``OSError`` propagated out of ``output.execute`` â€” both of its
+  ``except`` branches re-raised â€” so the user saw a Python traceback and the
   process exited 1.
 * **Files:** ``output/execute.py``.
 * **Fix applied:** the executor reports the refusal through
   ``OutputResult.errors``, the same channel as plan conflicts, naming the path
-  that failed and — when the output root itself is the obstacle — saying that it
+  that failed and â€” when the output root itself is the obstacle â€” saying that it
   is a file. Only ``OSError`` is caught: a defect in this code still fails
   loudly. Per-file atomicity is unchanged, and when a later file fails after
   earlier ones were replaced the message says how many were left in place
   instead of implying a rollback.
-* **Status:** **FIXED & VERIFIED** — three new unit tests keep every atomicity
+* **Status:** **FIXED & VERIFIED** â€” three new unit tests keep every atomicity
   guarantee while asserting the report; two pre-existing atomicity tests moved
-  from "raises" to "reports" (their real intent — no partial file, no temporary
-  file, the old bytes intact — is unchanged and still asserted, and the module
+  from "raises" to "reports" (their real intent â€” no partial file, no temporary
+  file, the old bytes intact â€” is unchanged and still asserted, and the module
   docstring records why); and one end-to-end test drives the real CLI over a pipe
   and asserts exit 0, no traceback, and nothing written.
 
-### BUG-018 — A directory aimed at the importer was reported as "Permission denied"
+### BUG-018 â€” A directory aimed at the importer was reported as "Permission denied"
 * **Severity:** medium (misleading feedback: it sends the user looking for a
   permissions problem they do not have)
-* **How it surfaced:** playtesting — typing a folder path at the import prompt,
+* **How it surfaced:** playtesting â€” typing a folder path at the import prompt,
   and at the batch sequence-file prompt. Both pickers *list* directories, so
   aiming at one is an ordinary slip.
 * **Expected:** a refusal that names the actual mistake.
@@ -720,17 +720,17 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
   denied`` for a sequence file.
 * **Files:** ``app/project_service.py``, ``persistence/sequences.py``.
 * **Fix applied:** both readers answer an ``isdir`` path with ``that path is a
-  directory, not an AF3 JSON file`` / ``… not a sequence file``. The ordinary
+  directory, not an AF3 JSON file`` / ``â€¦ not a sequence file``. The ordinary
   missing-file and unreadable-file paths are unchanged.
-* **Status:** **FIXED & VERIFIED** — one service pin (both halves of the import
+* **Status:** **FIXED & VERIFIED** â€” one service pin (both halves of the import
   path, with the open job untouched), one sequence-file pin, and one test that
   the missing-file message is not swallowed by the new branch.
 
-### BUG-019 — The confirmed import installed a re-read, not what was previewed
-* **Severity:** low–medium (what-you-see-is-what-you-get; only visible when the
+### BUG-019 â€” The confirmed import installed a re-read, not what was previewed
+* **Severity:** lowâ€“medium (what-you-see-is-what-you-get; only visible when the
   file changes between the confirm screen and the answer, but then the user
   commits a document they were never shown)
-* **How it surfaced:** reviewing the import path after the playtest —
+* **How it surfaced:** reviewing the import path after the playtest â€”
   ``import_json_preview`` and ``import_json_commit`` each opened and parsed the
   file, so the preview's summary and the installed job came from two
   independent reads.
@@ -745,14 +745,14 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
   path. With no matching preview, commit reads and parses the file itself, so
   the public behaviour of a direct commit is unchanged. The five previous
   copies of the read/parse/refuse sequence collapsed into one
-  ``_prepare_import`` — the same duplication that had already let the two
+  ``_prepare_import`` â€” the same duplication that had already let the two
   halves drift over a directory path in BUG-018.
-* **Status:** **FIXED & VERIFIED** — five pins: the divergence case (file
+* **Status:** **FIXED & VERIFIED** â€” five pins: the divergence case (file
   rewritten after the preview), the no-preview fallback, one-shot consumption,
   a failed preview clearing the pending import, and a commit for a path other
   than the previewed one. The divergence pin was checked against the old
   behaviour and fails there, so it has teeth rather than merely describing the
-  new code. The AF3 round trip (import → re-emit → AF3 parser) still
+  new code. The AF3 round trip (import â†’ re-emit â†’ AF3 parser) still
   reports 13/13 identical.
 
 ---
@@ -761,45 +761,45 @@ Each journey was driven end-to-end through the **real** `MenuApp` with a
 
 Ordered by dependency. Every task names its acceptance criterion and its test.
 
-### Phase 2 — Menu, state and input validation *(highest priority)*
+### Phase 2 â€” Menu, state and input validation *(highest priority)*
 
 | # | Task | Files | Acceptance | Test |
 |---|---|---|---|---|
 | 2.1 | Fix BUG-001 / BUG-010: catch `ModelError` where the model raises it | `app/configuration_service.py` | a blank PTM code is refused, never raised | menu script + service unit test |
 | 2.2 | Fix BUG-004: resolve records by multiplicity membership | `app/configuration_service.py` | a 3-copy record is editable and deletable | service unit test + menu script |
 | 2.3 | Fix BUG-006: restrict the PTM picker to polymers | `ui/render/menus.py`, `ui/present/strings.py` | ligands are never offered as carriers | menu script |
-| 2.4 | Fix BUG-002: integer prompts give actionable messages | `ui/render/menus.py` | `abc` ⇒ registered whole-number message | menu script |
-| 2.5 | Fix BUG-005: cancellation is announced | `ui/render/menus.py`, `strings.py` | Back ⇒ a cancellation notice, no record | menu script |
+| 2.4 | Fix BUG-002: integer prompts give actionable messages | `ui/render/menus.py` | `abc` â‡’ registered whole-number message | menu script |
+| 2.5 | Fix BUG-005: cancellation is announced | `ui/render/menus.py`, `strings.py` | Back â‡’ a cancellation notice, no record | menu script |
 | 2.6 | Fix BUG-009: `_numbered_choice` loops instead of recursing | `ui/render/menus.py` | 200 invalid choices do not raise | unit test |
 | 2.7 | Fix BUG-007: add an explicit save action reporting the path | `ui/render/menus.py`, `strings.py` | the option writes the JSON and prints the path | menu script + file assertion |
 | 2.8 | Fix BUG-008: stable Generate numbering | `ui/render/menus.py`, `strings.py` | the same digit reaches the same handler in both states | menu script |
 
-### Phase 3 — JSON construction and preview honesty
+### Phase 3 â€” JSON construction and preview honesty
 
 | # | Task | Files | Acceptance | Test |
 |---|---|---|---|---|
-| 3.1 | Fix BUG-003: preview runs the same validation gate | `app/generation_service.py` | empty job ⇒ refusal, not `[]` | unit + menu script |
+| 3.1 | Fix BUG-003: preview runs the same validation gate | `app/generation_service.py` | empty job â‡’ refusal, not `[]` | unit + menu script |
 | 3.2 | Fix BUG-011: carry the reviewed plan in the plan object | `app/generation_service.py` | `execute(A)` after planning B writes A | unit test |
-| 3.3 | Verify preview == written bytes for base and variant | — | byte equality | integration test |
-| 3.4 | Verify the AF3 contract for every entity type and field | — | matches `AUTHORITATIVE_SPEC.md` | golden fixtures + semantic checks |
+| 3.3 | Verify preview == written bytes for base and variant | â€” | byte equality | integration test |
+| 3.4 | Verify the AF3 contract for every entity type and field | â€” | matches `AUTHORITATIVE_SPEC.md` | golden fixtures + semantic checks |
 
-### Phase 4 — Variants
+### Phase 4 â€” Variants
 
 | # | Task | Files | Acceptance | Test |
 |---|---|---|---|---|
-| 4.1 | Confirm base immutability across every variant route | — | base bytes unchanged after all variant operations | integration test |
+| 4.1 | Confirm base immutability across every variant route | â€” | base bytes unchanged after all variant operations | integration test |
 | 4.2 | Confirm batch independence and reporting | `app/batch_variants.py` | variant 3 does not inherit variant 2's edit | existing + new test |
-| 4.3 | Confirm concentration progression and quantities | `app/variant_service.py` | `start × factor^(n-1)`; ids unique | existing + new test |
+| 4.3 | Confirm concentration progression and quantities | `app/variant_service.py` | `start Ã— factor^(n-1)`; ids unique | existing + new test |
 | 4.4 | Fix BUG-012: document the batch file format on screen | `strings.py` | the prompt states the format | menu script |
 
-### Phase 5 — Test and resolve
+### Phase 5 â€” Test and resolve
 
-Run unit → integration → menu end-to-end; reproduce every defect above; fix at
+Run unit â†’ integration â†’ menu end-to-end; reproduce every defect above; fix at
 the root; add a regression test per fixed defect; re-run the affected suites.
 
-### Phase 6 — Documentation and delivery
+### Phase 6 â€” Documentation and delivery
 
-Update §F with real results, files changed, limitations, and the acceptance
+Update Â§F with real results, files changed, limitations, and the acceptance
 checklist; verify the launch and test commands from a clean directory.
 
 ---
@@ -810,7 +810,7 @@ checklist; verify the launch and test commands from a clean directory.
 > anticipated. Environment: Windows, Python 3.11.15
 > (`.../venv/Scripts/python.exe`), working directory
 > `C:/Users/Chris/Desktop/THESISSP`. Nothing here was measured against a live
-> AlphaFold 3 installation (§F.7).
+> AlphaFold 3 installation (Â§F.7).
 
 ### F.1 Baseline (before any repair)
 
@@ -831,6 +831,11 @@ Note on the command: `pyproject.toml` sets `addopts = "-q"`, so typing
 **no summary line**. Both forms exit `0`; `-o addopts=""` restores the summary.
 915 tests are collected, of which 1 is skipped by design.
 
+> **Corrected by §G.** The `895 passed` figure above is stale. Now that `tests/`
+> is under version control the count is reconcilable, and the actual result is
+> **914 passed, 1 skipped, exit 0** (915 collected). See §G.13.3 for the
+> reconciliation and the per-area check.
+
 Collection by area:
 
 | Area | Tests | Area | Tests |
@@ -846,14 +851,14 @@ Collection by area:
 
 Added or extended by this audit:
 
-* `tests/unit/ui/test_audit_regressions.py` — **26 tests** (new file), at least
-  one pinning each of BUG-001…BUG-016. All pass.
-* `tests/e2e/test_menu_acceptance.py` — **34 tests** (new file) driving the real
+* `tests/unit/ui/test_audit_regressions.py` â€” **26 tests** (new file), at least
+  one pinning each of BUG-001â€¦BUG-016. All pass.
+* `tests/e2e/test_menu_acceptance.py` â€” **34 tests** (new file) driving the real
   `MenuApp` through every master-menu option via `ScriptedConsole`. All pass.
-* `tests/unit/ui/test_numbered_flows.py` — the master-menu assertion updated from
+* `tests/unit/ui/test_numbered_flows.py` â€” the master-menu assertion updated from
   six options to seven, plus a new stable-numbering test.
 
-The suite grew from 825 to 896 collected tests (eleven of the added tests came from the second pass, §F.11). A file-by-file delta against a
+The suite grew from 825 to 896 collected tests (eleven of the added tests came from the second pass, Â§F.11). A file-by-file delta against a
 committed baseline is not computable here: `git ls-files tests` returns **0**
 files, because `.gitignore` excludes `tests/`. The growth beyond the tests listed
 above comes from pre-existing test files this audit also edited.
@@ -882,7 +887,7 @@ Master menu (all seven options):
 | 7) Import an AF3 JSON file | as on the start screen |
 
 The master menu also states the two facts a beginner needs before touching
-anything: `Variants: N`, `Working copy: kept automatically — restore it any time
+anything: `Variants: N`, `Working copy: kept automatically â€” restore it any time
 with 'Recover the last working copy'`, and
 `Nothing is written to disk until you save or generate.`
 
@@ -893,10 +898,10 @@ exception raised at any point). The harness is the project's own
 `ScriptedConsole` feeding numbered choices and typed answers to the same
 `MenuApp` a human uses.
 
-**Journey A — new job → protein → Save the job.**
-`1 New job` → name `smoke_job` → `1 Edit the job` → `1 Entities` →
-`1 Add an entity` → `1 Protein` → sequence → MSA `n` → templates `n` → back to
-the master menu → `5 Save the job` → `1` confirm. Result: exactly one file,
+**Journey A â€” new job â†’ protein â†’ Save the job.**
+`1 New job` â†’ name `smoke_job` â†’ `1 Edit the job` â†’ `1 Entities` â†’
+`1 Add an entity` â†’ `1 Protein` â†’ sequence â†’ MSA `n` â†’ templates `n` â†’ back to
+the master menu â†’ `5 Save the job` â†’ `1` confirm. Result: exactly one file,
 `smoke-job/smoke-job.json`, reported as written. Read back:
 
 ```
@@ -905,11 +910,11 @@ name       = 'smoke-job'   version = 4   dialect = 'alphafold3'
 modelSeeds = [1]           sequences = 1  first record = protein
 ```
 
-**Journey B — new job → protein → batch variants → generate.**
-Same opening, then `3 Variants` → `3 Generate variants from a sequence file`
-(the format paragraph appears before the picker) → a three-line file with a blank
-line → `1 Create a variant for each entry` → `Batch applied: 3 variants
-generated` → `4 Generate JSON` → `2 Generate all variant JSONs` → `y`.
+**Journey B â€” new job â†’ protein â†’ batch variants â†’ generate.**
+Same opening, then `3 Variants` â†’ `3 Generate variants from a sequence file`
+(the format paragraph appears before the picker) â†’ a three-line file with a blank
+line â†’ `1 Create a variant for each entry` â†’ `Batch applied: 3 variants
+generated` â†’ `4 Generate JSON` â†’ `2 Generate all variant JSONs` â†’ `y`.
 Result: four files, each reported as written:
 
 ```
@@ -921,11 +926,11 @@ smoke-var/smoke-var__batch-03/smoke-var__batch-03.json
 
 Each variant file carried the same five keys as the base, `name` equal to its own
 file stem, `version = 4`, `dialect = 'alphafold3'`, `modelSeeds = [1]`, and
-**2 sequences** — the untouched base protein plus the one protein the variant
+**2 sequences** â€” the untouched base protein plus the one protein the variant
 added. The base record was verified byte-identical afterwards
 (`test_base_is_byte_identical_after_variant_work`).
 
-Beyond these two journeys, every journey listed in §C is exercised by the
+Beyond these two journeys, every journey listed in Â§C is exercised by the
 acceptance suite, including: an incomplete job refused at Generate and at Save;
 an overwrite refused when the bytes differ; variant management
 (duplicate/delete); the quantity series; import of a valid file, a malformed
@@ -949,11 +954,11 @@ varied afterwards; and every cancellation path leaving the job unchanged.
 | Write safety | atomic per file; the default policy `Fail` refuses to overwrite different bytes |
 | Blocked writes | nothing is written when validation blocks; the findings are printed |
 
-These were confirmed from files the application itself wrote during §F.4 and, for
+These were confirmed from files the application itself wrote during Â§F.4 and, for
 the per-family details, by the pre-existing `tests/contract`, `tests/golden` and
 `tests/serialization` suites, which still pass. They are all *internal* checks,
-though — they compare the output against this project's own specification.
-§F.11 re-checks the same claim with AlphaFold 3's own parser.
+though â€” they compare the output against this project's own specification.
+Â§F.11 re-checks the same claim with AlphaFold 3's own parser.
 
 ### F.6 Defects fixed
 
@@ -981,12 +986,18 @@ though — they compare the output against this project's own specification.
 
 Nineteen defects confirmed, nineteen fixed, every one with a regression pin. No
 defect was closed by weakening a check: each pin asserts the user-visible outcome
-— the message, the record, or the bytes on disk. BUG-014, BUG-015 and BUG-016
-were found only by §F.11's validation against AF3 itself, BUG-017 and BUG-018
-only by the §F.12 playtest, and BUG-019 by reviewing the import path
+â€” the message, the record, or the bytes on disk. BUG-014, BUG-015 and BUG-016
+were found only by Â§F.11's validation against AF3 itself, BUG-017 and BUG-018
+only by the Â§F.12 playtest, and BUG-019 by reviewing the import path
 afterwards; the first thirteen were found by the code-and-menu audit.
 
 ### F.7 Known limitations
+
+> **Two items below were closed by §G and are kept as the state at the time.**
+> Python 3.9 *has* since been executed: **914 passed, 1 skipped on 3.9.25**
+> (§G.13.6). And `tests/`, `fixtures/`, `docs/` are no longer git-ignored
+> (§G.13.1, §G.13.4), so a clone now carries the suite. The "no AF3 run"
+> limitation and the interactive-TTY limitation still stand.
 
 * **Python 3.9 is the declared target but was not executed.** `requires-python`
   is `>=3.9` and the only interpreter available here is 3.11.15. No
@@ -996,10 +1007,10 @@ afterwards; the first thirteen were found by the code-and-menu audit.
 * **No AlphaFold 3 *run* was performed** (no weights, no GPU runtime here), so
   featurisation and inference are outside this verification. AF3's own **input
   parser** *was* applied to every emitted document and to every official
-  example (§F.11); a run would be the next layer, and needs hardware this
+  example (Â§F.11); a run would be the next layer, and needs hardware this
   audit does not have. The compiled `alphafold3.cpp` extensions are also absent,
   which is why the two custom-CCD documents are reported UNVERIFIED rather than
-  passed (§F.11).
+  passed (Â§F.11).
 * **`tests/`, `fixtures/`, `testdata/` and `docs/` are git-ignored in this
   checkout** (0 tracked files under `tests/`). The new tests exist on disk and
   pass, but a `git clone` will not carry them unless the ignore rules change. The
@@ -1013,23 +1024,23 @@ afterwards; the first thirteen were found by the code-and-menu audit.
 
 ### F.8 Outstanding defects
 
-None of BUG-001…BUG-019 remains open. What is left is deliberate or out of reach
+None of BUG-001â€¦BUG-019 remains open. What is left is deliberate or out of reach
 here, and is recorded rather than hidden:
 
-1. **No "you have not written JSON yet" notice on exit** (§B.4 item 6). Not
+1. **No "you have not written JSON yet" notice on exit** (Â§B.4 item 6). Not
    implemented: the configuration cannot be lost (the `.cbproj` autosave), and the
    master menu now states `Nothing is written to disk until you save or generate.`
    A future exit hint would be a nicety, not a repair.
 2. **MSA/templates discoverability is handled in-flow, not by the option list.**
    Those questions are now chained straight onto the add/edit flow, with
-   `Skipped — edit the entity to set it later.` as the closing note, so a user
+   `Skipped â€” edit the entity to set it later.` as the closing note, so a user
    adding a chain is asked. The master menu still does not use the words "MSA" or
    "templates", so someone hunting for those words *before* adding an entity will
    not find them. Judged acceptable because the question now arrives on its own.
-3. **Verification depth limits** — the environment limits in §F.7 (no 3.9 run,
+3. **Verification depth limits** â€” the environment limits in Â§F.7 (no 3.9 run,
    no AF3 model run, no compiled `alphafold3.cpp`, no real TTY) are the honest
    boundary of this verification. The one field they exclude is `userCCD`, which
-   is exactly the field §F.11 reports as UNVERIFIED.
+   is exactly the field Â§F.11 reports as UNVERIFIED.
 
 ### F.9 Commands
 
@@ -1057,16 +1068,16 @@ and the start screen print, and the process exits with status **0**.
 
 | Requirement | Status |
 |---|---|
-| Project inspected and its real behaviour established | done (§A–§C) |
-| `JSON_BUILDER_AUDIT_AND_FINALIZATION.md` created with sections A–F | done |
-| Main menu audited option by option, first | done (§B) |
-| Every broken / inconsistent / inaccessible builder feature identified | done (§D, 16 defects) |
-| Implementation repaired according to the plan | done (§E, §F.6) |
-| Actual user workflows exercised through the real menu | done (§F.4) |
-| Generated JSON inspected and contract-checked | done (§F.5) |
-| A regression test added per fixed defect | done (16/16, §F.6) |
+| Project inspected and its real behaviour established | done (Â§Aâ€“Â§C) |
+| `JSON_BUILDER_AUDIT_AND_FINALIZATION.md` created with sections Aâ€“F | done |
+| Main menu audited option by option, first | done (Â§B) |
+| Every broken / inconsistent / inaccessible builder feature identified | done (Â§D, 16 defects) |
+| Implementation repaired according to the plan | done (Â§E, Â§F.6) |
+| Actual user workflows exercised through the real menu | done (Â§F.4) |
+| Generated JSON inspected and contract-checked | done (Â§F.5) |
+| A regression test added per fixed defect | done (16/16, Â§F.6) |
 | Full suite green after the final change | done (`895 passed, 1 skipped`) |
-| Output checked against AlphaFold 3's own parser, with controls | done (§F.11) |
+| Output checked against AlphaFold 3's own parser, with controls | done (Â§F.11) |
 | Document updated with the actual results | done (this section) |
 | Existing functionality preserved | verified: the pre-existing suite still passes and no pre-existing uncommitted change was reverted |
 
@@ -1091,13 +1102,13 @@ RESULT: PASS
 
 | Stage | Result |
 |---|---|
-| Positive control — AF3's own `examples/*.json` | **13/13 ACCEPTED** |
-| Negative control — 8 corruptions of a real AF3 example | **8/8 REJECTED**, each with AF3's own message |
-| Corpus — 21 documents built by this builder's own services | **21 ACCEPTED, 0 rejected**, 2 UNVERIFIED |
-| Round trip — AF3 example → this builder → AF3 parser | **13/13 identical and accepted** |
+| Positive control â€” AF3's own `examples/*.json` | **13/13 ACCEPTED** |
+| Negative control â€” 8 corruptions of a real AF3 example | **8/8 REJECTED**, each with AF3's own message |
+| Corpus â€” 21 documents built by this builder's own services | **21 ACCEPTED, 0 rejected**, 2 UNVERIFIED |
+| Round trip â€” AF3 example â†’ this builder â†’ AF3 parser | **13/13 identical and accepted** |
 
 The corpus covers: all four families; a three-copy record; a PTM; a
-protein↔ligand bond; a bonded five-code glycan; MSA inline and external;
+proteinâ†”ligand bond; a bonded five-code glycan; MSA inline and external;
 templates; custom CCD inline and external; descriptions on every family;
 versions 1, 2, 3 and 4; and a variant batch. The round trip compares every
 AF3-visible field per chain (`sequence`, `ccdCodes`, `smiles`, `modifications`,
@@ -1107,11 +1118,11 @@ builder emits from it.
 
 **Controls.** A harness that accepts everything proves nothing, so the parser is
 first pointed at AF3's own examples (all must pass) and then at eight deliberate
-corruptions of a real example — missing and empty `modelSeeds`, a wrong
+corruptions of a real example â€” missing and empty `modelSeeds`, a wrong
 `dialect`, `version: 5`, an unknown top-level key, an unknown chain key, a
 sequence entry with no `id`, and a bond naming an unknown chain. All eight were
 refused with AF3's own wording ("Unexpected JSON keys in: userCcd", "Invalid
-chain ID(s) in bond …"), so an ACCEPTED verdict below means something.
+chain ID(s) in bond â€¦"), so an ACCEPTED verdict below means something.
 
 **The two UNVERIFIED documents are the custom-CCD pair.** AF3 parses `userCCD` /
 `userCCDPath` with the compiled `cif_dict` extension (`alphafold3.cpp.*`), which
@@ -1120,11 +1131,11 @@ toolchain. The harness stubs those extensions **to raise**, so a stubbed check c
 never be reported as a pass, and those two documents are reported as not verified
 rather than counted green. What *is* verified for them: AF3 reads the document,
 validates every key and the mutual exclusion of `userCCD`/`userCCDPath`,
-resolves the emitted path and reads the file — and then needs the extension.
+resolves the emitted path and reads the file â€” and then needs the extension.
 (The CCD text itself is user-supplied; the builder's own decision is which field
 carries it and where the file lives.)
 
-**This stage found three real defects** — BUG-014, BUG-015 and BUG-016 — which
+**This stage found three real defects** â€” BUG-014, BUG-015 and BUG-016 â€” which
 the code-and-menu audit above had missed. They were fixed, pinned with tests,
 and every stage then passed in full.
 
@@ -1134,12 +1145,12 @@ the real CCD all happen in featurisation and inference, none of which is
 exercised here. A document accepted by this stage is one AF3 will *parse*; it is
 not a promise about what AF3 computes from it. Atom names inside
 `bondedAtomPairs`, for instance, are checked for shape and residue range only
-— by AF3's parser as well as by this builder.
+â€” by AF3's parser as well as by this builder.
 
 ### F.12 Playtest at the real surface (2026-10-04)
 
-Everything up to this point was driven through ``ScriptedConsole`` — the plan
-§18.8 harness, which is not what a user has. This pass drove the shipped entry
+Everything up to this point was driven through ``ScriptedConsole`` â€” the plan
+Â§18.8 harness, which is not what a user has. This pass drove the shipped entry
 point as a **real process**: ``python -m configbuilder`` in a temporary working
 directory, stdin from a pipe, stdout redirected (the case where a terminal is
 *absent*), every key sequence sent as text, and the exit status inspected. It is
@@ -1148,19 +1159,19 @@ a user.
 
 | Flow driven for real | Result |
 |---|---|
-| New job → add protein → generate base JSON | exit 0, `job/job.json` written, `dialect`/`version`/`modelSeeds`/`sequences`/`name` as pinned |
-| Add protein → MSA `y` → unpaired → **paste an alignment inline** → templates `n` → generate | MSA status `OK 1`; emitted `unpairedMsa` filled and `pairedMsa` `""` — exactly AF3's own documented example for an unpaired-only MSA |
-| Batch variants from a file in a directory with a space and a non-ASCII character (`THESIS SP é`) | `Batch applied: 2 variants generated`; `batch_01`, `batch_02` |
+| New job â†’ add protein â†’ generate base JSON | exit 0, `job/job.json` written, `dialect`/`version`/`modelSeeds`/`sequences`/`name` as pinned |
+| Add protein â†’ MSA `y` â†’ unpaired â†’ **paste an alignment inline** â†’ templates `n` â†’ generate | MSA status `OK 1`; emitted `unpairedMsa` filled and `pairedMsa` `""` â€” exactly AF3's own documented example for an unpaired-only MSA |
+| Batch variants from a file in a directory with a space and a non-ASCII character (`THESIS SP Ã©`) | `Batch applied: 2 variants generated`; `batch_01`, `batch_02` |
 | Import a valid AF3 file; import one from the same spaced/non-ASCII path | `JSON loaded. The job is now a normal, editable configuration.` |
-| Import — malformed, empty, whitespace-only, top-level `[]`/`null`/`"x"`/`7` | each refused with its own reason and `The original file has not been modified.`; the open job kept |
-| Import — a **directory** path | `that path is a directory, not an AF3 JSON file` (was `[Errno 13] Permission denied`) — BUG-018 |
-| Output directory — an existing **file**; `nul`; a quoted `"good"` | in-menu refusal naming the path, exit 0, nothing written (the file and `nul` cases were tracebacks before BUG-017; the quoted case shares that code path and was observed only after the fix) |
-| Output directory — valid | `Wrote good\job\job.json`; exactly one file |
-| 50 × `1` sent at once (leaning on a key) | no `RecursionError`, no traceback; the menu consumed the input in order and exited 0 |
-| FASTA header pasted into the sequence prompt | refused with the offending characters listed — no raw exception text |
+| Import â€” malformed, empty, whitespace-only, top-level `[]`/`null`/`"x"`/`7` | each refused with its own reason and `The original file has not been modified.`; the open job kept |
+| Import â€” a **directory** path | `that path is a directory, not an AF3 JSON file` (was `[Errno 13] Permission denied`) â€” BUG-018 |
+| Output directory â€” an existing **file**; `nul`; a quoted `"good"` | in-menu refusal naming the path, exit 0, nothing written (the file and `nul` cases were tracebacks before BUG-017; the quoted case shares that code path and was observed only after the fix) |
+| Output directory â€” valid | `Wrote good\job\job.json`; exactly one file |
+| 50 Ã— `1` sent at once (leaning on a key) | no `RecursionError`, no traceback; the menu consumed the input in order and exited 0 |
+| FASTA header pasted into the sequence prompt | refused with the offending characters listed â€” no raw exception text |
 | Every screen that needs variants, with none defined | `No variants defined yet.` on all of them |
 | Recover while the open job is the working copy | `Not applied: the current job is already the most recent working copy; it is kept up to date as you edit` |
-| Start screen → exit; import confirm → cancel | exit 0, no traceback, no stray output |
+| Start screen â†’ exit; import confirm â†’ cancel | exit 0, no traceback, no stray output |
 
 **What the playtest found:** BUG-017 and BUG-018 (both fixed and pinned above).
 It also cleared several suspicions rather than confirming them: a path with
@@ -1174,5 +1185,379 @@ not the application's.
 driven by injected events in unit tests, not by a console); a locked or
 permission-denied *file* target for the writer (Windows `chmod` cannot express
 one, and the read-only attribute is bypassed by ``os.replace``); and concurrent
-writers to the same output directory — the overwrite policy is checked at plan
+writers to the same output directory â€” the overwrite policy is checked at plan
 time, so two runs racing between plan and write are not guarded.
+
+## G. Release Readiness and Reproducibility (2026-10-04, later pass)
+
+> **This section supersedes every numeric claim above that it contradicts.** It
+> was written after the workspace was actually put under version control, a fresh
+> clone was made, Python 3.9 was installed and the AlphaFold 3 parser suite was
+> re-run. Where the earlier text says "895 passed, 1 skipped", "Python 3.9 was not
+> executed", or "tests/ ... are git-ignored in this checkout", this section is the
+> current record. Nothing in sections A-F was rewritten: the earlier text is kept
+> so the difference between what was claimed and what is reproducible stays
+> visible. The subsection numbers below are kept as F.13.x to avoid renumbering
+> references inside this section.
+
+Environment: Windows, CPython 3.11.15, working directory
+`C:/Users/Chris/Desktop/THESISSP`, repository `main`. Python 3.9.25 was
+downloaded with `uv` for the compatibility run.
+
+#### F.13.1 What changed, and why
+
+| # | Change | Reason (evidence) |
+|---|---|---|
+| 1 | Committed the nineteen defect repairs already sitting in the working tree (17 modified modules) as `00d862f` | `git status` showed them uncommitted; an accidental `git checkout`/`reset` would have destroyed the entire audit repair. Nothing was reverted or altered â€” the diff was committed verbatim. |
+| 2 | Stopped ignoring `tests/`, `fixtures/` and `docs/` (`fcdb090`) | `git check-ignore -v` blamed `.gitignore:32-35`; `git ls-files tests` returned **0** files, so the suite the audit reports on existed in no clone. 143 files / 703 KB are now tracked. |
+| 3 | Kept `testdata/` ignored, but anchored the rule as `/testdata/` | It holds 36 MB of MSA dumps (`adk_msa_data.json` 23.4 MB, `ubiquitin_msa_data.json` 12.0 MB) that no test, fixture or runtime module reads (HANDOFF.md records "referenced by no current test"). Root-anchoring keeps it from ever matching `tests/fixtures/`. |
+| 4 | Tracked `AUTHORITATIVE_SPEC.md` and `DOMAIN_MAPPING.md` (`6a5619d`) | **Found by the fresh-clone check, not by inspection.** Collecting `tests/contract/test_catalogue_traceability.py` raised `FileNotFoundError` and pytest exited **2** before running one test, because that file reads both. They are test input, so they were tracked rather than the test weakened or skipped. |
+| 5 | Kept `IMPLEMENTATION_PLAN.md`, `HANDOFF.md`, `CHECKLIST.md` untracked, now by explicit decision | They are read by nothing (verified by scanning `tests/`, `fixtures/`, `tools/`, `configbuilder/`). `.gitignore` now records the split and its reason instead of excluding everything by accident. |
+| 6 | Added `.venv*/` to the ignore rules | So a convenience virtualenv such as `.venv39py39` can never be staged. No virtualenv, bytecode, generated result or dataset is tracked. |
+
+No source module was changed in this pass. The only non-comment edits are the
+`.gitignore` rules; every other change is a Git tracking decision.
+
+#### F.13.1.1 Line endings: `.gitattributes` added, and why
+
+A second defect was found the same way, and it is the more serious one for any
+Windows user. `core.autocrlf` is `true` on this machine (set at **system**
+scope), and the repository had no `.gitattributes`. Git therefore rewrote every
+LF file to CRLF on checkout. Three tests failed in the fresh clone for that
+reason alone, while the original checkout passed:
+
+```console
+$ .venv\Scripts\python -m pytest -o addopts="" -q     # in the clone
+FAILED tests/golden/test_af3_pipeline_fixtures.py::test_committed_fixtures_match_a_fresh_run
+FAILED tests/golden/test_golden_fixtures.py::test_every_project_fixture_matches_its_recipe
+FAILED tests/golden/test_golden_fixtures.py::test_golden_files_follow_the_encoding_policy
+3 failed, 911 passed, 1 skipped in 57.63s
+=== EXIT: 1 ===
+```
+
+The assertions are byte-exact, and say so in their own messages:
+
+```
+E  AssertionError: golden.json
+E  assert b'\r' not in b'{\r\n  "name": "comprehensive_families_v4",\r\n ...'
+
+E  AssertionError: comprehensive_families_v4: golden bytes differ from a fresh
+E  encode(to_wire()) run; review the diff and regenerate deliberately
+E  assert b'{\n  "name"...sion": 4\n}\n' == b'{\r\n  "nam...": 4\r\n}\r\n'
+E  At index 1 diff: b'\n' != b'\r'
+```
+
+Measured directly, on the same file in both trees:
+
+```console
+fixtures/golden/project/comprehensive_families_v4/golden.json
+   original: 1212 bytes,  0 CR   |   clone: 1288 bytes, 76 CR
+fixtures/golden/project/minimal_protein_v3/golden.json
+   original:  217 bytes,  0 CR   |   clone:  233 bytes, 16 CR
+tests/fixtures/af3_pipeline/test01_protein_minimal/.../test01-protein-minimal.json
+   original:  238 bytes,  0 CR   |   clone:  256 bytes, 18 CR
+```
+
+So the repository was **not** reproducible on a default Windows Git install: the
+committed golden fixtures could not match the encoder output after checkout, so
+three tests could never pass there. The commit before this pass stored LF, which
+is what made the original checkout pass; nothing recorded that requirement.
+
+**Fix.** A new `.gitattributes` pins the two byte-compared trees, and only those:
+
+```gitattributes
+* text=auto eol=lf                       # default: normalise, never gain CR
+
+fixtures/golden/**             -text     # golden.json vs a fresh encode()
+tests/fixtures/af3_pipeline/** -text     # committed docs vs a fresh generation
+```
+
+`-text` disables all end-of-line conversion, so the bytes in the repository are
+the bytes on disk on every platform. It is deliberately **not** applied to the
+rest of the tree: `-text` also suppresses the `\\r\\n`-to-`\\n` cleanup at commit
+time, and losing that on ordinary sources would trade one line-endings bug for
+another. Verified per path with `git check-attr`:
+
+```console
+$ git check-attr text eol -- fixtures/golden/project/minimal_protein_v3/golden.json
+...: text: unset | ...: eol: lf
+$ git check-attr text eol -- configbuilder/app/cli.py
+...: text: auto | ...: eol: lf
+```
+
+An earlier version of the file put the default **after** the specific rules. That
+was wrong: gitattributes resolves per attribute with the **last matching line
+winning**, so the default silently overrode `-text`. It was caught by reading
+`git check-attr` output rather than assuming, and corrected by moving the default
+first. The file records that ordering constraint in a comment.
+
+Two further corrections were made while fixing this, both to avoid unnecessary
+churn rather than to satisfy a test: an initial broader rule would have rewritten
+`fixtures/projects/*.cbproj` and a `.txt` fixture from LF to CRLF for no benefit
+(no test compares those bytes), so it was narrowed to the two trees above and the
+index entries for those three files were restored to their committed bytes.
+
+#### F.13.2 Exact commands and their real results
+
+```console
+$ git status --porcelain=v1            # before any change: 17 M + 2 ??
+$ git check-ignore -v tests fixtures testdata docs
+.gitignore:32:tests/    tests
+.gitignore:33:fixtures/ fixtures
+.gitignore:34:testdata/ testdata
+.gitignore:35:docs/     docs
+$ git ls-files | ...                   # before: tests = 0 files
+```
+
+After the ignore correction:
+
+```console
+$ python -m pytest -q
+...................................................                      [100%]
+=== EXIT: 0 ===                        # 914 passed, 1 skipped (summary suppressed, see F.2)
+
+$ python -m pytest -o addopts="" -q
+914 passed, 1 skipped in 42.53s
+=== EXIT: 0 ===
+
+$ python -m pytest -o addopts="" --collect-only -q
+915 tests collected in 1.06s
+=== EXIT: 0 ===
+```
+
+The suite is **915 collected: 914 passed, 1 skipped, 0 failed, exit 0**. The
+single skip is by design and names its platform reason:
+
+```console
+$ python -m pytest -o addopts="" -rs -q
+SKIPPED [1] tests\unit\persistence\test_sequence_files.py:50:
+    Windows cannot express a read-denied file through chmod
+```
+
+#### F.13.3 The audit's numbers, restated
+
+| Claim in Â§F | Reproduced now | Note |
+|---|---|---|
+| "895 passed, 1 skipped" | **No** â€” actual is **914 passed, 1 skipped** | Â§F.2's note said a file-by-file delta "is not computable" while `tests/` was untracked. It is computable now, and the real total is higher: 915 collected, not 896. The earlier figure under-counted because it was never reconciled against a committed baseline. |
+| "915 tests are collected, of which 1 is skipped" | **Yes** â€” 915 collected | This sentence in Â§F.2 was correct; the "895 passed" line above it was the stale one. |
+| "Collection by area" table | Consistent | Per-file collection now matches: `tests/unit/model` 170, `tests/unit/ui` 110, `tests/unit/validation` 82, `tests/unit/app` 80, `tests/unit/transform` 77, `tests/unit/identity` 67, `tests/unit/variants` 60, `tests/unit/output` 54, `tests/e2e` 49, `tests/architecture` 37, `tests/unit/persistence` 35, `tests/golden` 26, `tests/variant` 20, `tests/serialization` 16, `tests/contract` 15. |
+| `tests/unit/ui/test_audit_regressions.py` â€” 26 tests | **Yes** | 26 collected, all pass. |
+| `tests/e2e/test_menu_acceptance.py` â€” 34 tests | **Yes** | 34 collected, all pass. |
+
+Note on the documented command: `pyproject.toml` sets `addopts = "-q"`, so
+`python -m pytest -q` doubles the flag and prints progress dots with **no
+summary line**. It still exits **0**. `-o addopts=""` restores the summary.
+Both forms were run in this pass.
+
+#### F.13.4 Git tracking and the fresh-clone check
+
+Before: `git ls-files` carried only `configbuilder/` (72 files), `pyproject.toml`
+and `.github/`. Nothing else.
+
+After (`git ls-files` at `6a5619d`):
+
+| Path | Files |
+|---|---|
+| `tests/` | 124 (including 39 checked-in AF3 fixture documents) |
+| `configbuilder/` | 72 |
+| `fixtures/` | 11 |
+| `tools/af3_validation/` | 4 |
+| `docs/` | 2 (`CONTRACT_PIN.md`, `PROJECT_AUDIT.md`) |
+| root | `AUTHORITATIVE_SPEC.md`, `DOMAIN_MAPPING.md`, `JSON_BUILDER_AUDIT_AND_FINALIZATION.md`, `pyproject.toml`, `.gitignore`, `.github/` |
+
+**Fresh clone, actually performed** â€” `git clone --no-hardlinks` into a separate
+directory outside the workspace, a seeded virtualenv, then `pip install -e ".[dev]"`
+and the suite:
+
+```console
+# attempt 1 â€” FAILED, and this is the point of running it
+$ git clone --no-hardlinks . %TEMP%\cb-freshclone
+$ cd %TEMP%\cb-freshclone && uv venv --python 3.11 --seed .venv
+$ .venv\Scripts\python -m pip install -e ".[dev]"
+$ .venv\Scripts\python -m pytest -o addopts="" -q
+ERROR collecting tests/contract/test_catalogue_traceability.py
+FileNotFoundError: [Errno 2] No such file or directory:
+  '.../cb-freshclone/AUTHORITATIVE_SPEC.md'
+!!! Interrupted: 1 error during collection !!!
+=== EXIT: 2 ===
+```
+
+That failure is what produced change 4 in §F.13.1. After tracking the two
+contract documents, a **second, brand-new** clone was made (not a reuse of the
+first, which its own checkout had already contaminated):
+
+```console
+$ git clone --no-hardlinks . %TEMP%\cb-freshclone2
+$ cd %TEMP%\cb-freshclone2 && uv venv --python 3.11 --seed .venv
+$ .venv\Scripts\python -m pip install -e ".[dev]"
+$ .venv\Scripts\python -m pytest -o addopts="" -q
+3 failed, 911 passed, 1 skipped in 57.63s
+=== EXIT: 1 ===
+```
+
+**Do not read that run as a pass.** Collection worked this time, but three golden
+tests failed on CRLF line endings — the defect recorded in §F.13.1.1.
+A third clone was then made, after .gitattributes was added and the index line
+endings were restored to the bytes the tests assert. That final run is the only
+one worth quoting, and it is in §F.13.10.
+
+
+#### F.13.5 Installation and launch, as documented
+
+`pyproject.toml` declares no runtime dependencies, so installation is a bare
+`pip install`. In a seeded 3.11 virtualenv, from a working directory that is not
+the source tree:
+
+```console
+$ uv venv --python 3.11 --seed .venv
+$ .venv\Scripts\python -m pip install "C:/Users/Chris/Desktop/THESISSP"
+$ .venv\Scripts\python -m pip show configbuilder
+Name: configbuilder    Version: 0.1.0    Requires:            # no dependencies
+$ .venv\Scripts\python -c "import configbuilder, configbuilder.app.cli; print('import OK')"
+import OK
+$ .venv\Scripts\configbuilder.exe < NUL ; $LASTEXITCODE
+  1) New job / 2) Open saved work / 3) Import an AF3 JSON file / 0) Exit
+Select:  Interrupted â€” returning to the menu.
+=== EXIT: 0 ===
+$ .venv\Scripts\python -m configbuilder < NUL ; $LASTEXITCODE
+(same start screen, same exit)
+=== EXIT: 0 ===
+```
+
+Both documented entry points install, start, render the start screen and exit
+**0** with stdin at EOF, from outside the source tree. `Requires:` is empty:
+the claim that the core builder runs on the standard library alone holds for a
+real install.
+
+#### F.13.6 Python-version coverage
+
+| Interpreter | Available | Suite run | Result |
+|---|---|---|---|
+| **3.9.25** | yes â€” downloaded with `uv` for this pass | **yes** | **914 passed, 1 skipped, exit 0** |
+| 3.11.15 | yes (project interpreter) | yes | 914 passed, 1 skipped, exit 0 |
+| 3.12.7 | yes (Anaconda) | no | not exercised |
+| 3.13.2 | yes (uv) | no | not exercised |
+
+Python 3.9 is the declared floor (`requires-python = ">=3.9"`) and was the only
+version Â§F.7 recorded as *not executed*. It has now been executed:
+
+```console
+$ uv venv --python 3.9 --seed .venv39py39
+Downloaded cpython-3.9.25-windows-x86_64-none (21.7MiB)
+$ .venv39py39\Scripts\python -c "import sys; print(sys.version)"
+3.9.25 (main, Oct 31 2025, 22:56:13) [MSC v.1929 64 bit (AMD64)]
+$ .venv39py39\Scripts\python -m pip install pytest hypothesis
+$ .venv39py39\Scripts\python -m pytest -o addopts="" -q
+914 passed, 1 skipped in 58.94s
+=== EXIT: 0 ===
+```
+
+This is a run, not an inspection. The CI matrix (`.github/workflows/ci.yml`)
+gates on 3.9 on Ubuntu and Windows; the local run agrees with it on Windows.
+
+#### F.13.7 AlphaFold 3 parser validation, re-run
+
+The tooling was preserved unchanged (`tools/af3_validation/`) and is now tracked
+by Git for the first time. Re-run in this pass:
+
+```console
+$ python tools/af3_validation/setup_validator.py
+AF3 source already present: %TEMP%\af3-validator\alphafold3-main
+parser dependencies already installed: %TEMP%\af3-validator\site
+ready: .../alphafold3/common/folding_input.py
+dialect alphafold3, versions (1, 2, 3, 4)
+
+$ python tools/af3_validation/run_all.py
+RESULT: PASS
+  positive control : 13/13 accepted
+  negative control : 8/8 rejected
+  corpus           : ACCEPTED=21, UNVERIFIED=2, refused cases: none
+  round trip       : 13/13 identical and accepted
+  NOTE: 2 corpus document(s) are UNVERIFIED, not passed
+=== EXIT: 0 ===
+```
+
+Identical to Â§F.11, including both controls. Sample of the negative control's
+own wording, which is what makes an ACCEPTED verdict meaningful:
+
+```
+REJECT  unsupported version 5      ValueError: AlphaFold 3 input JSON has unsupported version: 5, expected one of (1, 2, 3, 4).
+REJECT  unknown top-level key      ValueError: Unexpected JSON keys in: userCcd
+REJECT  sequence entry without an id  ValueError: ... sequences with unset IDs.
+REJECT  bond naming an unknown chain  ValueError: Invalid chain ID(s) in bond [['Z', 1, 'CA'], ['A', 1, 'CA']]
+```
+
+**`userCCD` and `userCCDPath` remain UNVERIFIED** and are not counted as passes,
+exactly as before:
+
+```
+UNVERIFIED user_ccd_inline_v3\case\case.json
+      stubbed compiled extension needed: alphafold3.cpp.cif_dict.parse_multi_data_cif
+UNVERIFIED user_ccd_external_v3\case\case.json
+      stubbed compiled extension needed: alphafold3.cpp.cif_dict.parse_multi_data_cif
+```
+
+Nothing here was upgraded. The reason is unchanged and environmental: AF3 parses
+those two fields through `alphafold3.cpp.cif_dict`, which AF3 ships CMake targets
+for on Linux/macOS only, and this machine has no C++ toolchain. The harness stubs
+that extension **to raise**, so a stubbed check can never report a pass. Parser
+acceptance also still says nothing about featurisation or inference (Â§F.11).
+
+#### F.13.8 Remaining limitations
+
+1. **`userCCD` / `userCCDPath` â€” UNVERIFIED.** Unchanged, and now explicitly
+   carried forward. Blocked on AF3's compiled CIF parser.
+2. **No AF3 model run.** No weights, no GPU runtime. Featurisation, MSA pair
+   matching, reference conformers and inference are outside every check here.
+   Parser acceptance means "AF3 will parse this", never "AF3 will run this".
+3. **Python 3.12 and 3.13 unexercised.** Interpreters exist; only 3.9 and 3.11
+   were run. `requires-python` is `>=3.9`, so this is a coverage gap above the
+   floor, not a breach of it.
+4. **No real TTY.** Interactive behaviour is driven through `ScriptedConsole`
+   and piped stdin. Line editing, arrow keys, bracketed paste, terminal resizing
+   and Ctrl+C at a prompt remain unexercised (Â§F.7, Â§F.12).
+5. **Concurrent writers unguarded.** The output overwrite policy is checked at
+   plan time, so two runs racing between plan and write are not protected.
+6. **`IMPLEMENTATION_PLAN.md`, `HANDOFF.md` and `CHECKLIST.md` are untracked by
+   decision.** A reader of a clone does not get them; the `Â§` citations in
+   `configbuilder/` docstrings point at them. This is a documentation-completeness
+   gap, not a reproducibility one â€” nothing reads them.
+7. **`testdata/` is untracked** (36 MB, read by nothing). If it is ever needed as
+   a fixture, it must be added deliberately.
+8. **A sandbox-only note, not a project defect.** The first suite runs of this
+   pass failed with 184 setup errors from Windows permission denials on temp
+   directories, in the confined DSH session. A bundled ACL diagnostic
+   (`diagnose-windows-sandbox-acl`) was run against `.pytest_cache` and returned
+   `NOT_THIS_CLASS` / `nextAction: stop`: the ACLs were healthy and the denial
+   came from the sandbox itself. No project code caused this and no project file
+   was changed for it; the run under full access succeeded. Recorded because the
+   raw transcript shows those errors.
+
+#### F.13.9 Release checklist
+
+Commands are run from the project root. `-o addopts=""` is required only to see
+the summary line (Â§F.2); the exit code is the same either way.
+
+| # | Gate | Command | Status |
+|---|---|---|---|
+| 1 | Working tree clean, repairs committed | `git status --porcelain` | **PASS** â€” clean at `6a5619d` |
+| 2 | Suite in the working tree | `python -m pytest -o addopts="" -q` | **PASS** â€” 914 passed, 1 skipped, exit 0 |
+| 3 | Suite's summary suppressed run also green | `python -m pytest -q` | **PASS** â€” exit 0 |
+| 4 | Collection count | `python -m pytest -o addopts="" --collect-only -q` | **PASS** â€” 915 collected |
+| 5 | Suite under the declared floor | `uv venv --python 3.9 --seed .venv39py39` then `.venv39py39\Scripts\python -m pytest -o addopts="" -q` | **PASS** â€” 914 passed, 1 skipped on 3.9.25 |
+| 6 | Suite in a fresh clone | `git clone --no-hardlinks . %TEMP%\cb-freshclone2`, `pip install -e ".[dev]"`, run pytest | **PASS** â€” 914 passed, 1 skipped, exit 0 |
+| 7 | Install from a clean environment | `uv venv --python 3.11 --seed .venv`, `pip install <root>` | **PASS** â€” 0.1.0, no dependencies |
+| 8 | Both entry points start and exit cleanly | `configbuilder < NUL`; `python -m configbuilder < NUL` | **PASS** â€” exit 0 each |
+| 9 | AF3 parser, controls + corpus + round trip | `python tools/af3_validation/setup_validator.py`; `python tools/af3_validation/run_all.py` | **PASS** â€” 13/13, 8/8, 21 accepted, 13/13 identical |
+| 10 | `userCCD` parser check | same | **UNVERIFIED** â€” needs AF3's compiled CIF parser |
+| 11 | Python 3.12 / 3.13 | â€” | **NOT RUN** â€” coverage gap above the declared floor |
+| 12 | AF3 model run / featurisation | â€” | **OUT OF SCOPE** â€” no weights, no GPU runtime |
+
+**Release recommendation.** The project is reproducible from a clone: the suite,
+its fixtures, the contract documents it reads and the AF3 validation tooling all
+travel with the repository, the suite is green on the declared Python floor and
+in a fresh clone, and both documented entry points install and start. It is
+**not** verified for AF3 featurisation or inference, and the two custom-CCD
+documents remain UNVERIFIED rather than passed. Treat `userCCD`/`userCCDPath`
+as untested, and treat 3.12/3.13 as untested.
+

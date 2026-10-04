@@ -1,0 +1,42 @@
+# Line-ending policy.
+#
+# Why this file exists: the golden and pipeline fixtures are compared **byte for
+# byte** against freshly generated output, and the encoding policy they pin is
+# UTF-8 with LF and no BOM. The assertions are in
+#   tests/golden/test_golden_fixtures.py::test_golden_files_follow_the_encoding_policy
+#   tests/golden/test_golden_fixtures.py::test_every_project_fixture_matches_its_recipe
+#   tests/golden/test_af3_pipeline_fixtures.py::test_committed_fixtures_match_a_fresh_run
+#
+# Without a policy, `core.autocrlf=true` -- the default on this machine -- writes
+# CRLF into a fresh Windows checkout. The fixtures are then no longer the bytes
+# the encoder emits, and those tests fail in the clone while passing in the
+# checkout that produced them. That is exactly what happened: three of them
+# failed in real `git clone` output before this file existed.
+#
+# `-text` on the byte-exact fixtures disables all end-of-line conversion, so the
+# bytes in the repository are the bytes on disk on every platform. It is applied
+# only where a test compares bytes; the rest of the tree keeps `text=auto` so the
+# usual commit-time normalisation still applies.
+
+# Default: normalise on commit, and do not gain CR on checkout.
+* text=auto eol=lf
+
+# Byte-exact fixtures. A later matching line wins, so these come after the
+# default above.
+#
+#   fixtures/golden/**             committed golden.json vs a fresh encode
+#   tests/fixtures/af3_pipeline/** committed documents vs a fresh generation
+#
+# Note: recipe.json under fixtures/golden/ is covered by the same rule. It is
+# not compared byte-for-byte, but it is authored beside golden.json and 2-byte
+# line endings in an authored fixture are not worth the inconsistency.
+fixtures/golden/**        -text
+tests/fixtures/af3_pipeline/**  -text
+
+# Binary assets, should any be added later.
+*.png  binary
+*.jpg  binary
+*.pdf  binary
+*.gz   binary
+*.tar  binary
+*.zip  binary
