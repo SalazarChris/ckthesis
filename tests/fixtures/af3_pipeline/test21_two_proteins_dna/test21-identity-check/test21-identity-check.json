@@ -1,0 +1,36 @@
+{
+  "name": "test21-identity-check",
+  "modelSeeds": [
+    1,
+    2,
+    3
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "ACDEFGHIKL"
+      }
+    },
+    {
+      "protein": {
+        "id": "B",
+        "sequence": "MNPQRSTVWY"
+      }
+    },
+    {
+      "dna": {
+        "id": "C",
+        "sequence": "ATGCCGA"
+      }
+    },
+    {
+      "dna": {
+        "id": "D",
+        "sequence": "TCGGCAT"
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}

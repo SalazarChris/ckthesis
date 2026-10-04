@@ -27,14 +27,38 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Local development material kept out of the repository (still on disk):
-# specification/planning documents, the test suite, and its fixtures.
-tests/
-fixtures/
-testdata/
-docs/
+# ---------------------------------------------------------------------------
+# Large local reference data — kept out of the repository on purpose.
+#
+# `testdata/` holds two multi-megabyte MSA JSON dumps (23.4 MB and 12.0 MB).
+# No test, fixture or runtime module reads them: they are reference examples of
+# the protein/RNA/ligand MSA shapes, recorded in HANDOFF.md as "referenced by
+# no current test". They stay on disk and out of Git so a clone stays small.
+# Root-anchored: nothing under tests/fixtures/ is affected by this rule.
+/testdata/
+
+# The five planning/specification documents below describe how the project was
+# built rather than what it ships, and `configbuilder/` already carries the
+# traceability they provide (rule `spec_ref`s, `MAP-###` cross-references, plan
+# section citations). They remain on disk and untracked by decision, not by
+# accident. They used to be excluded by a broad `docs/` rule that also excluded
+# the two documents the code and tests *do* cite — see the note below.
 IMPLEMENTATION_PLAN.md
 AUTHORITATIVE_SPEC.md
 DOMAIN_MAPPING.md
 HANDOFF.md
 CHECKLIST.md
+
+# ---------------------------------------------------------------------------
+# Version-controlled project material (deliberately NOT ignored).
+#
+# `tests/`, `fixtures/` and `docs/` were excluded wholesale by earlier rules,
+# which left the 896-test suite, its fixtures and the contract-pin document
+# untracked: `git ls-files tests` returned 0 files, so no clone could reproduce
+# the audit's "895 passed, 1 skipped". They are tracked now.
+#
+#   tests/     the suite, including tests/fixtures/af3_pipeline/ (checked in)
+#   fixtures/  golden recipes, compatibility .cbproj files, fixture builder
+#   docs/      CONTRACT_PIN.md (cited by tests) and PROJECT_AUDIT.md
+#
+# `__pycache__/` above still excludes compiled test bytecode.

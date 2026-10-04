@@ -1,0 +1,16 @@
+{
+  "name": "minimal_protein_v3",
+  "modelSeeds": [
+    1
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "PEPTIDE"
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 3
+}

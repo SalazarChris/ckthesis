@@ -1,0 +1,20 @@
+{
+  "name": "test02-protein-msa",
+  "modelSeeds": [
+    1,
+    2,
+    3
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "ACDEFGHIKL",
+        "unpairedMsa": ">Protein_A\nACDEFGHIKL\n",
+        "pairedMsa": ">Protein_A\nACDEFGHIKL\n"
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}

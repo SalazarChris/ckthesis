@@ -1,0 +1,26 @@
+{
+  "name": "test11-protein-ccd-ligand",
+  "modelSeeds": [
+    1,
+    2,
+    3
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "ACDEFGHIKL"
+      }
+    },
+    {
+      "ligand": {
+        "id": "B",
+        "ccdCodes": [
+          "ATP"
+        ]
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}

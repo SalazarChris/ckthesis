@@ -1,0 +1,36 @@
+{
+  "name": "test17-protein-dna-ptm",
+  "modelSeeds": [
+    1,
+    2,
+    3
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "ACDEFGHIKL",
+        "modifications": [
+          {
+            "ptmType": "SEP",
+            "ptmPosition": 3
+          }
+        ]
+      }
+    },
+    {
+      "dna": {
+        "id": "B",
+        "sequence": "ATGCCGA"
+      }
+    },
+    {
+      "dna": {
+        "id": "C",
+        "sequence": "TCGGCAT"
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}

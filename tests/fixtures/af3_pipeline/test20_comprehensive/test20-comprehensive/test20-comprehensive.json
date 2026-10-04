@@ -1,0 +1,74 @@
+{
+  "name": "test20-comprehensive",
+  "modelSeeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "ACDEFGHIKL",
+        "modifications": [
+          {
+            "ptmType": "SEP",
+            "ptmPosition": 3
+          }
+        ],
+        "unpairedMsa": ">Protein_A\nACDEFGHIKL\n",
+        "pairedMsa": ">Protein_A\nACDEFGHIKL\n",
+        "templates": [
+          {
+            "mmcif": ">template\nACDEFGHIKL",
+            "queryIndices": [
+              1,
+              2
+            ],
+            "templateIndices": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "dna": {
+        "id": "B",
+        "sequence": "ATGCCGA"
+      }
+    },
+    {
+      "dna": {
+        "id": "C",
+        "sequence": "TCGGCAT"
+      }
+    },
+    {
+      "ligand": {
+        "id": "D",
+        "ccdCodes": [
+          "ATP"
+        ]
+      }
+    },
+    {
+      "ligand": {
+        "id": "E",
+        "ccdCodes": [
+          "NA"
+        ]
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}
