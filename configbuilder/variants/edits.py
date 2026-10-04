@@ -893,10 +893,21 @@ def _endpoint(endpoint):
     }
 
 
-describe_edit._presence = staticmethod(_presence)
-describe_edit._alignment = staticmethod(_alignment)
-describe_edit._single = staticmethod(_single)
-describe_edit._references = staticmethod(_references)
-describe_edit._representation = staticmethod(_representation)
-describe_edit._resource = staticmethod(_resource)
-describe_edit._endpoint = staticmethod(_endpoint)
+# The helpers are attached to ``describe_edit`` so the dispatcher above can
+# reach them without adding seven more public names to the module namespace.
+#
+# They are assigned *bare*, not through ``staticmethod``. ``describe_edit`` is a
+# function, not a class, so there is no bound-method descriptor to neutralise,
+# and wrapping them in ``staticmethod`` made every call site raise
+# ``TypeError: 'staticmethod' object is not callable`` on Python 3.9: the
+# ``staticmethod`` object itself only became callable in 3.10. ``requires-python``
+# is ``>=3.9`` and the CI matrix runs 3.9, so the wrapper silently broke variant
+# alignment, template and description round-tripping on the project's own
+# declared floor -- 29 tests failed there and none of them failed on 3.11.
+describe_edit._presence = _presence
+describe_edit._alignment = _alignment
+describe_edit._single = _single
+describe_edit._references = _references
+describe_edit._representation = _representation
+describe_edit._resource = _resource
+describe_edit._endpoint = _endpoint

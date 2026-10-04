@@ -74,7 +74,15 @@ def test_every_golden_declares_provenance():
                     "%s: project fixture without a recipe (no provenance)" % fixture.name
                 )
         elif directory.name == "external":
-            for fixture in directory.glob("*/"):
+            for fixture in directory.iterdir():
+                # ``iterdir`` + an explicit ``is_dir`` filter, not ``glob("*/")``:
+                # on Python 3.9 ``Path.glob("*/")`` also yields plain *files*
+                # (fixed in 3.11's pathlib), so the documented ``.gitkeep`` that
+                # holds this legitimately-empty directory open was being treated
+                # as an external fixture missing its provenance.json. The
+                # assertion itself is unchanged.
+                if not fixture.is_dir():
+                    continue
                 assert (fixture / "provenance.json").exists(), (
                     "%s: external fixture without provenance.json" % fixture.name
                 )
@@ -88,3 +96,29 @@ def test_fixture_directory_layout_is_not_accidental():
     """Guard the Phase 0 scaffold contract: exactly project/ + external/."""
     names = {p.name for p in GOLDEN_ROOT.iterdir() if p.is_dir() and p.name != "__pycache__"}
     assert names == {"project", "external"}
+
+
+def test_external_placeholder_is_a_file_and_not_mistaken_for_a_fixture():
+    """Python 3.9 regression: ``Path.glob("*/")`` there yields plain *files*
+    too (pathlib corrected this in 3.11), so ``external/.gitkeep`` -- the file
+    that keeps the legitimately-empty directory in Git -- was reported as an
+    external fixture without a ``provenance.json``.
+
+    Pin the placeholder's nature, and pin that the guard
+    ``test_every_golden_declares_provenance`` uses excludes it. That guard is
+    written with ``iterdir`` plus an explicit ``is_dir`` filter precisely
+    because the glob is version-dependent; asserting on the glob here would
+    fail on 3.9 for the same environmental reason and prove nothing.
+    """
+    external = GOLDEN_ROOT / "external"
+    placeholder = external / ".gitkeep"
+    assert placeholder.is_file(), "external/.gitkeep must exist to hold the directory"
+    assert not placeholder.is_dir()
+
+    dirs = [p for p in external.iterdir() if p.is_dir()]
+    assert placeholder not in dirs
+    assert all(p.name != ".gitkeep" for p in dirs)
+
+    # Every directory that survives the guard must genuinely be a fixture.
+    for candidate in dirs:
+        assert (candidate / "provenance.json").exists(), candidate.name

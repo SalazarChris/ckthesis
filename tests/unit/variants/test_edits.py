@@ -341,3 +341,53 @@ def test_describe_edit_reports_an_inline_template_source():
 def test_describe_edit_reports_an_inline_component_definition():
     described = describe_edit(SetComponentDefinition(Inline("data_LIG\n")))
     assert described["definition"] == {"form": "inline", "text": "data_LIG\n"}
+
+
+# -- the attached describe helpers (Python 3.9 regression) ----------------------
+
+
+def test_describe_edit_helpers_are_plain_callables_not_staticmethods():
+    """``describe_edit``'s attached helpers must not be ``staticmethod``
+    wrappers.
+
+    They are assigned onto a *function* (``describe_edit`` is not a class), so
+    there is no descriptor to neutralise; wrapping them made every call site
+    raise ``TypeError: 'staticmethod' object is not callable`` on Python 3.9,
+    where the ``staticmethod`` object is not itself callable (that arrived in
+    3.10). ``requires-python`` is ``>=3.9`` and CI gates on 3.9, so this broke
+    variant alignment, template, description and representation round-tripping
+    on the declared floor.
+
+    The assertion is written against the module attribute rather than by simply
+    calling the helper, because a plain call *passes* on 3.10+ even when the
+    wrapper is present -- it would prove nothing on the interpreter that runs
+    the suite here.
+    """
+    import configbuilder.variants.edits as edits_module
+
+    for name in (
+        "_presence",
+        "_alignment",
+        "_single",
+        "_references",
+        "_representation",
+        "_resource",
+        "_endpoint",
+    ):
+        attached = getattr(describe_edit, name)
+        assert not isinstance(attached, staticmethod), (
+            "%s is wrapped in staticmethod; it is not callable on Python 3.9" % name
+        )
+        assert callable(attached), "%s must be callable" % name
+        # and it must be the module-level implementation, not a copy
+        assert attached is getattr(edits_module, name), name
+
+
+def test_describe_edit_helpers_are_actually_callable_today():
+    """Call each attached helper, so a future refactor that reintroduces a
+    non-callable wrapper fails here on any interpreter."""
+    described = describe_edit(SetAlignment(EntityId("A"), AlignmentUnpairedOnly(Inline(">p1\nACDE"))))
+    assert described["alignment"]["form"] == "UnpairedOnly"
+
+    presence = describe_edit(SetDescription(EntityId("A"), Present("hello")))
+    assert presence["presence"]["form"] == "Present"
