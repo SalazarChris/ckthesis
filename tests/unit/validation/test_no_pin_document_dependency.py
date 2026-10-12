@@ -78,7 +78,11 @@ def test_installed_package_runs_without_the_repository(tmp_path):
         timeout=60,
     )
     assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
-    assert "ConfigBuilder" in result.stdout  # the menu, not a crash
+    # the menu, not a crash — the title is the registry's own wording, so a
+    # renamed banner cannot hide behind a stale installed copy
+    from configbuilder.ui.present.strings import text as _text
+
+    assert _text("menu.banner_title") in result.stdout
     assert "Traceback" not in result.stdout
     assert "Traceback" not in result.stderr
 

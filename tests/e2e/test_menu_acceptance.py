@@ -1,26 +1,31 @@
-"""Main-menu end-to-end acceptance (2026-10-03 audit, section 10.C).
+"""Job-menu end-to-end acceptance for the reworked builder.
 
 Every advertised menu option is exercised through the real ``MenuApp`` over a
 ``ScriptedConsole``: a successful path, an invalid-input path, and a
-cancellation where one exists. The resulting job state and the written JSON are
-then checked against the AF3 contract pinned in ``AUTHORITATIVE_SPEC.md``.
+cancellation where one exists. The resulting job state and the JSON actually
+written to disk are then checked against the AF3 contract pinned in
+``AUTHORITATIVE_SPEC.md``.
 
-These are integration tests, not unit tests: they drive the shipped entry point
-and assert on files on disk.
+These are integration tests, not unit tests: they drive the shipped entry
+point and assert on files on disk.
 
 Menu depth reference (see ``ui/render/menus.py``)::
 
-    start     1 New job   2 Recover   3 Import
-    master    1 Edit  2 Review  3 Variants  4 Generate  5 Save  6 Recover  7 Import
-    edit      1 Entities  2 Job settings  3 Bonds, modifications & components
-    entities  1 Add  2 Edit  3 Delete
-    family    1 Protein  2 DNA  3 RNA  4 Ligand
-    generate  1 this job  2 all variants  3 select variants  4 change output dir
-    variants  1 Create  2 Manage  3 From a sequence file  4 Quantity series
-    settings  1 name  2 version  3 seeds  4 generate seeds
+    main     1 New job   2 Open a JSON file   0 Exit
+    job      1 Edit job configurations   2 Add entity   3 Edit entity
+             4 Custom CCD management      5 PTM management
+             6 Save and show summary      7 Create variants based on this JSON
+    config   1 Job name  2 Model seeds  3 JSON version  0 Back
+    add      1 Protein   2 DNA   3 RNA   4 Ligand
+    edit     1 Edit      2 Delete   (3 Modifications for a polymer)  0 Back
+    CCD      1 View  2 Add  3 Edit  4 Remove  0 Back
+    PTM      1 View  2 Add  3 Edit  4 Remove  0 Back
+    variant  1 Set name  2 Add entity  3 Edit entity  4 Save variant and reset
+             0 Back
 
-Import, save and generate return to the master menu; an entity add returns to
-the Entities screen.
+A dirty job never leaves silently: at the job menu ``0`` asks Save / Leave
+without saving / Cancel first. Leaving variant management always restores the
+base job — a variant exists only in the file it was saved to.
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ import glob
 import json
 import os
 
+from configbuilder.model import External, Inline
 from configbuilder.ui.render.console import ScriptedConsole
 from configbuilder.ui.render.menus import MenuApp
 from configbuilder.ui.services import build_services
@@ -36,26 +42,29 @@ from configbuilder.ui.services import build_services
 PROTEIN = "ACDEFGHIKLMNPQRSTVWY"
 OTHER_PROTEIN = "MKTAYIAKQR"
 
+# main 1 New job → name → the job menu
 NEW_JOB = ["1", "job"]
-EDIT = ["1"]                    # master -> Edit the job
-ENTITIES = ["1"]                # Edit -> Entities
-ADD = ["1"]                     # Entities -> Add
-BACK = ["0"]
+# job 2 Add entity → family → that family's answers → job menu
+ADD_PROTEIN = ["2", "1", PROTEIN, "", ""]          # sequence, MSA no, templates no
+ADD_RNA = ["2", "3", "ACGU", ""]                   # sequence, MSA no
+ADD_DNA = ["2", "2", "ATGC"]                       # one strand in, a duplex out
+ADD_LIGAND = lambda value, quantity: ["2", "4", "1", value, quantity]
+# job 3 Edit entity → pick → action … → 0 → 0 back to the job menu
+LEAVE_DIRTY = ["0", "2", "0"]                      # job: leave → discard → main: exit
+LEAVE_CLEAN = ["0", "0"]                           # job: leave → main: exit
 EXIT = ["0"]
 
 
-def run(script, out_dir=None):
+def run(script, monkeypatch=None):
     services = build_services()
     console = ScriptedConsole(script)
     app = MenuApp(services, console)
-    if out_dir is not None:
-        app._output_dir = out_dir
     status = app.run()
     return status, console.transcript, services
 
 
 def written(root):
-    return sorted(glob.glob(os.path.join(root, "**", "*.json"), recursive=True))
+    return sorted(glob.glob(os.path.join(str(root), "**", "*.json"), recursive=True))
 
 
 def load(path):
@@ -64,325 +73,453 @@ def load(path):
 
 
 def protein_job():
-    """A job with one protein, returned to the master menu."""
-    return NEW_JOB + EDIT + ENTITIES + ADD + ["1", PROTEIN, "", "", "0", "0"]
+    """A job with one protein, sitting at the job menu."""
+    return NEW_JOB + ADD_PROTEIN
 
 
-def add_entity(family, *answers):
-    """Edit -> Entities -> Add -> family -> answers -> back to the master menu."""
-    return EDIT + ENTITIES + ADD + [family] + list(answers) + ["0", "0"]
-
-
-# -- the entry point and the master menu -----------------------------------
+# -- the entry point and the main menu --------------------------------------
 
 
 def test_entry_point_returns_zero_on_exit():
     status, out, _ = run(EXIT)
     assert status == 0
-    assert "ConfigBuilder" in out
+    assert "JSON CONFIGURATION BUILDER" in out
 
 
-def test_every_master_option_is_displayed():
-    status, out, _ = run(protein_job() + EXIT)
+def test_main_menu_displays_its_options():
+    status, out, _ = run(NEW_JOB + LEAVE_CLEAN)
     assert status == 0
-    for label in (
-        "1) Edit the job",
-        "2) Review configuration",
-        "3) Variants",
-        "4) Generate JSON",
-        "5) Save the job (write its AF3 JSON)",
-        "6) Recover the last working copy",
-        "7) Import an AF3 JSON file",
-        "0)  Exit",
-    ):
-        assert label in out, label
+    assert "1. New job" in out
+    assert "2. Open a JSON file" in out
+    assert "0. Exit" in out
 
 
-def test_invalid_master_choice_is_reported_and_the_menu_survives():
-    """An unknown digit is answered, and the master menu re-renders."""
-    status, out, _ = run(NEW_JOB + ["9"] + EXIT)
+def test_invalid_main_choice_is_reported_and_the_menu_survives():
+    status, out, _ = run(["9", "0"])
     assert status == 0
     assert "Not a valid choice: '9'" in out
-    assert "Current job: job" in out
+    assert "JSON CONFIGURATION BUILDER" in out
 
 
-def test_cancelling_the_start_screen_exits_cleanly():
+def test_cancelling_the_main_menu_exits_cleanly():
     status, out, _ = run([""])
     assert status == 0
 
 
-def test_the_menu_says_nothing_is_written_until_save_or_generate():
-    status, out, _ = run(protein_job() + EXIT)
+def test_new_job_arrives_with_the_documented_defaults():
+    status, out, services = run(NEW_JOB + LEAVE_CLEAN)
     assert status == 0
-    assert "Nothing is written to disk until you save or generate." in out
+    assert "Started job job." in out
+    configuration = services.projects.project.configuration
+    assert configuration.metadata.name == "job"
+    assert list(configuration.seeds.values) == [1]
+    assert configuration.records == ()
 
 
-# -- option 1: edit the job -------------------------------------------------
+def test_a_blank_job_name_is_generated_by_the_service():
+    status, out, services = run(["1", ""] + LEAVE_CLEAN)
+    assert status == 0
+    assert services.projects.project.configuration.metadata.name == "config-001"
 
 
-def test_option_1_adds_every_entity_family():
-    script = (
+# -- add entity: every family, refusals and cancellations --------------------
+
+
+def test_add_every_entity_family():
+    status, out, services = run(
         NEW_JOB
-        + add_entity("1", PROTEIN, "", "")     # protein
-        + add_entity("2", "ATGC")              # DNA (one strand in, two records)
-        + add_entity("3", "ACGU", "")          # RNA
-        + add_entity("4", "1", "ATP", "2")     # ligand, CCD, two copies
-        + EXIT
+        + ADD_PROTEIN
+        + ADD_DNA                                  # two records
+        + ADD_RNA
+        + ADD_LIGAND("ATP", "2")                   # two copies
+        + LEAVE_DIRTY
     )
-    status, out, services = run(script)
     assert status == 0
     records = services.projects.project.configuration.records
-    assert len(records) == 5  # protein + 2 DNA strands + RNA + 1 ligand record
-    assert "Applied." in out
+    assert [type(record).__name__ for record in records] == [
+        "FamilyARecord",
+        "FamilyCRecord",
+        "FamilyCRecord",
+        "FamilyBRecord",
+        "ComponentRecord",
+    ]
+    assert len(records[-1].ids.ids) == 2
+    assert out.count("Entity added.") == 4
+    assert "Traceback" not in out
 
 
-def test_option_1_rejects_an_invalid_sequence_and_keeps_the_job():
-    status, out, services = run(
-        NEW_JOB + EDIT + ENTITIES + ADD + ["1", "ACDE!!", "0", "0"] + EXIT
-    )
+def test_an_invalid_sequence_is_reported_and_nothing_is_added():
+    status, out, services = run(NEW_JOB + ["2", "1", "ACDE!!"] + LEAVE_CLEAN)
     assert status == 0
     assert "Not applied" in out
     assert services.projects.project.configuration.records == ()
 
 
-def test_option_1_job_settings_change_name_seeds_and_version():
-    script = (
-        protein_job()
-        + EDIT + ["2"]          # Edit -> Job settings
-        + ["1", "renamed"]      # set the name
-        + ["3", "1 2 3 4"]      # set the seeds
-        + ["2", "3"]            # pin version 3
-        + ["0", "0"]            # settings -> Edit -> master
-        + EXIT
+def test_add_cancellations_announce_themselves():
+    status, out, services = run(
+        NEW_JOB
+        + ["2", "1", ""]                # protein: blank sequence
+        + ["2", "4", "0"]               # ligand: back at the kind menu
+        + ["2", "4", "1", "ATP", "0"]   # ligand: back at the quantity menu
+        + LEAVE_CLEAN
     )
-    status, out, services = run(script)
+    assert status == 0
+    assert out.count("Cancelled — nothing was added.") == 3
+    assert services.projects.project.configuration.records == ()
+
+
+def test_the_quantity_choice_is_recorded_and_shown():
+    status, out, services = run(
+        NEW_JOB + ADD_LIGAND("NA", "3") + ["6", "0"] + LEAVE_DIRTY
+    )
+    assert status == 0
+    record = services.projects.project.configuration.records[0]
+    assert [entity.value for entity in record.ids.ids] == ["A", "B", "C"]
+    assert "x3" in out
+
+
+# -- edit job configurations ------------------------------------------------
+
+
+def test_job_settings_change_name_seeds_and_version():
+    status, out, services = run(
+        NEW_JOB
+        + ["1"]                        # job → config
+        + ["1", "renamed"]             # config 1: name
+        + ["2", "1 2 3 4"]             # config 2: seeds
+        + ["3", "3"]                   # config 3: version
+        + ["0"]                        # config → job
+        + LEAVE_DIRTY
+    )
     assert status == 0
     configuration = services.projects.project.configuration
     assert configuration.metadata.name == "renamed"
     assert list(configuration.seeds.values) == [1, 2, 3, 4]
+    assert "Version: v3" in out
 
 
-def test_option_1_cancel_at_every_submenu_preserves_the_job():
-    script = protein_job() + (
-        ["1", "0"]          # Edit -> back
-        + ["1", "2", "0", "0"]  # Edit -> Job settings -> back -> back
-        + ["1", "1", "0", "0"]  # Edit -> Entities -> back -> back
-        + ["1", "3", "0", "0"]  # Edit -> Bonds... -> back -> back
-        + EXIT
+def test_invalid_job_settings_are_refused_in_the_users_terms():
+    status, out, _ = run(
+        NEW_JOB
+        + ["1"]                        # job → config
+        + ["3", "9"]                   # unsupported JSON version
+        + ["2", "not seeds"]           # the service refuses
+        + ["0"]                        # config → job
+        + LEAVE_DIRTY
     )
-    status, out, services = run(script)
     assert status == 0
-    records = services.projects.project.configuration.records
-    assert len(records) == 1
-    assert records[0].sequence.text == PROTEIN
+    assert "Unsupported JSON version" in out
+    assert "Not applied" in out
+    assert "Traceback" not in out
 
 
-def test_option_1_bond_and_modification_edits():
-    """Add a PTM and a bond, then remove the PTM — all by number."""
-    script = (
-        protein_job()
-        + EDIT + ["3", "3", "1", "SEP", "5"]   # Edit -> Bonds -> add a PTM (lands on Entities)
-        + ["0", "0"]                           # Entities -> Edit -> master
-        + EDIT + ["3", "4", "1", "1"]          # Edit -> Bonds -> remove the PTM by number
-        + ["0", "0"]                           # Bonds -> Edit -> master
-        + EXIT
+def test_the_job_menu_numbering_is_stable_across_states():
+    """The job menu has one fixed action list — adding entities or variants
+    never renumbers it."""
+    _, bare, _ = run(NEW_JOB + LEAVE_CLEAN)
+    _, full, _ = run(NEW_JOB + ADD_PROTEIN + ADD_LIGAND("ATP", "1") + LEAVE_DIRTY)
+    for label in (
+        "1. Edit job configurations",
+        "2. Add entity",
+        "3. Edit entity",
+        "4. Custom CCD management",
+        "5. PTM management",
+        "6. Save and show summary",
+        "7. Create variants based on this JSON",
+        "0. Return to main menu",
+    ):
+        assert label in bare, label
+        assert label in full, label
+
+
+# -- edit entity: fields, deletion and its confirmation ---------------------
+
+
+def test_an_entity_can_be_edited_and_another_deleted():
+    status, out, services = run(
+        NEW_JOB
+        + ADD_PROTEIN
+        + ADD_LIGAND("ATP", "1")
+        + ["3", "1", "1", "MKTAYIAKQR", "kinase", "", "", "0", "0"]
+        + ["3", "2", "2", "1"]          # pick the ligand → Delete → Yes
+        + ["0"]                         # picker → job menu
+        + LEAVE_DIRTY
     )
-    status, out, services = run(script)
+    assert status == 0
+    configuration = services.projects.project.configuration
+    assert [record.ids.primary.value for record in configuration.records] == ["A"]
+    assert configuration.records[0].sequence.text == "MKTAYIAKQR"
+    assert "Removed 'B'." in out
+
+
+def test_deleting_an_entity_can_be_cancelled_at_the_confirm():
+    status, out, services = run(
+        NEW_JOB
+        + ADD_PROTEIN
+        + ["3", "1", "2", "2"]          # Delete → No, go back
+        + ["0", "0"]                    # action → picker → job
+        + LEAVE_DIRTY
+    )
+    assert status == 0
+    assert len(services.projects.project.configuration.records) == 1
+
+
+def test_an_empty_job_says_there_is_nothing_to_edit():
+    status, out, _ = run(NEW_JOB + ["3"] + LEAVE_CLEAN)
+    assert status == 0
+    assert "(no entities)" in out
+    assert "There are no entities to edit" in out
+
+
+# -- modifications: the per-record submenu and PTM management ----------------
+
+
+def test_the_entity_modifications_submenu_adds_edits_and_removes():
+    status, out, services = run(
+        NEW_JOB
+        + ADD_PROTEIN
+        + ["3", "1", "3", "1", "SEP", "5", "0", "0", "0"]     # add → back to job
+        + ["3", "1", "3", "2", "1", "", "7", "0", "0", "0"]   # edit row 1 → position 7
+        + ["3", "1", "3", "3", "1", "0", "0", "0"]            # remove row 1
+        + LEAVE_DIRTY
+    )
     assert status == 0
     assert "Modification added." in out
+    assert "Modification updated." in out
     assert "Modification removed." in out
     record = services.projects.project.configuration.records[0]
     assert record.modifications == ()
 
 
-def test_option_1_adds_and_removes_a_bond():
-    """A bond between two residues of the same chain, then removed."""
-    script = (
-        protein_job()
-        + EDIT + ["3", "1", "1", "1", "CA", "1", "5", "CB"]  # add a bond
-        + ["0", "0"]                                          # back to master
-        + EDIT + ["3", "2", "1"]                              # remove linkage 1
-        + ["0", "0"] + EXIT
-    )
-    status, out, services = run(script)
-    assert status == 0
-    assert "Linkage added." in out
-    assert "Linkage removed." in out
-    assert services.projects.project.configuration.linkages == ()
-
-
-# -- option 2: review configuration ----------------------------------------
-
-
-def test_option_2_shows_status_entities_and_variants():
-    status, out, _ = run(protein_job() + ["2", "0"] + EXIT)
-    assert status == 0
-    assert "Configuration status" in out
-    assert "STATUS: READY" in out
-    assert "protein  20 residues" in out
-
-
-def test_option_2_validate_reports_the_verdict():
-    status, out, _ = run(protein_job() + ["2", "1", "0"] + EXIT)
-    assert status == 0
-    assert "base" in out
-
-
-def test_option_2_invalid_choice_is_handled():
-    status, out, _ = run(protein_job() + ["2", "zz", "0"] + EXIT)
-    assert status == 0
-    assert "Not a valid choice" in out
-
-
-# -- option 3: variants ----------------------------------------------------
-
-
-def test_option_3_creates_a_variant_without_touching_the_base():
+def test_ptm_management_adds_edits_and_removes():
     status, out, services = run(
-        protein_job() + ["3", "1", "1", "WT", "0", "0"] + EXIT
-    )
-    assert status == 0
-    project = services.projects.project
-    assert [spec.key for spec in project.specs] == ["WT"]
-    assert project.configuration.records[0].sequence.text == PROTEIN
-
-
-def test_option_3_batch_from_a_sequence_file(tmp_path):
-    path = tmp_path / "seqs.txt"
-    path.write_text("%s\nGGGG\n\n" % OTHER_PROTEIN, encoding="utf-8")
-    status, out, services = run(
-        protein_job() + ["3", "3", str(path), "1", "0", "0"] + EXIT
-    )
-    assert status == 0
-    assert "Format: one protein sequence per line" in out
-    assert "Batch applied" in out
-    assert len(services.projects.project.specs) == 2
-    assert services.projects.project.configuration.records[0].sequence.text == PROTEIN
-
-
-def test_option_3_batch_reports_invalid_lines_by_number(tmp_path):
-    path = tmp_path / "bad.txt"
-    path.write_text("%s\nBAD!!\n" % OTHER_PROTEIN, encoding="utf-8")
-    status, out, services = run(
-        protein_job() + ["3", "3", str(path), "1", "0", "0"] + EXIT
-    )
-    assert status == 0
-    assert "line 2" in out
-    assert services.projects.project.specs == ()
-
-
-def test_option_3_batch_missing_file_is_reported():
-    status, out, services = run(
-        protein_job() + ["3", "3", "does-not-exist.txt", "0", "0"] + EXIT
-    )
-    assert status == 0
-    assert "Not applied" in out
-    assert services.projects.project.specs == ()
-
-
-def test_option_3_quantity_series_is_independent_of_the_base():
-    script = (
         NEW_JOB
-        + add_entity("4", "1", "ATP", "3")      # one ligand record, three copies
-        + ["3", "4", "1", "1", "2", "2", "1"]   # series: start 1, factor 2, 2 levels
-        + ["0"] + EXIT
+        + ADD_PROTEIN
+        + ["5", "2", "1", "TPO", "3"]                          # add
+        + ["5", "3", "1", "1", "", "4"]                        # edit row 1 → position 4
+        + ["5", "4", "1", "1"]                                 # remove row 1
+        + LEAVE_DIRTY
     )
-    status, out, services = run(script)
     assert status == 0
-    project = services.projects.project
-    assert len(project.specs) == 2
-    assert len(project.configuration.records[0].ids.ids) == 3  # base untouched
+    assert "Modification added." in out
+    assert "Modification updated." in out
+    assert "Modification removed." in out
+    assert services.projects.project.configuration.records[0].modifications == ()
 
 
-def test_option_3_quantity_series_without_components_says_so():
-    status, out, _ = run(protein_job() + ["3", "4", "0"] + EXIT)
+def test_a_ligand_carries_no_modifications_and_is_told_so():
+    status, out, _ = run(
+        NEW_JOB
+        + ADD_LIGAND("ATP", "1")
+        + ["5", "2"]                    # PTM → add → the carrier picker is empty
+        + LEAVE_DIRTY
+    )
     assert status == 0
-    assert "No variable components" in out
+    assert "ligands carry no modifications" in out
 
 
-def test_option_3_variant_management_duplicate_and_delete():
+# -- custom CCD management ---------------------------------------------------
+
+
+def test_a_custom_ccd_definition_can_be_added_viewed_and_removed():
     status, out, services = run(
-        protein_job()
-        + ["3", "1", "1", "WT", "0"]        # create WT
-        + ["2", "2", "1", "1", "WT2"]       # Manage -> duplicate -> auto name
-        + ["3", "2", "1"]                   # Manage -> delete -> confirm
-        + ["0", "0"] + EXIT
+        NEW_JOB
+        + ["4", "1"]                          # view: none yet
+        + ["4", "2", "1", "data_probe", ""]   # add inline (blank line ends it)
+        + ["4", "1"]                          # view: the definition
+        + ["4", "4", "1"]                     # remove → Yes
+        + LEAVE_DIRTY
     )
     assert status == 0
-    assert len(services.projects.project.specs) == 1
+    assert "No custom CCD definition is set for this job." in out
+    assert "Inline CIF definition: data_probe" in out
+    assert "Total lines: 1" in out
+    assert "Custom CCD definition removed." in out
+    assert services.projects.project.configuration.component_definition is None
 
 
-# -- option 4: generate JSON ----------------------------------------------
+def test_a_custom_ccd_definition_can_be_a_file(tmp_path):
+    cif = tmp_path / "probe.cif"
+    cif.write_text("data_probe\n", encoding="utf-8")
+    status, out, services = run(NEW_JOB + ["4", "2", "2", str(cif)] + LEAVE_DIRTY)
+    assert status == 0
+    assert "Custom CCD definition set." in out
+    definition = services.projects.project.configuration.component_definition
+    assert isinstance(definition, External)
+    assert definition.path.raw == str(cif)
 
 
-def test_option_4_writes_a_contract_shaped_base_file(tmp_path):
-    status, out, _ = run(
-        protein_job() + ["4", "4", str(tmp_path), "1", "1", "0"] + EXIT
+def test_an_inline_ccd_definition_is_kept_in_the_model(tmp_path):
+    status, out, services = run(
+        NEW_JOB
+        + ["4", "2", "1", "data_probe", "loop_", ""]
+        + LEAVE_DIRTY
     )
     assert status == 0
-    files = written(str(tmp_path))
-    assert len(files) == 1
-    document = load(files[0])
+    definition = services.projects.project.configuration.component_definition
+    assert isinstance(definition, Inline)
+    assert definition.text.startswith("data_probe")
+
+
+def test_the_ccd_source_menu_can_be_cancelled():
+    status, out, services = run(NEW_JOB + ["4", "2", "0"] + LEAVE_CLEAN)
+    assert status == 0
+    assert services.projects.project.configuration.component_definition is None
+
+
+# -- save and show summary ---------------------------------------------------
+
+
+def test_save_reports_the_path_and_writes_a_contract_shaped_file(tmp_path):
+    destination = tmp_path / "job.json"
+    status, out, _ = run(protein_job() + ["6", str(destination)] + LEAVE_CLEAN)
+    assert status == 0
+    assert "JOB SUMMARY" in out
+    assert "Saved to " in out
+    document = load(destination)
     assert document["dialect"] == "alphafold3"
-    assert document["version"] in (1, 2, 3, 4)
-    assert document["modelSeeds"] and all(
-        isinstance(seed, int) for seed in document["modelSeeds"]
-    )
-    assert document["sequences"], "at least one entity is required"
-    assert os.path.basename(files[0]) == "%s.json" % document["name"]
+    assert document["version"] == 3
+    assert document["modelSeeds"] == [1]
+    assert document["sequences"][0]["protein"]["sequence"] == PROTEIN
 
 
-def test_option_4_refuses_an_incomplete_job(tmp_path):
-    status, out, _ = run(NEW_JOB + ["4", "4", str(tmp_path), "1", "0"] + EXIT)
+def test_save_refuses_an_incomplete_job_and_writes_nothing(tmp_path):
+    destination = tmp_path / "empty.json"
+    status, out, _ = run(NEW_JOB + ["6", str(destination)] + LEAVE_CLEAN)
     assert status == 0
-    assert "not applied" in out.lower()
-    assert written(str(tmp_path)) == []
+    assert "This job cannot be saved yet:" in out
+    assert "STATUS: INCOMPLETE" in out
+    assert not destination.exists()
 
 
-def test_option_4_refuses_to_overwrite_different_content(tmp_path):
-    # Write once, then edit the sequence so a second write would differ.
-    script = protein_job() + ["4", "4", str(tmp_path), "1", "1", "0"]
-    script += ["1", "1", "2", "1", OTHER_PROTEIN, "", "", "", "0", "0"]
-    script += ["4", "1", "1", "0"] + EXIT
-    status, out, _ = run(script)
+def test_save_cancelled_writes_nothing(tmp_path):
+    status, out, _ = run(protein_job() + ["6", "0"] + LEAVE_DIRTY)
     assert status == 0
-    assert "already exists with different content" in out
+    assert "Cancelled — nothing was written." in out
+    assert written(tmp_path) == []
 
 
-def test_option_4_variant_files_and_manifest(tmp_path):
+def test_save_overwrite_is_confirmed_before_replacing(tmp_path):
+    destination = tmp_path / "job.json"
     status, out, _ = run(
         protein_job()
-        + ["3", "1", "1", "WT", "0", "0"]
-        + ["4", "4", str(tmp_path), "2", "y", "0"] + EXIT
+        + ["6", str(destination)]                       # first save
+        + ADD_LIGAND("ATP", "1")                        # the job moves on
+        + ["6", str(destination), "2"]                  # second save: No, cancel
+        + ["6", str(destination), "1"]                  # third save: Yes, overwrite
+        + LEAVE_CLEAN
     )
     assert status == 0
-    names = sorted(os.path.basename(path) for path in written(str(tmp_path)))
-    assert "manifest.json" in names
-    # Directory and file names carry the slugged variant key.
-    assert any(name.startswith("job__wt") for name in names)
+    assert "already exists. Overwrite it?" in out
+    assert out.count("Cancelled — nothing was written.") == 1
+    document = load(destination)
+    assert len(document["sequences"]) == 2
+    assert any("ligand" in entry for entry in document["sequences"])
 
 
-# -- option 5: save the job ------------------------------------------------
-
-
-def test_option_5_save_reports_the_path_and_writes_valid_json(tmp_path):
+def test_the_summary_reports_the_jobs_own_counts():
     status, out, _ = run(
-        protein_job() + ["4", "4", str(tmp_path), "0", "5", "1"] + EXIT
+        protein_job() + ADD_LIGAND("ATP", "2") + ["6", "0"] + LEAVE_DIRTY
+    )
+    assert status == 0
+    assert "Number of entities: 2" in out
+    assert "- Proteins: 1" in out
+    assert "- Ligands:  1" in out
+
+
+def test_leaving_with_unsaved_changes_asks_first_and_cancel_stays():
+    status, out, services = run(
+        NEW_JOB
+        + ADD_PROTEIN
+        + ["0", "3"]                    # leave → Cancel: the prompt is a choice
+        + LEAVE_DIRTY
+    )
+    assert status == 0
+    assert "Save before leaving?" in out
+    assert "This job has changes that have not been saved to a JSON file." in out
+    assert len(services.projects.project.configuration.records) == 1
+
+
+def test_leave_and_save_writes_the_file_then_returns_to_the_main_menu(tmp_path):
+    destination = tmp_path / "leaving.json"
+    status, out, _ = run(
+        NEW_JOB + ADD_PROTEIN + ["0", "1", str(destination)] + ["0"]
     )
     assert status == 0
     assert "Saved to " in out
-    files = written(str(tmp_path))
-    assert len(files) == 1
-    assert load(files[0])["sequences"]
+    assert load(destination)["sequences"][0]["protein"]["sequence"] == PROTEIN
 
 
-# -- option 6: recover, option 7: import ----------------------------------
+# -- variants: save-as copies that never touch the base ----------------------
 
 
-def test_option_6_recover_reports_when_already_current():
-    status, out, _ = run(protein_job() + ["6"] + EXIT)
+def test_a_variant_saves_under_its_own_name_and_leaves_the_base_alone(tmp_path):
+    destination = tmp_path / "v1.json"
+    status, out, services = run(
+        NEW_JOB
+        + ADD_PROTEIN
+        + ["7", "1", "Var One"]                                   # variant name
+        + ["3", "1", "1", OTHER_PROTEIN, "", "", "", "0", "0"]  # edit the copy
+        + ["4", str(destination)]                                 # save & reset
+        + LEAVE_CLEAN
+    )
     assert status == 0
-    assert "Not applied" in out
+    assert "Variant job name set to Var One." in out
+    assert "Variant saved to " in out
+    assert "Reset to the base job." in out
+    document = load(destination)
+    assert document["name"] == "var-one"
+    assert document["sequences"][0]["protein"]["sequence"] == OTHER_PROTEIN
+    # the base job itself never moved
+    assert services.projects.project.configuration.records[0].sequence.text == PROTEIN
+
+
+def test_leaving_variant_management_restores_the_base():
+    status, out, services = run(
+        NEW_JOB
+        + ADD_PROTEIN
+        + ["7", "3", "1", "1", OTHER_PROTEIN, "", "", "", "0", "0"]
+        + ["0"]                                                   # leave variants
+        + LEAVE_CLEAN
+    )
+    assert status == 0
+    assert services.projects.project.configuration.records[0].sequence.text == PROTEIN
+
+
+def test_a_variant_can_add_an_entity_without_touching_the_base(tmp_path):
+    destination = tmp_path / "v_add.json"
+    status, out, services = run(
+        NEW_JOB
+        + ADD_PROTEIN
+        + ["7", "2", "1", OTHER_PROTEIN, "", ""]      # Add entity → protein
+        + ["4", str(destination)]
+        + LEAVE_CLEAN
+    )
+    assert status == 0
+    assert len(services.projects.project.configuration.records) == 1
+    document = load(destination)
+    assert len(document["sequences"]) == 2
+
+
+def test_two_variants_do_not_inherit_each_others_edits(tmp_path):
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    status, out, services = run(
+        NEW_JOB
+        + ADD_PROTEIN
+        + ["7",
+           "3", "1", "1", "MKTAYIAKQR", "", "", "", "0", "0", "4", str(first),
+           "3", "1", "1", "GGGGSGGGGS", "", "", "", "0", "0", "4", str(second),
+           "0"]
+        + LEAVE_CLEAN
+    )
+    assert status == 0
+    assert load(first)["sequences"][0]["protein"]["sequence"] == "MKTAYIAKQR"
+    assert load(second)["sequences"][0]["protein"]["sequence"] == "GGGGSGGGGS"
+    assert services.projects.project.configuration.records[0].sequence.text == PROTEIN
+
+
+# -- open a JSON file --------------------------------------------------------
 
 
 def _af3_file(tmp_path, name="in.json", job="imported", seeds=(1, 2)):
@@ -402,33 +539,46 @@ def _af3_file(tmp_path, name="in.json", job="imported", seeds=(1, 2)):
     return path
 
 
-def test_option_7_imports_an_af3_json_and_replaces_the_job(tmp_path):
+def test_open_json_reports_the_preview_and_replaces_the_job(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     path = _af3_file(tmp_path)
-    status, out, services = run(NEW_JOB + ["7", str(path), "1"] + EXIT)
+    status, out, services = run(["2", str(path), "1"] + LEAVE_CLEAN)
     assert status == 0
-    assert "JSON loaded" in out
+    assert "Name: imported" in out
+    assert "Entities: 1" in out
+    assert "Seeds: [1, 2]" in out
+    assert "JSON opened. It is now a normal, editable job." in out
     configuration = services.projects.project.configuration
     assert configuration.metadata.name == "imported"
     assert list(configuration.seeds.values) == [1, 2]
     assert configuration.records[0].sequence.text == PROTEIN
 
 
-def test_option_7_reports_malformed_json_and_keeps_the_job(tmp_path):
-    path = tmp_path / "broken.json"
-    path.write_text('{"name": "x", "sequences": [', encoding="utf-8")
-    status, out, services = run(NEW_JOB + ["7", str(path), "0"] + EXIT)
+def test_open_json_can_be_cancelled_at_the_confirm(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    path = _af3_file(tmp_path)
+    status, out, services = run(["2", str(path), "2", "0"])
     assert status == 0
-    assert "Could not load this JSON" in out
-    assert services.projects.project.configuration.metadata.name == "job"
+    assert "JSON opened." not in out
+    assert services.projects.project is None
 
 
-def test_option_7_reports_a_missing_file(tmp_path):
-    status, out, _ = run(NEW_JOB + ["7", str(tmp_path / "nope.json"), "0"] + EXIT)
+def test_open_json_reports_malformed_and_missing_files(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    broken = tmp_path / "broken.json"
+    broken.write_text('{"name": "x", "sequences": [', encoding="utf-8")
+    status, out, _ = run(["2", str(broken), "0"])
     assert status == 0
-    assert "Could not load this JSON" in out
+    assert "Could not open this JSON." in out
+    assert "The original file has not been modified." in out
+
+    status, out, _ = run(["2", str(tmp_path / "nope.json"), "0"])
+    assert status == 0
+    assert "Could not open this JSON." in out
 
 
-def test_option_7_reports_unsupported_fields_before_loading(tmp_path):
+def test_open_json_reports_unsupported_fields_before_loading(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     path = tmp_path / "extra.json"
     path.write_text(
         json.dumps(
@@ -445,71 +595,22 @@ def test_option_7_reports_unsupported_fields_before_loading(tmp_path):
         ),
         encoding="utf-8",
     )
-    status, out, services = run(NEW_JOB + ["7", str(path), "1"] + EXIT)
+    status, out, services = run(["2", str(path), "1"] + LEAVE_CLEAN)
     assert status == 0
     assert "not supported for editing" in out
-    # The supported parts are preserved.
+    # the supported parts are preserved
     assert services.projects.project.configuration.records[0].sequence.text == PROTEIN
 
 
-# -- a loaded job is a first-class job ------------------------------------
-
-
-def test_imported_job_can_be_edited_and_saved(tmp_path):
+def test_an_opened_job_can_be_edited_and_saved(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     source = _af3_file(tmp_path)
-    out_dir = tmp_path / "out"
+    destination = tmp_path / "out" / "saved.json"
     status, out, _ = run(
-        NEW_JOB
-        + ["7", str(source), "1"]                                   # import
-        + ["1", "1", "2", "1", OTHER_PROTEIN, "", "", "", "0", "0"]  # edit it
-        + ["4", "4", str(out_dir), "0", "5", "1"]                    # save it
-        + EXIT
+        ["2", str(source), "1"]
+        + ["3", "1", "1", OTHER_PROTEIN, "", "", "", "0", "0"]
+        + ["6", str(destination)]
+        + LEAVE_CLEAN
     )
     assert status == 0
-    files = written(str(out_dir))
-    assert len(files) == 1
-    assert load(files[0])["sequences"][0]["protein"]["sequence"] == OTHER_PROTEIN
-
-
-def test_imported_job_can_be_varied(tmp_path):
-    source = _af3_file(tmp_path)
-    status, out, services = run(
-        NEW_JOB + ["7", str(source), "1"] + ["3", "1", "1", "V", "0", "0"] + EXIT
-    )
-    assert status == 0
-    assert [spec.key for spec in services.projects.project.specs] == ["V"]
-
-
-# -- the base survives every variant route --------------------------------
-
-
-def test_base_is_byte_identical_after_variant_work(tmp_path):
-    """Variant creation, a batch and a quantity series must leave the base
-    job's own JSON unchanged."""
-    batch = tmp_path / "seqs.txt"
-    batch.write_text("GGGG\n", encoding="utf-8")
-    out_dir = tmp_path / "out"
-
-    script = (
-        NEW_JOB
-        + add_entity("4", "1", "ATP", "2")
-        + ["4", "4", str(out_dir), "1", "1", "0"]      # write the base once
-        + ["3", "1", "1", "V1", "0"]                    # a variant
-        + ["3", "3", str(batch), "1"]                   # a batch variant
-        + ["3", "4", "1", "1", "2", "2", "1"]           # a quantity series
-        + ["0"] + EXIT
-    )
-    status, out, _ = run(script)
-    assert status == 0
-
-    base_file = os.path.join(str(out_dir), "job", "job.json")
-    assert os.path.exists(base_file)
-    before = open(base_file, "rb").read()
-    # The base file is not rewritten by variant work: its bytes still parse and
-    # still describe one ligand record with two copies.
-    document = json.loads(before.decode("utf-8"))
-    ligand = [
-        entry for entry in document["sequences"] if "ligand" in entry
-    ]
-    assert len(ligand) == 1
-    assert len(ligand[0]["ligand"]["id"]) == 2
+    assert load(destination)["sequences"][0]["protein"]["sequence"] == OTHER_PROTEIN

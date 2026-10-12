@@ -53,7 +53,6 @@ class FailureReason:
     FUTURE_VERSION = "future_version"
     UNKNOWN_RECORD = "unknown_record"
     NO_PATH = "no_path"
-    NO_SAVED_WORK = "no_saved_work"
 
 
 class MutationOutput:
@@ -122,17 +121,42 @@ class ConfigurationOutput:
 
 class VariantValidationOutput:
     """Outcome of ``ValidationService.validate_all``: base report, the
-    per-variant reports, and the combined documents the checks ran on."""
+    per-variant reports, and the combined documents the checks ran on.
 
-    __slots__ = ("base_report", "variant_reports", "variant_documents", "base_document")
+    ``failure_reason`` is set when a committed variant could not even be
+    expanded, so no report exists for it: the base report is still carried
+    (it was computed first) and the variant half is empty — the UI says why
+    instead of dying on an exception (BUG-022).
+    """
 
-    def __init__(self, base_report, variant_reports=None, variant_documents=None, base_document=None) -> None:
+    __slots__ = (
+        "base_report",
+        "variant_reports",
+        "variant_documents",
+        "base_document",
+        "failure_reason",
+        "message",
+    )
+
+    def __init__(
+        self,
+        base_report,
+        variant_reports=None,
+        variant_documents=None,
+        base_document=None,
+        failure_reason=None,
+        message="",
+    ) -> None:
         self.base_report = base_report
         self.variant_reports = dict(variant_reports or {})
         self.variant_documents = dict(variant_documents or {})
         self.base_document = base_document
+        self.failure_reason = failure_reason
+        self.message = message or ""
 
     def __repr__(self) -> str:
+        if self.failure_reason is not None:
+            return "VariantValidationOutput(reason=%r)" % (self.failure_reason,)
         return "VariantValidationOutput(variants=%d)" % len(self.variant_reports)
 
 

@@ -1,19 +1,24 @@
-"""The free-navigation interactive builder (the menu UX layer).
+"""The interactive JSON builder (the menu UX layer).
 
-Six actions, each one a goal: edit the job, review it, make variants,
-generate JSON, open earlier work, import a file. Everything else lives
-inside those. It owns only menus, prompts, and dispatch — every state
-change goes through the application services (the same calls the e2e
-suite drives), and every fixed user-visible sentence is registry wording.
-Sequence, width, and encoding rules of the formatting tier (plan §18.8)
-apply: layout is computed for the console's measured width with 80 as the
-documented minimum; below that the banner/rule widths degrade but no
-content is ever cut.
+One workflow, one screen at a time: open a job (new, or an existing AF3
+JSON), edit its job settings and entities, manage its custom CCD and PTM
+metadata, save it as JSON with a summary, and derive independent variants
+from it. The former session/project management — saved work, recovery,
+a separate review workflow, the variant-spec catalogue — was removed with
+the rework; the only way to resume a saved job is to open its JSON.
+
+The module owns only menus, prompts, and dispatch. Every state change goes
+through the application services (the same calls the e2e suite drives), and
+every fixed user-visible sentence is registry wording. Sequence, width, and
+encoding rules of the formatting tier (plan §18.8) apply.
 """
 
 from __future__ import annotations
 
-from configbuilder.model.configuration import fold_version_selection
+import os
+
+from configbuilder.model import External, Inline
+from configbuilder.model.configuration import Pinned, fold_version_selection
 from configbuilder.model.records import (
     ComponentRecord,
     FamilyARecord,
@@ -21,9 +26,9 @@ from configbuilder.model.records import (
     FamilyCRecord,
     fold_representation,
 )
-import os
 
 from configbuilder.app.configuration_service import ReferenceInput
+from configbuilder.app.results import FailureReason
 from configbuilder.app.status import FieldState
 from configbuilder.ui.present.sequence import residue_at
 from configbuilder.ui.present.strings import text as _text
@@ -31,6 +36,10 @@ from configbuilder.ui.present.strings import text as _text
 __all__ = ["MenuApp", "MINIMUM_WIDTH"]
 
 MINIMUM_WIDTH = 60
+
+# The supported JSON input versions the serializer can emit (plan §10.3:
+# the version is always an explicit pin, never inferred).
+SUPPORTED_VERSIONS = (1, 2, 3, 4)
 
 # The base's family classification — one place, so listing, counting, and
 # the summary agree.
@@ -41,6 +50,13 @@ _FAMILY_TYPES = (
     ("ligand", ComponentRecord),
 )
 _FAMILY_OF_TYPE = {type_: family for family, type_ in _FAMILY_TYPES}
+_POLYMER_FAMILIES = ("protein", "rna", "dna")
+_FAMILY_LABEL_KEYS = {
+    "protein": "menu.family_protein",
+    "rna": "menu.family_rna",
+    "dna": "menu.family_dna",
+    "ligand": "menu.family_ligand",
+}
 
 
 # -- pure formatting helpers (text in, text out) --------------------------------
@@ -61,8 +77,16 @@ def _records_of_family(configuration, family: str):
     return [r for r in configuration.records if isinstance(r, type_)]
 
 
+def _version_number(configuration):
+    """The pinned JSON version as an int, or ``None`` when unpinned."""
+    selection = configuration.format_target.version_selection
+    if isinstance(selection, Pinned):
+        return selection.version
+    return None
+
+
 def _summary_of(configuration) -> dict:
-    """The base's one-screen summary, read only from the model."""
+    """The job's one-screen picture, read only from the model."""
     name = configuration.metadata.name
     selection = configuration.format_target.version_selection
     version = fold_version_selection(
@@ -76,6 +100,7 @@ def _summary_of(configuration) -> dict:
     return {
         "job_name": name,
         "format_version": version,
+        "json_version": _version_number(configuration),
         "seed_values": list(configuration.seeds.values),
         "entity_groups": families,
         "entity_count": sum(len(records) for records in families.values()),
@@ -84,15 +109,10 @@ def _summary_of(configuration) -> dict:
 
 # -- the configuration-status view (defaults + what is still required) ----------
 #
-# One renderer for the status rows ``app`` produces (``app/status.py``): the
-# master menu, the review screen, and every refusal show the same picture, so
-# "what is already valid / what is missing / what is optional" reads the same
-# wherever the user looks. Automatic values say so — a default the user did
-# not type is never disguised as user input (plan §16.4 transparency).
+# One renderer for the status rows ``app`` produces (``app/status.py``): a
+# blocked save shows the same picture everywhere, so "what is already valid /
+# what is missing / what is optional" reads the same wherever the user looks.
 
-# Row key → label wording, as pairs rather than a dict literal: some row
-# keys are also wire field names, and a wire field name may only appear as
-# an object key inside ``transform`` (architecture test, plan §10.1).
 _STATUS_LABEL_ROWS = (
     ("name", "menu.status_name"),
     ("seeds", "menu.status_seeds"),
@@ -163,12 +183,7 @@ def _status_detail(field) -> str:
 
 
 def _status_row(field) -> str:
-    """One rendered status row: label, state mark, and detail.
-
-    The mark is the state in one word — ``OK`` / ``MISSING`` / ``INVALID``
-    (or ``-`` for an absent optional field) — so the row's condition is
-    readable without colour or glyphs.
-    """
+    """One rendered status row: label, state mark, and detail."""
     mark_key = {
         FieldState.DEFAULTED: "menu.status_ok",
         FieldState.PROVIDED: "menu.status_ok",
@@ -181,6 +196,89 @@ def _status_row(field) -> str:
         _status_label(field.key),
         ("%s  %s" % (_text(mark_key), detail)).strip(),
     )
+
+
+def _modification_count(record) -> int:
+    """How many residue modifications one record carries (ligands: none)."""
+    return len(getattr(record, "modifications", None) or ())
+
+
+def _chain_line(record) -> str:
+    """One chain of the job header: the identifier(s), the family, and —
+    only when there are any — how many modifications that chain carries."""
+    letter = ", ".join(entity.value for entity in record.ids.ids)
+    line = _text("menu.job_chain_line") % (
+        letter,
+        _text(_FAMILY_LABEL_KEYS[_FAMILY_OF_TYPE[type(record)]]),
+    )
+    count = _modification_count(record)
+    if count:
+        return line + _text("menu.job_chain_mods") % count
+    return line
+
+
+def _ccd_value(definition) -> str:
+    """The custom-CCD row's value: absent, the file, or the inline text's size."""
+    if isinstance(definition, External):
+        return definition.path.raw
+    if isinstance(definition, Inline):
+        lines = definition.text.splitlines() or [""]
+        return _text("menu.job_header_ccd_inline") % len(lines)
+    return _text("menu.job_header_none")
+
+
+def _job_header_lines(configuration, unsaved: bool = False) -> list:
+    """The job menu's header block: what the job is, what is in it, and
+    whether the work has been saved.
+
+    Every value is read from the configuration itself — the name, seed
+    set, model target, modification count, and custom-CCD source are the
+    model's own values, and the chain rows are its records in model order.
+    ``unsaved`` is the front end's own last-saved comparison, so it is
+    passed in rather than re-derived here. The block is redrawn on every
+    visit to the job menu, so it is always the current picture of the work.
+    """
+    summary = _summary_of(configuration)
+    modifications = sum(
+        _modification_count(record) for record in configuration.records
+    )
+    rows = [
+        ("menu.job_header_label_name", summary["job_name"]),
+        (
+            "menu.job_header_label_seed",
+            "[%s]" % ", ".join(str(value) for value in summary["seed_values"]),
+        ),
+        (
+            "menu.job_header_label_model",
+            _text("menu.job_header_model_value")
+            % (
+                _text("menu.model_name"),
+                _version_value(configuration.format_target.version_selection),
+            ),
+        ),
+        (
+            "menu.job_header_label_modifications",
+            str(modifications) if modifications else _text("menu.job_header_none"),
+        ),
+        (
+            "menu.job_header_label_ccd",
+            _ccd_value(configuration.component_definition),
+        ),
+        (
+            "menu.job_header_label_changes",
+            _text("menu.job_header_changes_unsaved")
+            if unsaved
+            else _text("menu.job_header_none"),
+        ),
+    ]
+    lines = [_text("menu.job_header_row") % (_text(key), value) for key, value in rows]
+    lines.append("")
+    lines.append(_text("menu.job_header_entities") % summary["entity_count"])
+    if configuration.records:
+        lines.extend(_chain_line(record) for record in configuration.records)
+    else:
+        lines.append(_text("menu.entity_list_empty"))
+    return lines
 
 
 def _entity_line(record) -> str:
@@ -210,12 +308,8 @@ def _entity_line(record) -> str:
 
 
 def _mod_rows(record):
-    """The residue-numbered modification rows for one record, in the
-    order the model stores them. The code and the human (1-based)
-    residue number are the record's own data; the residue letter is the
-    echo the position prompt shows (plan §16.4) — present when the
-    position is inside the sequence, absent otherwise. Ligands carry no
-    positions, so they simply have no rows."""
+    """The residue-numbered modification rows for one record, in the order
+    the model stores them. Ligands carry no positions, so they have none."""
     rows = []
     sequence = getattr(record, "sequence", None)
     text = sequence.text if sequence is not None else ""
@@ -233,43 +327,36 @@ def _mod_rows(record):
 
 
 def _say_entity_block(say, record) -> None:
-    """One entity row, then its modification rows, if any. A pure
-    render helper: text in, text out over the console's ``say``."""
+    """One entity row, then its modification rows, if any."""
     say(_entity_line(record))
     for row in _mod_rows(record):
         say(row)
-
-
-def _linkage_line(linkage) -> str:
-    """One numbered-listing row for a stored linkage: both endpoints as
-    entity letter, human (1-based) residue number, and atom name — the
-    same numbers the add flow collects."""
-    def side(endpoint):
-        return "%s:%d:%s" % (
-            endpoint.entity.value,
-            endpoint.residue.value,
-            endpoint.atom,
-        )
-
-    return "%s -- %s" % (side(linkage.a), side(linkage.b))
 
 
 # -- the application object ------------------------------------------------------
 
 
 class MenuApp:
-    """The menu over the five application services.
+    """The menu over the application services.
 
-    Construction builds no state and touches no stream; ``run`` drives
-    the loop over the console it is given (a real terminal or a scripted
-    one).
+    Construction builds no state and touches no stream; ``run`` drives the
+    loop over the console it is given (a real terminal or a scripted one).
     """
 
     def __init__(self, services, console, width: int = 80) -> None:
         self._services = services
         self._console = console
         self._width = max(width, MINIMUM_WIDTH)
-        self._output_dir = "output"
+        # The JSON file the current job was last saved to / opened from —
+        # offered as the default save destination.
+        self._current_path = ""
+        # A deep copy of the configuration as of the last save / open / new
+        # job. A job is "unsaved" when the live configuration differs from it.
+        self._saved_snapshot = None
+        # The pristine base configuration while the variant editor is open,
+        # and the name the active variant will be saved under.
+        self._variant_base = None
+        self._variant_name = ""
 
     # -- primitives ------------------------------------------------------
 
@@ -322,13 +409,11 @@ class MenuApp:
         return [".."] + [n for n in names if not n.startswith(".")]
 
     def _pick_path(self, prompt_key: str, default: str = "") -> str:
-        """Choose a path with the keyboard alone: the current directory is
-        listed, numbers open directories or select files, ``..`` goes up,
-        and anything else typed is taken as a literal path — so pasting a
-        full path still works. Cancellation is ``0`` or ``q``; an empty
-        answer accepts the *default*, when one is offered — the service
-        layer remains the authority on whether the path exists or is
-        usable."""
+        """Choose an existing file with the keyboard alone: the current
+        directory is listed, numbers open directories or select files,
+        ``..`` goes up, and anything else typed is taken as a literal path.
+        Cancellation is ``0`` or ``q``; an empty answer accepts the
+        *default*, when one is offered."""
         directory = os.getcwd()
         while True:
             listing = self._picker_listing(directory)
@@ -363,10 +448,17 @@ class MenuApp:
                     directory = chosen
                     continue
                 return chosen
-            # Anything else is a literal path — verbatim, no existence
-            # gate here: the service layer owns whether a path exists or
-            # is usable, and abstract paths are legitimate input.
             return os.path.expanduser(raw)
+
+    def _ask_destination(self, prompt_key: str, default: str) -> str:
+        """A save destination typed as a path (not a directory picker): an
+        empty answer accepts ``default``. Cancellation is ``0``/``q``."""
+        raw = self._console.prompt(_text(prompt_key) % default).strip()
+        if raw in ("0", "q", "quit", "exit"):
+            return ""
+        if not raw:
+            return default
+        return os.path.expanduser(raw)
 
     def _project(self):
         project = self._services.projects.project
@@ -380,157 +472,94 @@ class MenuApp:
             return None
         return _records_of_family(project.configuration, family)
 
+    # -- unsaved-change tracking ------------------------------------------
+
+    def _mark_saved(self) -> None:
+        """Record the live configuration as the last-saved one.
+
+        The model is immutable and every mutation derives a new
+        ``Configuration``, so holding the object itself is a complete
+        snapshot — later edits replace it rather than mutate it.
+        """
+        project = self._services.projects.project
+        self._saved_snapshot = project.configuration if project is not None else None
+
+    def _has_unsaved(self) -> bool:
+        project = self._services.projects.project
+        if project is None or self._saved_snapshot is None:
+            return False
+        return project.configuration != self._saved_snapshot
+
     # -- the run loop ------------------------------------------------------
 
     def run(self) -> int:
-        """The master loop. Status 0 on every deliberate end (exit choice,
-        EOF, Ctrl+C) — submenus return, never terminate the process."""
+        """The main loop. Status 0 on every deliberate end (exit choice,
+        EOF, Ctrl+C) — submenus return, never terminate the process.
+
+        The entry screen is the main menu, which starts a job or opens one.
+        A job already in memory (a front end that pre-built one) opens the
+        job menu directly; either way, exiting the job returns to the main
+        menu.
+        """
         try:
-            self._master_menu()
+            if self._services.projects.is_open:
+                self._job_menu()
+            self._main_menu()
         except (KeyboardInterrupt, EOFError):
             self._say()
             self._say(_text("menu.interrupted"))
         return 0
 
-    # -- master menu -------------------------------------------------------
+    # -- main menu ---------------------------------------------------------
 
-    def _master_menu(self) -> None:
-        """The one screen, organised by what the user wants to accomplish:
-        edit the job, look it over, make variants, write JSON, open earlier
-        work, import a file. Everything else lives inside those six.
-        """
+    def _main_menu(self) -> None:
+        """The entry screen: start a new job, or open an existing JSON.
+        Both lead to the same job menu."""
         while True:
-            project = self._services.projects.project
-            if project is None:
-                self._new_or_load()
-                if self._services.projects.project is None:
-                    return  # EOF or a declined start: leave the application
-            project = self._services.projects.project
             self._say(_banner(_text("menu.banner_title"), self._width))
             self._say()
-            self._say(_text("menu.current") % project.configuration.metadata.name)
-            status = self._services.validation.status()
-            if status is not None:
-                self._say()
-                self._say_status(status)
-            self._say()
-            self._say(_text("menu.variants") % len(project.specs))
-            # BUG-013: the hint must name the action by the label this very
-            # menu shows. "Open saved work" is the *start screen's* wording;
-            # here the action is option 6. Naming a label the user cannot see
-            # on this screen is how BUG-007 misled them in the first place.
-            self._say(_text("menu.work_held_master"))
-            self._say(_text("menu.save_job_summary"))
-            self._say()
-            self._say(_text("menu.master_actions"))
+            self._say(_text("menu.main_actions"))
             self._say()
             self._say(_text("menu.exit"))
             choice = self._select()
             if choice in ("0", "q", "quit", "exit"):
                 return
-            elif choice == "1":
-                self._edit_job_menu()
+            if choice == "1":
+                self._new_job()
+                self._job_menu()
             elif choice == "2":
-                self._review_screen()
-            elif choice == "3":
-                self._variants_menu()
-            elif choice == "4":
-                self._generate_menu()
-            elif choice == "5":
-                self._save_job()
-            elif choice == "6":
-                self._load_project()
-            elif choice == "7":
-                self._import_json()
+                if self._open_json_file():
+                    self._job_menu()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
-    def _new_or_load(self) -> None:
-        self._say(_banner(_text("menu.banner_title"), self._width))
-        self._say()
-        self._say(_text("menu.work_held"))
-        self._say()
-        self._say(_text("menu.start_actions"))
-        self._say()
-        self._say(_text("menu.exit"))
-        choice = self._select()
-        if choice == "1":
-            # A blank answer is not a mistake to punish: the service mints
-            # an automatic config-NNN name instead of asking again.
-            name = self._ask("menu.ask_experiment")
-            self._services.projects.new(name)
-        elif choice == "2":
-            self._load_project()
-        elif choice == "3":
-            self._import_json()
-        # anything else (blank, unknown, EOF) declines and lets the caller exit
+    def _new_job(self) -> None:
+        """Start a fresh job with the standard defaults (name, seeds,
+        version pin) and no entities; everything stays editable."""
+        name = self._ask("menu.ask_experiment")
+        project = self._services.projects.new(name)
+        self._current_path = ""
+        self._mark_saved()
+        self._say(_text("menu.job_created") % project.configuration.metadata.name)
 
-    def _save_job(self) -> None:
-        """Save the current job: write its AF3 JSON, and say where it went.
-
-        Until this existed, the only way to get a file out was the Generate
-        screen — so a user who finished a job had no labelled way to save it,
-        and the master menu's "working copy is kept automatically" line read
-        as "your file is already saved" (BUG-007). The write goes through the
-        *same* reviewed plan the Generate screen uses: validate, transform,
-        encode, plan, confirm, execute — one serialization path, and nothing
-        is written before the confirm.
-        """
-        from configbuilder.ui.present import format_findings
-
-        project = self._project()
-        if project is None:
-            return
-        generation_plan = self._services.generation.plan_base(self._output_dir)
-        if not generation_plan.ok:
-            if generation_plan.failure_reason == "validation_blocked":
-                self._say(_text("menu.save_job_blocked"))
-            self._plan_failure(generation_plan, format_findings)
-            return
-        self._say()
-        for entry in generation_plan.entries:
-            self._say(_text("menu.export_action_line") % (entry.action, entry.path))
-        for warning in generation_plan.warnings:
-            self._say(_text("menu.export_warning") % warning)
-        entries = [
-            (_text("menu.save_job_yes"), True),
-            (_text("menu.save_job_no"), False),
-        ]
-        proceed = self._numbered_choice(
-            _text("menu.save_job_confirm"), entries, back_note=False
-        )
-        if not proceed:
-            self._say(_text("menu.save_cancelled"))
-            return
-        result = self._services.generation.execute(generation_plan)
-        if result.ok:
-            for path in result.written:
-                self._say(_text("menu.save_job_wrote") % path)
-            for path in result.skipped:
-                self._say(_text("menu.export_skipped") % path)
-        else:
-            for error in result.errors:
-                self._say(_text("menu.not_applied") % error)
-
-    def _import_json(self) -> None:
-        """Load an existing AF3 JSON as the current job (§7 of the import
-        feature). Preview first — the current project is untouched until
-        the numbered confirm — then unsupported-field notes get an
-        explicit continue/cancel choice."""
+    def _open_json_file(self) -> bool:
+        """Load an existing AF3 JSON as the current job. Preview first —
+        the current project is untouched until the confirm — and a bad file
+        is reported without a traceback. Returns True when a job loaded."""
         path = self._pick_path("menu.ask_import_path")
         if not path:
-            return
+            return False
         preview = self._services.projects.import_json_preview(path)
         if not preview.ok:
             self._say(_text("menu.import_failed"))
             self._say(_text("menu.import_reason") % (preview.message or "unknown"))
             self._say(_text("menu.import_untouched"))
-            return
+            return False
         self._say()
         self._say(_text("menu.import_file_line") % path)
         summary = preview.summary
-        self._say(_text("menu.preview_name") % summary.get("job_name", ""))
-        self._say(_text("menu.base_entities") % summary.get("entity_count", 0))
+        self._say(_text("menu.summary_name") % summary.get("job_name", ""))
+        self._say(_text("menu.import_entities") % summary.get("entity_count", 0))
         for family, count in summary.get("family_counts", {}).items():
             self._say(_text("menu.job_family_header") % family)
             self._say("    x%d" % count)
@@ -544,156 +573,160 @@ class MenuApp:
             (_text("menu.import_yes"), True),
             (_text("menu.import_no"), False),
         ]
-        proceed = self._numbered_choice(_text("menu.import_confirm"), entries, back_note=False)
-        if not proceed:
-            return
+        if not self._numbered_choice(_text("menu.import_confirm"), entries, back_note=False):
+            return False
         result = self._services.projects.import_json_commit(path)
         if not result.ok:
             self._say(_text("menu.import_failed"))
             self._say(_text("menu.import_reason") % (result.message or "unknown"))
             self._say(_text("menu.import_untouched"))
-            return
+            return False
         for warning in result.warnings:
             self._say(_text("menu.import_note_line") % warning)
+        self._current_path = path
+        self._mark_saved()
         self._say(_text("menu.import_loaded"))
+        return True
 
-    def _load_project(self) -> None:
-        """Recover the most recent working copy — no file listing, no path
-        choice. When the open job *is* that copy, the refusal says so instead
-        of silently doing nothing. AF3 JSON files enter through Import."""
-        result = self._services.projects.load_saved_work()
-        if result.ok:
-            name = result.project.configuration.metadata.name
-            self._say(_text("menu.open_saved_loaded") % name)
-        else:
-            self._say(_text("menu.not_applied") % (result.message or ""))
+    # -- job menu ----------------------------------------------------------
 
-    # -- edit the job (the free-navigation core) ---------------------------
-
-    def _edit_job_menu(self) -> None:
-        """Editing is three things: the entities, the job settings, and the
-        structural extras (bonds, modifications, custom components).
-        """
+    def _job_menu(self) -> None:
+        """The job screen: the operations that make up building a job."""
         while True:
-            if self._project() is None:
+            project = self._project()
+            if project is None:
                 return
-            self._say(_banner(_text("menu.builder_title"), self._width))
+            self._say(_banner(_text("menu.job_title"), self._width))
             self._say()
-            self._say(_text("menu.builder_actions"))
+            for line in _job_header_lines(
+                project.configuration, unsaved=self._has_unsaved()
+            ):
+                self._say(line)
             self._say()
-            self._say(_text("menu.back"))
+            self._say(_text("menu.job_actions"))
+            self._say()
+            self._say(_text("menu.job_back"))
             choice = self._select()
-            if choice in ("0", "q", "back"):
-                return
+            if choice in ("0", "q", "quit", "exit", "back"):
+                if self._leave_job():
+                    return
             elif choice == "1":
-                self._entities_menu()
+                self._edit_job_config_menu()
             elif choice == "2":
-                self._job_settings()
+                self._add_entity_menu()
             elif choice == "3":
-                self._bonds_menu()
+                self._edit_entity_menu()
+            elif choice == "4":
+                self._custom_ccd_menu()
+            elif choice == "5":
+                self._ptm_menu()
+            elif choice == "6":
+                self._save_and_summary()
+            elif choice == "7":
+                self._variant_menu()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
-    # -- job settings --------------------------------------------------------
+    def _leave_job(self) -> bool:
+        """Whether leaving the job for the main menu is allowed. Unsaved
+        changes are never discarded silently: the user chooses."""
+        if not self._has_unsaved():
+            return True
+        self._say()
+        self._say(_text("menu.leave_dirty"))
+        entries = [
+            (_text("menu.leave_save"), "save"),
+            (_text("menu.leave_discard"), "discard"),
+            (_text("menu.leave_cancel"), "cancel"),
+        ]
+        route = self._numbered_choice(
+            _text("menu.leave_title"), entries, back_note=False
+        )
+        if route == "discard":
+            return True
+        if route == "save":
+            return self._save_and_summary()
+        return False
 
-    def _job_settings(self) -> None:
+    # -- edit job configurations -------------------------------------------
+
+    def _edit_job_config_menu(self) -> None:
+        """The job-level settings: name, model seeds, JSON version."""
         configuration = self._services.configuration
         while True:
             if self._project() is None:
                 return
             summary = _summary_of(self._services.projects.project.configuration)
-            self._say(_banner(_text("menu.settings_title"), self._width))
+            self._say(_banner(_text("menu.builder_title"), self._width))
             self._say()
             self._say(_text("menu.current_settings") % summary["job_name"])
             self._say(_text("menu.current_version") % summary["format_version"])
             self._say(_text("menu.current_seeds") % (summary["seed_values"],))
             self._say()
-            self._say(_text("menu.settings_actions"))
+            self._say(_text("menu.config_actions"))
             self._say()
             self._say(_text("menu.back"))
             choice = self._select()
             if choice in ("0", "q", "back"):
                 return
             elif choice == "1":
-                self._report(configuration.set_name(self._ask("menu.ask_name")))
+                name = self._ask("menu.ask_name")
+                if name:
+                    self._report(configuration.set_name(name))
             elif choice == "2":
-                self._set_version(configuration)
+                seeds = self._ask("menu.ask_seeds")
+                if seeds:
+                    self._report(configuration.set_seeds(seeds))
             elif choice == "3":
-                self._report(configuration.set_seeds(self._ask("menu.ask_seeds")))
-            elif choice == "4":
-                self._generate_seeds(configuration)
+                self._set_version(configuration)
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
     def _set_version(self, configuration) -> None:
+        """Change the JSON version pin. Only versions the serializer can
+        emit are accepted; an existing configuration is never downgraded
+        silently to a version that loses a field it already uses."""
         raw = self._ask("menu.ask_version")
         if not raw:
-            self._report(configuration.unset_format_target())
             return
-        self._report(configuration.set_format_target(version=raw))
-
-    def _generate_seeds(self, configuration) -> None:
-        """Generate seeds through the service — a count in, the service's
-        own deterministic set out. No randomness is invented here."""
-        raw = self._ask("menu.ask_count")
-        if not raw.isdigit():
-            self._say(_text("menu.invalid") % raw)
+        if not raw.isdigit() or int(raw) not in SUPPORTED_VERSIONS:
+            self._say(_text("menu.version_unsupported") % (list(SUPPORTED_VERSIONS),))
             return
-        seeds = list(range(1, int(raw) + 1))
-        if self._report(configuration.set_seeds(seeds)):
-            self._say(_text("menu.seeds_generated") % (seeds,))
+        self._report(configuration.set_format_target(version=int(raw)))
 
-    # -- entity categories ---------------------------------------------------
+    # -- entity selection helpers ------------------------------------------
 
-    def _entities_menu(self) -> None:
-        """Every entity in one list, whichever family it is: add, edit or
-        delete. The family is chosen *while adding*, where it is a real
-        question, instead of being a menu level the user has to guess their
-        way into.
+    def _entity_entries(self, project, families=None):
+        """``(label, record key)`` rows for the numbered entity pickers."""
+        entries = []
+        for record in project.configuration.records:
+            family = _FAMILY_OF_TYPE.get(type(record))
+            if families is not None and family not in families:
+                continue
+            entries.append((_entity_line(record).strip(), record.ids.primary.value))
+        return entries
 
-        There is no separate "MSA / Templates" entry: an alignment or a set
-        of structural templates belongs to one record and is asked for while
-        that record is added or edited — and only for the families that
-        support them (protein: both; RNA: alignment; DNA/ligand: neither).
+    def _select_entity(self, family=None, title=None, empty_note=None):
+        """Numbered entity selection → the record key (or ``None``).
+
+        ``family`` restricts the picker to one family, or to a tuple of
+        families. ``empty_note`` names the line to say when the picker has
+        nothing to offer.
         """
-        while True:
-            project = self._project()
-            if project is None:
-                return
-            records = project.configuration.records
-            self._say(_banner(_text("menu.entities_title"), self._width))
-            self._say()
-            for record in records:
-                _say_entity_block(self._say, record)
-            if not records:
-                self._say(_text("menu.entity_list_empty"))
-            self._say()
-            self._say(_text("menu.entity_menu_actions"))
-            self._say()
-            self._say(_text("menu.back"))
-            choice = self._select()
-            if choice in ("0", "q", "back"):
-                return
-            elif choice == "1":
-                family = self._choose_family()
-                if family is not None:
-                    self._add_entity(family)
-            elif choice == "2":
-                self._edit_entity()
-            elif choice == "3":
-                self._delete_entity()
-            elif choice:
-                self._say(_text("menu.invalid") % choice)
-
-    def _choose_family(self):
-        """Which kind of entity to add, in the spec's own order."""
-        entries = [
-            (_text("menu.family_protein"), "protein"),
-            (_text("menu.family_dna"), "dna"),
-            (_text("menu.family_rna"), "rna"),
-            (_text("menu.family_ligand"), "ligand"),
-        ]
-        return self._numbered_choice(_text("menu.choose_family"), entries)
+        project = self._project()
+        if project is None:
+            return None
+        if isinstance(family, tuple):
+            families = family
+        elif family:
+            families = (family,)
+        else:
+            families = None
+        entries = self._entity_entries(project, families)
+        if not entries and empty_note is not None:
+            self._say(_text(empty_note))
+            return None
+        return self._numbered_choice(title or _text("menu.select_entity"), entries)
 
     def _record_family(self, record_key: str):
         """The family of the record keyed ``record_key`` (or ``None``)."""
@@ -705,10 +738,34 @@ class MenuApp:
                 return _FAMILY_OF_TYPE.get(type(record))
         return None
 
+    def _record(self, record_key: str):
+        project = self._services.projects.project
+        if project is None:
+            return None
+        for record in project.configuration.records:
+            if record.ids.primary.value == record_key:
+                return record
+        return None
+
+    # -- add entity --------------------------------------------------------
+
+    def _add_entity_menu(self) -> None:
+        """Choose an entity type, then run that type's guided input flow."""
+        entries = [
+            (_text("menu.family_protein"), "protein"),
+            (_text("menu.family_dna"), "dna"),
+            (_text("menu.family_rna"), "rna"),
+            (_text("menu.family_ligand"), "ligand"),
+        ]
+        family = self._numbered_choice(_text("menu.add_entity_title"), entries)
+        if family is None:
+            return
+        if self._add_entity(family):
+            self._say(_text("menu.entity_added"))
+
     def _ask_quantity(self):
         """How many copies of this component belong in the job? Guided
-        choices plus a custom entry — pure base-job quantity, nothing
-        about variants or series here."""
+        choices plus a custom entry."""
         entries = [
             ("1", 1), ("2", 2), ("3", 3), ("5", 5), ("10", 10),
             (_text("menu.quantity_custom"), "custom"),
@@ -727,72 +784,60 @@ class MenuApp:
             self._say(_text("menu.quantity_bad_value"))
 
     def _ligand_kind(self):
-        """The CCD-or-SMILES submenu. Returns "ccd", "smiles", or None
-        to cancel — one shared wording source for every ligand input."""
+        """The CCD-or-SMILES submenu. Returns "ccd", "smiles", or None."""
         entries = [
             (_text("menu.ligand_kind_ccd"), "ccd"),
             (_text("menu.ligand_kind_smiles"), "smiles"),
         ]
         return self._numbered_choice(_text("menu.ligand_kind_menu"), entries)
 
-    def _add_entity(self, family: str) -> None:
-        prompts = {
-            "protein": "menu.add_protein_prompt",
-            "rna": "menu.add_rna_prompt",
-            "dna": "menu.add_dna_prompt",
-            "ligand": "menu.add_ligand_prompt",
-        }
+    def _add_entity(self, family: str) -> bool:
+        """The guided add flow for one family. Returns True when a record
+        was committed; a cancelled or refused add changes nothing."""
         if family == "ligand":
             kind = self._ligand_kind()
             if kind is None:
                 self._say(_text("menu.add_cancelled"))
-                return
+                return False
             representation = self._ask("menu.add_ligand_value_prompt")
             if not representation:
                 self._say(_text("menu.add_cancelled"))
-                return
+                return False
             copies = self._ask_quantity()
             if copies is None:
-                # Cancelling a submenu is not a mistake, but it *is* the end
-                # of the add: saying so stops the user believing they went
-                # back one step when the entity was abandoned (BUG-005).
                 self._say(_text("menu.add_cancelled"))
-                return
-            self._report(
+                return False
+            return self._report(
                 self._services.configuration.add_record(
                     "ligand", representation=representation,
                     representation_kind=kind, copies=copies,
                 )
             )
-            return
+        prompts = {
+            "protein": "menu.add_protein_prompt",
+            "rna": "menu.add_rna_prompt",
+            "dna": "menu.add_dna_prompt",
+        }
         sequence = self._ask(prompts[family])
         if not sequence:
             self._say(_text("menu.add_cancelled"))
-            return
+            return False
         if not self._report(
             self._services.configuration.add_record(family, sequence)
         ):
-            return
+            return False
         if family not in ("protein", "rna"):
-            return
+            return True
         # The record exists now — chain its own questions onto it in one
         # flow (sequence -> MSA y/n -> templates y/n for a protein). Every
-        # "no" is legitimate: unset is a normal state, not a gap. Templates
-        # are a protein question; RNA carries an alignment but no templates.
+        # "no" is legitimate: unset is a normal state, not a gap.
         self._chain_msa(family)
         if family == "protein":
             self._chain_templates(family)
+        return True
 
     def _chain_msa(self, family: str, record_key: str = None) -> None:
-        """The record's MSA question: y -> collect, N/blank -> skip.
-
-        ``record_key`` names the record explicitly (the edit flow); without
-        it the newest record of the family is used, which is the record the
-        add flow has just created. The mode is the numbered MSA-mode menu —
-        the same vocabulary the variant path uses.
-        """
-        # An explicit key means the user is editing that record, so a
-        # "no" leaves it as it was rather than deferring the question.
+        """The record's MSA question: y -> collect, N/blank -> skip."""
         skip = "menu.msa_skip_edit" if record_key is not None else "menu.msa_skip"
         answer = self._ask("menu.ask_msa_yn").lower()
         if answer not in ("y", "yes"):
@@ -827,12 +872,7 @@ class MenuApp:
             )
 
     def _chain_templates(self, family: str, record_key: str = None) -> None:
-        """The record's templates question: y -> collect, N/blank -> skip.
-
-        ``record_key`` names the record explicitly (the edit flow); without
-        it the newest record of the family is used (the add flow). The route
-        is the numbered templates menu.
-        """
+        """The record's templates question: y -> collect, N/blank -> skip."""
         skip = (
             "menu.templates_skip_edit"
             if record_key is not None
@@ -868,62 +908,9 @@ class MenuApp:
             ]
         return self._numbered_choice(_text("menu.msa_mode_menu"), entries)
 
-    def _edit_entity(self) -> None:
-        """Edit one record, chosen by number from the entity picker;
-        blank answers keep the current values.
-
-        The questions are the record's own, and only its own: a polymer is
-        asked for its sequence and description, and the alignment/template
-        questions follow for exactly the families that
-        carry them (protein: MSA and templates; RNA: MSA; DNA: neither —
-        editing a DNA strand moves its partner with it, which the service
-        reports). A ligand has nothing to edit here, and says so instead of
-        being asked questions its record cannot answer.
-        """
-        record_key = self._select_entity(title=_text("menu.entity_editor_title"))
-        if record_key is None:
-            return
-        family = self._record_family(record_key)
-        if family is None:
-            return
-        if family == "ligand":
-            self._say(_text("menu.entity_no_fields"))
-            return
-        sequence = self._ask("menu.edit_sequence_prompt")
-        description = self._ask("menu.edit_desc_prompt")
-        if sequence or description:
-            self._report(
-                self._services.configuration.update_record(
-                    record_key,
-                    sequence=sequence or None,
-                    # Blank keeps the current description — only a typed
-                    # text is an edit. (``""`` through the service would be
-                    # an explicit clearing, which this flow never intends.)
-                    description=description or None,
-                )
-            )
-        if family not in ("protein", "rna"):
-            return
-        # The record the user picked carries the alignment; templates are a
-        # protein question. Same questions, same vocabulary as the add flow.
-        self._chain_msa(family, record_key)
-        if family == "protein":
-            self._chain_templates(family, record_key)
-
-    def _delete_entity(self) -> None:
-        record_key = self._select_entity(title=_text("menu.delete_entity_title"))
-        if record_key is None:
-            return
-        self._report(self._services.configuration.remove_record(record_key))
-
-    # -- MSA / structural templates (§15 set_alignment / set_references) ------
-    # Both are properties of one record, so they are asked for while that
-    # record is added or edited, never from an entry of their own.
-
     def _msa_source_payload(self):
-        """Inline paste or file, as an app-layer ``('inline'|'file',
-        text)`` payload — ``None`` on cancel. Shared by the base Job
-        Builder and the variant alignment flow."""
+        """Inline paste or file, as an app-layer ``('inline'|'file', text)``
+        payload — ``None`` on cancel."""
         entries = [
             (_text("menu.msa_paste_inline"), "inline"),
             (_text("menu.msa_use_file"), "file"),
@@ -940,9 +927,8 @@ class MenuApp:
         return ("file", path) if path else None
 
     def _collect_references_for(self, record_key: str) -> None:
-        """The numbered templates menu and dispatch (shared with the add
-        flow); collects the path and index pairs for the explicit-list
-        route."""
+        """The numbered templates menu and dispatch (shared with the edit
+        flow); collects the path and index pairs for the explicit-list route."""
         entries = [
             (_text("menu.templates_search"), "search"),
             (_text("menu.templates_none"), "none"),
@@ -973,119 +959,322 @@ class MenuApp:
             )
         )
 
-    # -- structural sections ------------------------------------------------
+    # -- edit entity -------------------------------------------------------
 
-    def _bonds_menu(self) -> None:
-        """One screen for everything structural that is not an entity:
-        bonded atom pairs, residue modifications, and the custom component
-        definition. These are the same subject (how the pieces attach
-        together), so they are not three menu levels.
-        """
-        configuration = self._services.configuration
+    def _edit_entity_menu(self) -> None:
+        """List the job's entities, then edit or delete one. The list shows
+        the real identifiers and types; an empty job says so."""
         while True:
             project = self._project()
             if project is None:
                 return
-            self._say(_banner(_text("menu.linkage_title"), self._width))
+            if not project.configuration.records:
+                self._say(_text("menu.entity_list_empty"))
+                self._say(_text("menu.no_entities_edit"))
+                return
+            entries = self._entity_entries(project)
+            record_key = self._numbered_choice(_text("menu.entity_editor_title"), entries)
+            if record_key is None:
+                return
+            self._entity_action_menu(record_key)
+
+    def _entity_action_menu(self, record_key: str) -> None:
+        """One selected entity: view it, then Edit or Delete (with confirm)."""
+        while True:
+            record = self._record(record_key)
+            if record is None:
+                return
+            self._say(_banner(_text("menu.entity_action_title"), self._width))
             self._say()
-            self._say(_text("menu.linkage_count") % len(project.configuration.linkages))
-            for index, linkage in enumerate(project.configuration.linkages, start=1):
-                self._say(_text("menu.linkage_row") % (index, _linkage_line(linkage)))
+            self._say(_text("menu.selected_entity") % _entity_line(record).strip())
+            for row in _mod_rows(record):
+                self._say("  " + row.strip())
             self._say()
-            self._say(_text("menu.linkage_actions"))
+            polymer = _FAMILY_OF_TYPE.get(type(record)) in _POLYMER_FAMILIES
+            self._say(
+                _text(
+                    "menu.entity_actions_polymer"
+                    if polymer
+                    else "menu.entity_actions"
+                )
+            )
             self._say()
             self._say(_text("menu.back"))
             choice = self._select()
             if choice in ("0", "q", "back"):
                 return
-            elif choice == "1":
-                self._add_linkage(configuration)
+            if choice == "1":
+                self._edit_entity_fields(record_key)
             elif choice == "2":
-                self._remove_linkage(configuration)
-            elif choice == "3":
-                self._add_modification(configuration)
-            elif choice == "4":
-                self._remove_modification(configuration)
-            elif choice == "5":
-                self._paste_component_definition(configuration)
+                if self._delete_entity_key(record_key):
+                    return
+            elif choice == "3" and polymer:
+                self._record_mod_menu(record_key)
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
-    def _remove_linkage(self, configuration) -> None:
-        """Remove one linkage by the number the listing above shows.
-        The prompt's number is human 1-based; the service's index is
-        0-based. Blank, ``0``, or anything unparsable cancels."""
+    def _edit_entity_fields(self, record_key: str) -> None:
+        """The record's own fields, and only its own. A polymer is asked for
+        its sequence and description plus the alignment/template questions
+        its family supports; a ligand is asked for its representation.
+        Blank answers keep the current values."""
+        family = self._record_family(record_key)
+        if family is None:
+            return
+        if family == "ligand":
+            kind = self._ligand_kind()
+            if kind is None:
+                return
+            value = self._ask("menu.add_ligand_value_prompt")
+            if not value:
+                return
+            if kind == "smiles":
+                self._report(
+                    self._services.configuration.set_representation(
+                        record_key, notation=value
+                    )
+                )
+            else:
+                self._report(
+                    self._services.configuration.set_representation(
+                        record_key, codes=value.replace(",", " ").split()
+                    )
+                )
+            return
+        sequence = self._ask("menu.edit_sequence_prompt")
+        description = self._ask("menu.edit_desc_prompt")
+        if sequence or description:
+            self._report(
+                self._services.configuration.update_record(
+                    record_key,
+                    sequence=sequence or None,
+                    description=description or None,
+                )
+            )
+        if family in ("protein", "rna"):
+            self._chain_msa(family, record_key)
+        if family == "protein":
+            self._chain_templates(family, record_key)
+
+    def _delete_entity_key(self, record_key: str) -> bool:
+        """Delete one entity after confirmation. Returns True when it was
+        removed (the caller then returns to the entity list)."""
+        entries = [
+            (_text("menu.delete_yes"), True),
+            (_text("menu.delete_no"), False),
+        ]
+        confirmed = self._numbered_choice(
+            _text("menu.delete_confirm") % record_key, entries, back_note=False
+        )
+        if not confirmed:
+            return False
+        if self._report(self._services.configuration.remove_record(record_key)):
+            self._say(_text("menu.removed") % record_key)
+            return True
+        return False
+
+    def _record_mod_menu(self, record_key: str) -> None:
+        """The selected polymer's own modifications: view, add, edit or
+        remove. The same collection, validation and refusal paths as PTM
+        management, scoped to the record the user picked."""
+        while True:
+            record = self._record(record_key)
+            if record is None:
+                return
+            self._say(_banner(_text("menu.mod_menu_title"), self._width))
+            self._say()
+            self._say(_text("menu.selected_entity") % _entity_line(record).strip())
+            for row in _mod_rows(record):
+                self._say("  " + row.strip())
+            self._say()
+            self._say(_text("menu.mod_actions"))
+            self._say()
+            self._say(_text("menu.back"))
+            choice = self._select()
+            if choice in ("0", "q", "back"):
+                return
+            if choice == "1":
+                self._add_modification_to(record_key)
+            elif choice == "2":
+                self._edit_modification_on(record_key)
+            elif choice == "3":
+                self._remove_modification_on(record_key)
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
+
+    # -- custom CCD management ---------------------------------------------
+
+    def _custom_ccd_menu(self) -> None:
+        """The job's custom component (userCCD) definition: view, add, edit,
+        or remove. A job carries at most one — the AF3 schema has one
+        ``userCCD`` / ``userCCDPath`` field — presented here as a list of
+        zero or one with the definition's content shown."""
+        while True:
+            project = self._project()
+            if project is None:
+                return
+            definition = project.configuration.component_definition
+            self._say(_banner(_text("menu.ccd_title"), self._width))
+            self._say()
+            self._say_ccd_definition(definition)
+            self._say()
+            self._say(_text("menu.ccd_actions"))
+            self._say()
+            self._say(_text("menu.back"))
+            choice = self._select()
+            if choice in ("0", "q", "back"):
+                return
+            if choice == "1":
+                self._say()
+                self._say_ccd_definition(definition)
+            elif choice == "2":
+                self._add_ccd_definition()
+            elif choice == "3":
+                self._add_ccd_definition()
+            elif choice == "4":
+                self._remove_ccd_definition()
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
+
+    def _say_ccd_definition(self, definition) -> None:
+        if definition is None:
+            self._say(_text("menu.ccd_none"))
+            return
+        self._say(_text("menu.ccd_current"))
+        if isinstance(definition, External):
+            self._say(_text("menu.ccd_path") % definition.path.raw)
+            return
+        if isinstance(definition, Inline):
+            lines = definition.text.splitlines() or [""]
+            self._say(_text("menu.ccd_inline") % lines[0])
+            self._say(_text("menu.ccd_inline_lines") % len(lines))
+            return
+        self._say(_text("menu.ccd_none"))
+
+    def _add_ccd_definition(self) -> None:
+        """Collect a custom CCD definition — inline CIF text or an external
+        file path — and set it on the job."""
+        entries = [
+            (_text("menu.msa_paste_inline"), "inline"),
+            (_text("menu.msa_use_file"), "file"),
+        ]
+        route = self._numbered_choice(_text("menu.ccd_source_menu"), entries)
+        if route is None:
+            return
+        if route == "inline":
+            content = self._console.read_multiline(
+                _text("menu.paste_definition") + "\n"
+            ).decode("utf-8", "replace")
+            if not content.strip():
+                self._say(_text("menu.save_cancelled"))
+                return
+            outcome = self._services.configuration.set_component_definition(
+                inline_text=content
+            )
+        else:
+            path = self._pick_path("menu.ask_ccd_path")
+            if not path:
+                self._say(_text("menu.save_cancelled"))
+                return
+            outcome = self._services.configuration.set_component_definition(
+                external_path=path
+            )
+        if self._report(outcome):
+            self._say(_text("menu.ccd_set"))
+
+    def _remove_ccd_definition(self) -> None:
         project = self._project()
         if project is None:
             return
-        linkages = project.configuration.linkages
-        if not linkages:
-            self._say(_text("menu.linkage_none"))
+        if project.configuration.component_definition is None:
+            self._say(_text("menu.ccd_none"))
             return
-        raw = self._ask("menu.linkage_index_prompt")
-        if raw in ("", "0", "q", "back"):
+        entries = [
+            (_text("menu.delete_yes"), True),
+            (_text("menu.delete_no"), False),
+        ]
+        confirmed = self._numbered_choice(
+            _text("menu.ccd_confirm"), entries, back_note=False
+        )
+        if not confirmed:
             return
-        if not raw.isdigit():
-            self._say(_text("menu.invalid") % raw)
-            return
-        index = int(raw) - 1
-        if not 0 <= index < len(linkages):
-            self._say(_text("menu.invalid") % raw)
-            return
-        if self._report(configuration.remove_linkage(index)):
-            self._say(_text("menu.linkage_removed"))
+        if self._report(self._services.configuration.clear_component_definition()):
+            self._say(_text("menu.ccd_removed"))
 
-    def _add_linkage(self, configuration) -> None:
-        """Both endpoints chosen by number from the entity picker. Residue
-        numbers go through the whole-number prompt, so a typo is answered in
-        the user's own terms rather than with a Python message (BUG-002)."""
-        a_key = self._select_entity(title=_text("menu.link_first_entity"))
-        if a_key is None:
-            return
-        a_residue = self._ask_whole_number("menu.ask_residue_a")
-        if a_residue is None:
-            return
-        a_atom = self._ask("menu.ask_atom_a")
-        if not a_atom:
-            self._say(_text("menu.link_cancelled"))
-            return
-        b_key = self._select_entity(title=_text("menu.link_second_entity"))
-        if b_key is None:
-            return
-        b_residue = self._ask_whole_number("menu.ask_residue_b")
-        if b_residue is None:
-            return
-        b_atom = self._ask("menu.ask_atom_b")
-        if not b_atom:
-            self._say(_text("menu.link_cancelled"))
-            return
-        if self._report(
-            configuration.add_linkage(a_key, a_residue, a_atom, b_key, b_residue, b_atom)
-        ):
-            self._say(_text("menu.linkage_added"))
+    # -- PTM management ----------------------------------------------------
 
-    def _paste_component_definition(self, configuration) -> None:
-        content = self._console.read_multiline(
-            _text("menu.paste_definition") + "\n"
-        ).decode("utf-8", "replace")
-        if self._report(configuration.set_component_definition(inline_text=content)):
-            self._say(_text("menu.component_set"))
+    def _ptm_menu(self) -> None:
+        """Post-translational modifications on the job's polymer chains:
+        view, add, edit, or remove. Every operation reuses the same
+        validation and serialization the base workflow uses."""
+        while True:
+            if self._project() is None:
+                return
+            self._say(_banner(_text("menu.ptm_title"), self._width))
+            self._say()
+            self._say_ptm_list()
+            self._say()
+            self._say(_text("menu.ptm_actions"))
+            self._say()
+            self._say(_text("menu.back"))
+            choice = self._select()
+            if choice in ("0", "q", "back"):
+                return
+            if choice == "1":
+                self._say()
+                self._say_ptm_list()
+            elif choice == "2":
+                self._ptm_add()
+            elif choice == "3":
+                self._ptm_edit()
+            elif choice == "4":
+                self._ptm_remove()
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
 
-    def _add_modification(self, configuration) -> None:
-        """The carrier is chosen by number from the polymer picker.
+    def _protein_records(self):
+        project = self._project()
+        if project is None:
+            return []
+        return [
+            record
+            for record in project.configuration.records
+            if _FAMILY_OF_TYPE.get(type(record)) in _POLYMER_FAMILIES
+        ]
 
-        Only the families that *carry* modifications are offered. A ligand
-        used to be offered and then refused with a message about editing
-        ligands — the wrong subject, and a dead end the user had to guess
-        their way out of (BUG-006).
-        """
-        record_key = self._select_entity(
-            family=("protein", "rna", "dna"),
+    def _say_ptm_list(self) -> None:
+        records = [r for r in self._protein_records() if getattr(r, "modifications", None)]
+        if not records:
+            self._say(_text("menu.ptm_none"))
+            return
+        for record in records:
+            self._say(_text("menu.ptm_record") % _entity_line(record).strip())
+            for row in _mod_rows(record):
+                self._say(row)
+
+    def _select_modification(self, record):
+        """Numbered pick over one record's modifications → the 0-based index,
+        or ``None``."""
+        modifications = tuple(getattr(record, "modifications", ()) or ())
+        if not modifications:
+            self._say(_text("menu.no_mods_on_record"))
+            return None
+        entries = [
+            ("%s @ %d" % (mod.code.value, mod.position.value), index)
+            for index, mod in enumerate(modifications)
+        ]
+        return self._numbered_choice(_text("menu.mod_remove_prompt"), entries)
+
+    def _select_modification_target(self):
+        """The PTM menu's carrier picker: a polymer record key, or ``None``."""
+        return self._select_entity(
+            family=_POLYMER_FAMILIES,
             title=_text("menu.mod_target_entity"),
             empty_note="menu.no_modification_target",
         )
-        if record_key is None:
-            return
+
+    def _add_modification_to(self, record_key: str) -> None:
+        """Collect a code and position and add them to one known record."""
         code = self._ask("menu.ask_code")
         if not code:
             self._say(_text("menu.mod_cancelled"))
@@ -1094,52 +1283,276 @@ class MenuApp:
         if position is None:
             self._say(_text("menu.mod_cancelled"))
             return
-        if self._report(configuration.add_modification(record_key, code, position)):
+        if self._report(
+            self._services.configuration.add_modification(record_key, code, position)
+        ):
             self._say(_text("menu.modification_added"))
 
-    def _remove_modification(self, configuration) -> None:
-        """Numbered entity pick, then a numbered list of that record's
-        actual modifications — nothing is typed and nothing is guessed."""
-        record_key = self._select_entity(title=_text("menu.mod_remove_entity"))
+    def _edit_modification_on(self, record_key: str) -> None:
+        """Pick one of the record's own modifications and change it."""
+        record = self._record(record_key)
+        if record is None:
+            return
+        index = self._select_modification(record)
+        if index is None:
+            return
+        code = self._ask("menu.ptm_edit_code_prompt")
+        position = self._ask("menu.ptm_edit_position_prompt")
+        new_position = None
+        if position:
+            if not position.isdigit() or int(position) < 1:
+                self._say(_text("menu.need_whole_number") % position)
+                return
+            new_position = int(position)
+        if not code and new_position is None:
+            self._say(_text("menu.mod_cancelled"))
+            return
+        if self._report(
+            self._services.configuration.update_modification(
+                record_key, index, code=code or None, position=new_position
+            )
+        ):
+            self._say(_text("menu.ptm_updated"))
+
+    def _remove_modification_on(self, record_key: str) -> None:
+        """Pick one of the record's own modifications and remove it."""
+        record = self._record(record_key)
+        if record is None:
+            return
+        index = self._select_modification(record)
+        if index is None:
+            return
+        if self._report(
+            self._services.configuration.remove_modification(record_key, index)
+        ):
+            self._say(_text("menu.modification_removed"))
+
+    def _ptm_add(self) -> None:
+        record_key = self._select_modification_target()
         if record_key is None:
             return
+        self._add_modification_to(record_key)
+
+    def _ptm_edit(self) -> None:
+        record_key = self._select_modification_target()
+        if record_key is None:
+            return
+        self._edit_modification_on(record_key)
+
+    def _ptm_remove(self) -> None:
+        record_key = self._select_modification_target()
+        if record_key is None:
+            return
+        self._remove_modification_on(record_key)
+
+    # -- save and summary --------------------------------------------------
+
+    def _say_summary(self, configuration) -> None:
+        """The job's summary: the model's own counts, never a re-derivation."""
+        summary = _summary_of(configuration)
+        version = summary["json_version"]
+        self._say(_banner(_text("menu.summary_title"), self._width))
+        self._say()
+        self._say(_text("menu.summary_name") % summary["job_name"])
+        self._say(_text("menu.summary_seeds") % (summary["seed_values"],))
+        self._say(
+            _text("menu.summary_version")
+            % (version if version is not None else summary["format_version"])
+        )
+        self._say(_text("menu.summary_entities") % summary["entity_count"])
+        self._say()
+        self._say(_text("menu.summary_breakdown"))
+        groups = summary["entity_groups"]
+        self._say(_text("menu.summary_protein") % len(groups["protein"]))
+        self._say(_text("menu.summary_dna") % len(groups["dna"]))
+        self._say(_text("menu.summary_rna") % len(groups["rna"]))
+        self._say(_text("menu.summary_ligand") % len(groups["ligand"]))
+        self._say(_text("menu.summary_other") % 0)
+        if configuration.records:
+            self._say()
+            for record in configuration.records:
+                _say_entity_block(self._say, record)
+        self._say()
+        self._say(_rule(self._width))
+
+    def _suggest_file_name(self, configuration) -> str:
+        name = (configuration.metadata.name or "job").strip() or "job"
+        return name.replace(" ", "_") + ".json"
+
+    def _save_and_summary(self) -> bool:
+        """Show the summary, ask where to save, then validate, serialize and
+        write. Returns True on a successful save; a failed validation or
+        write leaves the job editable and intact."""
+        project = self._project()
+        if project is None:
+            return False
+        self._say_summary(project.configuration)
+        default = self._current_path or self._suggest_file_name(project.configuration)
+        destination = self._ask_destination("menu.ask_save_path", default)
+        if not destination:
+            self._say(_text("menu.save_cancelled"))
+            return False
+        overwrite = os.path.exists(destination)
+        if overwrite:
+            entries = [
+                (_text("menu.overwrite_yes"), True),
+                (_text("menu.overwrite_no"), False),
+            ]
+            if not self._numbered_choice(
+                _text("menu.overwrite_confirm") % destination, entries, back_note=False
+            ):
+                self._say(_text("menu.save_cancelled"))
+                return False
+        if not self._write_json(destination, name=None, overwrite=overwrite):
+            return False
+        self._current_path = destination
+        self._mark_saved()
+        return True
+
+    def _write_json(self, destination: str, name, overwrite: bool) -> bool:
+        """Validate, serialize and write the current configuration through
+        the generation service. Nothing is written before the plan succeeds;
+        a failed write keeps the in-memory job intact."""
+        from configbuilder.ui.present import format_findings
+
+        plan = self._services.generation.plan_save(
+            destination, name=name, overwrite=overwrite
+        )
+        if not plan.ok:
+            if plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
+                self._say(_text("menu.save_job_blocked"))
+                status = self._services.validation.status()
+                if status is not None:
+                    self._say_status(status)
+                self._print_cards(plan.findings, format_findings)
+            else:
+                self._say(_text("menu.not_applied") % (plan.message or ""))
+            for conflict in plan.conflicts:
+                self._say(_text("menu.export_conflict") % conflict)
+            return False
+        result = self._services.generation.execute(plan)
+        if result.ok:
+            for path in result.written:
+                self._say(_text("menu.save_job_wrote") % path)
+            for path in result.skipped:
+                self._say(_text("menu.export_skipped") % path)
+            return True
+        for error in result.errors:
+            self._say(_text("menu.not_applied") % error)
+        return False
+
+    # -- variants ----------------------------------------------------------
+
+    def _variant_menu(self) -> None:
+        """Variant management over the current job. The base is snapshotted
+        on entry; the user edits the live copy and saves it as its own JSON,
+        then the working copy is reset to the base. The base is never
+        mutated, and no variant inherits an earlier one's changes."""
         project = self._project()
         if project is None:
             return
-        record = None
-        for candidate in project.configuration.records:
-            if candidate.ids.primary.value == record_key:
-                record = candidate
-                break
-        if record is None or not getattr(record, "modifications", None):
-            self._say(_text("menu.no_mods_on_record"))
-            return
-        entries = [
-            (
-                "%s @ %d" % (mod.code.value, mod.position.value),
-                mod.position.value,
-            )
-            for mod in record.modifications
-        ]
-        chosen = self._numbered_choice(_text("menu.mod_remove_prompt"), entries)
-        if chosen is None:
-            return
-        index = next(
-            i
-            for i, mod in enumerate(record.modifications)
-            if mod.position.value == chosen
-        )
-        if self._report(configuration.remove_modification(record_key, index)):
-            self._say(_text("menu.modification_removed"))
+        # Immutability makes the base object a complete, isolated snapshot:
+        # the variant edits replace the project's configuration with new
+        # objects and never touch this one.
+        self._variant_base = project.configuration
+        self._variant_name = ""
+        try:
+            while True:
+                project = self._project()
+                if project is None:
+                    return
+                self._say(_banner(_text("menu.variant_title"), self._width))
+                self._say()
+                self._say(_text("menu.variant_base_job") % self._variant_base.metadata.name)
+                self._say(
+                    _text("menu.variant_base_entities")
+                    % len(self._variant_base.records)
+                )
+                self._say(
+                    _text("menu.variant_current")
+                    % (self._variant_name or self._default_variant_name())
+                )
+                self._say()
+                self._say(_text("menu.variant_actions"))
+                self._say()
+                self._say(_text("menu.back"))
+                choice = self._select()
+                if choice in ("0", "q", "back"):
+                    return
+                if choice == "1":
+                    self._set_variant_name()
+                elif choice == "2":
+                    self._add_entity_menu()
+                elif choice == "3":
+                    self._edit_entity_menu()
+                elif choice == "4":
+                    self._save_variant_and_reset()
+                elif choice:
+                    self._say(_text("menu.invalid") % choice)
+        finally:
+            # Leaving variant management restores the base and forgets the
+            # active variant entirely — the base job is never modified.
+            self._reset_variant()
+            self._variant_base = None
 
-    # -- summary --------------------------------------------------------------
+    def _default_variant_name(self) -> str:
+        base = self._variant_base.metadata.name if self._variant_base is not None else "job"
+        return "%s_variant" % base
+
+    def _set_variant_name(self) -> None:
+        current = self._variant_name or self._default_variant_name()
+        raw = self._ask("menu.variant_name_prompt")
+        if raw:
+            self._variant_name = raw
+            self._say(_text("menu.variant_named") % raw)
+        else:
+            self._say(_text("menu.variant_named") % current)
+
+    def _save_variant_and_reset(self) -> None:
+        """Save the active variant as its own file, then reset to the base.
+        A failed validation or write resets nothing and loses nothing."""
+        default = self._variant_name or self._default_variant_name()
+        destination = self._ask_destination(
+            "menu.ask_variant_path", default + ".json"
+        )
+        if not destination:
+            self._say(_text("menu.save_cancelled"))
+            return
+        overwrite = os.path.exists(destination)
+        if overwrite:
+            entries = [
+                (_text("menu.overwrite_yes"), True),
+                (_text("menu.overwrite_no"), False),
+            ]
+            if not self._numbered_choice(
+                _text("menu.overwrite_confirm") % destination, entries, back_note=False
+            ):
+                self._say(_text("menu.save_cancelled"))
+                return
+        name = self._variant_name or self._default_variant_name()
+        if not self._write_json(destination, name=name, overwrite=overwrite):
+            return
+        self._say(_text("menu.variant_saved") % destination)
+        self._reset_variant()
+        self._say(_text("menu.variant_reset"))
+
+    def _reset_variant(self) -> None:
+        """Restore the pristine base configuration and clear the variant's
+        name, ready for the next variant. The base snapshot is retained so
+        the next variant starts from the same base again."""
+        self._variant_name = ""
+        if self._variant_base is None:
+            return
+        project = self._services.projects.project
+        if project is not None:
+            self._services.projects._replace_project(
+                project.with_configuration(self._variant_base)
+            )
+
+    # -- view helpers ------------------------------------------------------
 
     def _say_status(self, status) -> None:
-        """The status block: every field, its state, and the verdict.
-
-        One renderer for the master menu, the review screen, and refusals,
-        so the user reads the same picture wherever they look.
-        """
+        """The status block: every field, its state, and the verdict."""
         self._say(_banner(_text("menu.status_title"), self._width))
         self._say()
         for field in status.fields:
@@ -1148,79 +1561,6 @@ class MenuApp:
         self._say(
             _text("menu.status_ready" if status.ready else "menu.status_incomplete")
         )
-
-    def _say_incomplete(self, status) -> None:
-        """Why a save or a generation cannot start, naming each field."""
-        self._say()
-        self._say(_text("menu.incomplete_header"))
-        self._say(_text("menu.incomplete_missing"))
-        for field in status.attention():
-            self._say(
-                _text("menu.incomplete_row")
-                % (_status_label(field.key), field.message)
-            )
-        self._say(_text("menu.incomplete_hint"))
-
-    def _status_for_findings(self, findings):
-        """The status view over the open job, with ``findings``' blocking
-        rows marked — how a refused generation names what is missing
-        instead of stating a bare verdict."""
-        project = self._services.projects.project
-        if project is None:
-            return None
-        from configbuilder.app.status import build_status
-
-        blocking = tuple(
-            finding
-            for finding in findings
-            if getattr(getattr(finding, "severity", None), "name", "") == "ERROR"
-        )
-        return build_status(project.configuration, blocking)
-
-    def _review_screen(self) -> None:
-        """Everything a decision needs, in one place: the status view (what
-        is defaulted, what is still missing), the entities, the variants,
-        and the two things asked from here — validate, and see the JSON.
-        """
-        from configbuilder.ui.present import format_findings
-
-        while True:
-            project = self._project()
-            if project is None:
-                return
-            status = self._services.validation.status()
-            if status is not None:
-                self._say_status(status)
-                self._say()
-            self._say(_banner(_text("menu.review_title"), self._width))
-            self._say()
-            self._say(_text("menu.review_entities") % len(project.configuration.records))
-            for record in project.configuration.records:
-                _say_entity_block(self._say, record)
-            if not project.configuration.records:
-                self._say(_text("menu.entity_list_empty"))
-            self._say()
-            self._say(_text("menu.specs_header"))
-            if not project.specs:
-                self._say(_text("menu.specs_none"))
-            else:
-                for spec in project.specs:
-                    self._say(_text("menu.spec_line") % (spec.key, spec.label))
-            self._say()
-            self._say(_text("menu.review_actions"))
-            self._say()
-            self._say(_text("menu.back"))
-            choice = self._select()
-            if choice in ("0", "q", "back"):
-                return
-            elif choice == "1":
-                self._validate_review(format_findings)
-            elif choice == "2":
-                self._show_json()
-            elif choice:
-                self._say(_text("menu.invalid") % choice)
-
-    # -- validation ------------------------------------------------------------
 
     def _print_cards(self, findings, format_findings) -> None:
         """Findings as the numbered cards the present layer produces."""
@@ -1232,56 +1572,7 @@ class MenuApp:
             for line in card.lines:
                 self._say(_text("menu.finding_indent") + line)
 
-    @staticmethod
-    def _verdict(findings) -> str:
-        """The verdict key for one report, decided by **severity**: ``FAIL``
-        when something blocks generation, ``WARN`` when something deserves
-        attention, ``OK`` when only informational notes remain.
-
-        INFO findings are notes ("this is a project policy, not a rule"),
-        never a verdict — treating "any finding" as failure is what made every
-        clean job report ``FAIL``.
-        """
-        severities = set()
-        for finding in findings:
-            severity = getattr(finding, "severity", None)
-            severities.add(getattr(severity, "name", str(severity)))
-        if "ERROR" in severities:
-            return "menu.fail"
-        if "WARNING" in severities:
-            return "menu.warn"
-        return "menu.ok"
-
-    def _validate_review(self, format_findings) -> None:
-        """The base and every variant, with the full finding cards for the
-        base (the user asked to validate, so the report is the answer) and
-        for any variant that is not clean."""
-        outcome = self._services.validation.validate_all()
-        base_report = outcome.base_report
-        if base_report is None:
-            self._say(_text("menu.no_project"))
-            return
-        self._say(_text(self._verdict(base_report.findings)) % "base")
-        self._print_cards(base_report.findings, format_findings)
-        for key in outcome.variant_reports:
-            report = outcome.variant_reports[key]
-            verdict = self._verdict(report.findings)
-            self._say(_text(verdict) % key)
-            if verdict != "menu.ok":
-                self._print_cards(report.findings, format_findings)
-
-    # -- JSON display ------------------------------------------------------------
-
-    def _show_json(self, key=None) -> None:
-        text_json, error = self._services.generation.show_json(key)
-        if error is not None:
-            self._say(_text("menu.json_error") % error)
-            return
-        self._say(text_json)
-
-    # -- variants ------------------------------------------------------------------
-
-    # -- variants: shared numbered-choice machinery ------------------------
+    # -- numbered-choice machinery -----------------------------------------
 
     def _numbered_choice(self, title, entries, back_note=True):
         """Show a numbered list and return the chosen item (or ``None``
@@ -1312,818 +1603,3 @@ class MenuApp:
             if back_note:
                 self._say()
                 self._say(_text("menu.back"))
-
-    def _choice_menu(self, title, choices):
-        """Numbered menu over ``VariantChoice`` rows → the payload value.
-        The rows carry data (keys), not wording; entity rows are rendered
-        through this module's registered entity-line templates."""
-        if not choices:
-            self._say(_text("menu.entity_add_note"))
-            return None
-        entries = [(self._choice_label(choice), choice.value) for choice in choices]
-        return self._numbered_choice(title, entries)
-
-    def _choice_label(self, choice) -> str:
-        """Human wording for one choice row: entity keys are rendered
-        through the entity-line templates; other rows carry their own
-        registered labels (set at the call site)."""
-        if choice.kind in ("protein", "rna", "dna", "ligand", "entity"):
-            project = self._project()
-            if project is not None:
-                for record in project.configuration.records:
-                    if record.ids.primary.value == choice.value:
-                        return _entity_line(record).strip()
-        return choice.label
-
-    def _variants_menu(self) -> None:
-        """Variants: create one, manage the ones that exist, or build a
-        batch from a sequence file or a quantity series. The current job's
-        own JSON is written from the Generate screen, not from here."""
-        while True:
-            project = self._project()
-            if project is None:
-                return
-            self._say(_banner(_text("menu.variants_title"), self._width))
-            self._say()
-            self._say_variant_list(project)
-            self._say()
-            self._say(_text("menu.variant_actions"))
-            self._say()
-            self._say(_text("menu.back"))
-            choice = self._select()
-            if choice in ("0", "q", "back"):
-                return
-            elif choice == "1":
-                self._create_variant()
-            elif choice == "2":
-                self._manage_variants()
-            elif choice == "3":
-                self._batch_from_file()
-            elif choice == "4":
-                self._quantity_series()
-            elif choice:
-                self._say(_text("menu.invalid") % choice)
-
-    def _quantity_series(self) -> None:
-        """The concentration/quantity series — a **variant** operation,
-        reachable only here (never in the add-component flow). Component
-        selection, progression, preview, confirmation, then one
-        independent variant per level through the service."""
-        choices = self._services.variants.component_count_choices()
-        if not choices:
-            self._say(_text("menu.series_no_components"))
-            return
-        # -- component selection (numbered; no internal ids typed) ----
-        rows = [(choice.value, choice.detail) for choice in choices]
-        entries = [("%s  %s" % (key, _text("menu.series_preview_times") % count), key)
-                   for key, count in rows]
-        self._say(_banner(_text("menu.series_component_menu"), self._width))
-        self._say()
-        for index, (label, _) in enumerate(entries, start=1):
-            self._say(_text("menu.choice_line") % (index, label))
-        self._say(_text("menu.choice_line") % (
-            len(entries) + 1, _text("menu.series_component_multiple")))
-        self._say()
-        self._say(_text("menu.back"))
-        raw = self._select()
-        if raw in ("0", "q", "back", ""):
-            return
-        selected = []
-        if raw.strip() == str(len(entries) + 1):
-            selected = [key for _, key in entries]
-        elif all(part.isdigit() and 1 <= int(part) <= len(entries)
-                 for part in raw.split()):
-            seen = []
-            for part in raw.split():
-                key = entries[int(part) - 1][1]
-                if key not in seen:
-                    seen.append(key)
-            selected = seen
-        else:
-            self._say(_text("menu.invalid") % raw)
-            return
-        if not selected:
-            return
-        # -- progression -----------------------------------------------
-        numbers = {}
-        for prompt_key, name in (
-            ("menu.series_start_prompt", "start"),
-            ("menu.series_factor_prompt", "factor"),
-            ("menu.series_levels_prompt", "levels"),
-        ):
-            answer = self._ask(prompt_key)
-            if answer in ("0", "q", "back", "") or not answer.strip().isdigit():
-                self._say(_text("menu.series_bad_value"))
-                return
-            numbers[name] = int(answer)
-        rows_plan, failure = self._services.variants.quantity_series_plan(
-            selected, numbers["start"], numbers["factor"], numbers["levels"]
-        )
-        if failure is not None:
-            self._say(_text("menu.not_applied") % failure)
-            return
-        # -- preview, then confirm (nothing exists until Yes) ----------
-        self._say()
-        self._say(_banner(_text("menu.series_preview_title"), self._width))
-        self._say()
-        self._say(_text("menu.series_preview_base"))
-        for key, count in rows:
-            if key in selected:
-                self._say(_text("menu.series_preview_row") % (
-                    key, _text("menu.series_preview_times") % count))
-        self._say(_text("menu.series_preview_factor") % (
-            numbers["factor"], numbers["levels"]))
-        self._say()
-        self._say(_text("menu.series_preview_will"))
-        for multiplier, counts in rows_plan:
-            parts = "  ".join(
-                "%s %s" % (key, _text("menu.series_preview_times") % count)
-                for key, count in sorted(counts.items())
-            )
-            self._say(_text("menu.series_preview_row") % (
-                "x%d" % multiplier, parts))
-        self._say()
-        confirm = self._numbered_choice(_text("menu.series_confirm"), [
-            (_text("menu.series_yes"), True),
-            (_text("menu.series_no"), False),
-        ], back_note=False)
-        if not confirm:
-            return
-        outcome = self._services.variants.create_quantity_series(
-            selected, numbers["start"], numbers["factor"], numbers["levels"]
-        )
-        if outcome.ok:
-            self._say(_text("menu.series_created") % len(rows_plan))
-        else:
-            self._say(_text("menu.not_applied") % outcome.message)
-
-    def _manage_variants(self) -> None:
-        """Variant management, entered explicitly — CRUD and preview over
-        the variants that exist, never a gate in front of the base."""
-        while True:
-            project = self._project()
-            if project is None:
-                return
-            self._say(_banner(_text("menu.variants_title"), self._width))
-            self._say()
-            self._say_variant_list(project)
-            self._say()
-            self._say(_text("menu.manage_actions"))
-            self._say()
-            self._say(_text("menu.back"))
-            choice = self._select()
-            if choice in ("0", "q", "back"):
-                return
-            elif choice == "1":
-                self._edit_variant()
-            elif choice == "2":
-                self._duplicate_variant()
-            elif choice == "3":
-                self._delete_variant()
-            elif choice == "4":
-                self._preview_variant()
-            elif choice == "5":
-                self._json_preview_variant()
-            elif choice:
-                self._say(_text("menu.invalid") % choice)
-
-    def _generate_base_json(self) -> None:
-        """Base JSON as a first-class action: validate → transform →
-        encode → plan → confirm → write, all through the generation
-        service (the same pipeline a variant run uses, with the base as
-        the run's only entry). The UI never serializes anything."""
-        from configbuilder.ui.present import format_findings
-
-        project = self._project()
-        if project is None:
-            return
-        generation_plan = self._services.generation.plan_base(self._output_dir)
-        if not generation_plan.ok:
-            self._plan_failure(generation_plan, format_findings)
-            return
-        self._say()
-        self._say(_text("menu.preview_name") % generation_plan.project_name)
-        self._say(_text("menu.preview_entities"))
-        for record in project.configuration.records:
-            self._say("  " + _entity_line(record))
-            for row in _mod_rows(record):
-                self._say("  " + row)
-        self._say(_text("menu.preview_seeds") % (list(project.configuration.seeds.values),))
-        self._say(_text("menu.export_dir") % generation_plan.output_root)
-        for entry in generation_plan.entries:
-            self._say(_text("menu.export_action_line") % (entry.action, entry.path))
-        for warning in generation_plan.warnings:
-            self._say(_text("menu.export_warning") % warning)
-        entries = [
-            (_text("menu.base_generate"), True),
-            (_text("menu.base_back"), False),
-        ]
-        proceed = self._numbered_choice(_text("menu.base_confirm"), entries, back_note=False)
-        if not proceed:
-            return
-        result = self._services.generation.execute(generation_plan)
-        if result.ok:
-            for path in result.written:
-                self._say(_text("menu.export_written") % path)
-            for path in result.skipped:
-                self._say(_text("menu.export_skipped") % path)
-        else:
-            for error in result.errors:
-                self._say(_text("menu.not_applied") % error)
-
-    def _change_line(self, kind: str, described: dict) -> str:
-        """One variant change row, rendered through registered templates
-        from the app layer's described-edit data."""
-        record = described.get("record_key", "") or "?"
-        if kind == "SetName":
-            return _text("menu.change_name") % described.get("job_name", "")
-        if kind == "SetJobDescription":
-            return _text("menu.change_description")
-        if kind == "SetDescription":
-            return _text("menu.change_record_description") % record
-        if kind == "SetSeeds":
-            return _text("menu.change_seeds") % described.get("seeds", [])
-        if kind == "SetSequence":
-            return _text("menu.change_sequence") % record
-        if kind == "AddModification":
-            return _text("menu.change_add_mod") % (
-                record,
-                described.get("code", "?"),
-                described.get("position", "?"),
-            )
-        if kind == "RemoveModification":
-            return _text("menu.change_remove_mod") % (int(described.get("index", -1)) + 1)
-        if kind in ("SetAlignment", "SetSingleAlignment"):
-            return _text("menu.change_alignment") % record
-        if kind == "SetReferences":
-            return _text("menu.change_references") % record
-        if kind == "SetComponentDefinition":
-            return _text("menu.change_component_definition")
-        if kind == "SetFormatTarget":
-            return _text("menu.change_format_target")
-        if kind == "SetComponentRepresentation":
-            return _text("menu.change_component_representation")
-        if kind == "SetComponentCount":
-            return _text("menu.change_component_count") % (
-                record,
-                described.get("count", "?"),
-            )
-        if kind == "AddRecord":
-            return _text("menu.spec_add_record")
-        if kind == "RemoveRecord":
-            return _text("menu.change_remove_record") % record
-        if kind in ("AddLinkage", "RemoveLinkage"):
-            return _text("menu.change_linkage")
-        return _text("menu.change_generic") % kind
-
-    def _say_variant_list(self, project) -> None:
-        """The variant list with per-variant change summaries (rendered
-        here from the app layer's described edits — never re-derived)."""
-        self._say(_banner(_text("menu.specs_header"), self._width))
-        self._say()
-        if not project.specs:
-            self._say(_text("menu.specs_none"))
-            return
-        for index, spec in enumerate(project.specs, start=1):
-            self._say(_text("menu.spec_entry") % (index, spec.key, spec.label))
-            for kind, described, _record in self._services.variants.spec_change_descriptions(spec.key):
-                self._say(_text("menu.spec_edits_line") % self._change_line(kind, described))
-
-    def _select_variant(self, title=None):
-        """Numbered variant selection → the spec key (or ``None``)."""
-        project = self._project()
-        if project is None:
-            return None
-        if not project.specs:
-            self._say(_text("menu.specs_none"))
-            return None
-        entries = [
-            ("%s — %s" % (spec.key, spec.label), spec.key) for spec in project.specs
-        ]
-        return self._numbered_choice(title, entries)
-
-    def _select_entity(self, family=None, title=None, empty_note=None):
-        """Numbered entity selection → the record key (or ``None``).
-
-        ``family`` restricts the picker to one family, or to the families
-        in a tuple (a setting that lives on more than one family); without
-        it every record is offered. ``empty_note`` names the line to say
-        when the picker has nothing to offer — a setting that belongs to
-        some families should say why its picker is empty, not "add an
-        entity".
-        """
-        if isinstance(family, tuple):
-            # The choice rows carry "entity" as their kind (they span every
-            # family), so the family comes from the record itself.
-            choices = tuple(
-                choice
-                for choice in self._services.variants.all_entity_choices()
-                if self._record_family(choice.value) in family
-            )
-        elif family:
-            choices = self._services.variants.entity_choices(family)
-        else:
-            choices = self._services.variants.all_entity_choices()
-        if not choices and empty_note is not None:
-            self._say(_text(empty_note))
-            return None
-        return self._choice_menu(title or _text("menu.select_entity"), choices)
-
-    def _ask_name(self):
-        """Naming submenu: custom name or automatic. Returns ``(key,
-        label)`` or ``None`` to cancel."""
-        entries = [
-            (_text("menu.name_custom"), "custom"),
-            (_text("menu.name_auto"), "auto"),
-        ]
-        route = self._numbered_choice(_text("menu.name_menu"), entries)
-        if route is None:
-            return None
-        if route == "custom":
-            name = self._ask("menu.custom_name_prompt")
-            if not name:
-                return None
-            return name, name
-        return self._auto_name(), self._auto_name()
-
-    def _auto_name(self):
-        """The next free ``variant_N`` name — deterministic, ordered."""
-        project = self._project()
-        used = {spec.key for spec in project.specs}
-        index = 1
-        while "variant_%d" % index in used:
-            index += 1
-        return "variant_%d" % index
-
-    def _create_variant(self) -> None:
-        naming = self._ask_name()
-        if naming is None:
-            return
-        key, label = naming
-        outcome = self._services.variants.add_spec(key, label or key, ())
-        if not outcome.ok:
-            self._say(_text("menu.not_applied") % (outcome.message or "refused"))
-            return
-        self._say(_text("menu.created") % key)
-        self._variant_change_flow(key, creating=True)
-
-    def _edit_variant(self) -> None:
-        key = self._select_variant()
-        if key is None:
-            return
-        self._variant_change_flow(key, creating=False)
-
-    def _variant_change_flow(self, key: str, creating: bool) -> None:
-        """The change picker shared by create and edit: numbered change
-        kinds, then the per-kind submenus, looping until Back. Every
-        edit is built in ``app`` (``apply_variant_edit``) — the UI only
-        collects selections and free-form values."""
-        while True:
-            options = self._services.variants.edit_options()
-            entries = [(option.label, option.kind) for option in options]
-            kind = self._numbered_choice(_text("menu.select_change"), entries)
-            if kind is None:
-                return
-            if not self._collect_change(key, kind):
-                continue
-            if creating:
-                return
-
-    def _collect_change(self, key: str, kind: str) -> bool:
-        """One change, fully collected and applied. True when it landed."""
-        service = self._services.variants
-        if kind == "sequence":
-            record_key = self._select_entity(title=_text("menu.select_entity"))
-            if record_key is None:
-                return False
-            sequence = self._ask("menu.ask_sequence")
-            if not sequence:
-                return False
-            self._report(service.apply_variant_edit(key, kind, sequence, record_key=record_key))
-            return True
-        if kind in ("job_name", "job_description", "seeds"):
-            prompt_key = {
-                "job_name": "menu.new_name_prompt",
-                "job_description": "menu.new_desc_prompt",
-                "seeds": "menu.seeds_prompt",
-            }[kind]
-            value = self._ask(prompt_key)
-            if not value:
-                return False
-            self._report(service.apply_variant_edit(key, kind, value))
-            return True
-        if kind == "add_modification":
-            record_key = self._select_entity(title=_text("menu.select_entity"))
-            if record_key is None:
-                return False
-            code = self._ask("menu.mod_code_prompt")
-            if not code:
-                return False
-            raw = self._ask("menu.ask_position")
-            if not raw.isdigit() or int(raw) < 1:
-                self._say(_text("menu.invalid") % raw)
-                return False
-            self._report(service.apply_variant_edit(key, kind, (code, int(raw)), record_key=record_key))
-            return True
-        if kind == "remove_modification":
-            record_key = self._select_entity(title=_text("menu.select_entity"))
-            if record_key is None:
-                return False
-            return self._remove_modification_flow(
-                key, record_key, service.modification_summary(key)
-            )
-        if kind == "alignment":
-            return self._collect_alignment(key)
-        if kind == "references":
-            return self._collect_references(key)
-        if kind == "component_count":
-            component = self._choice_menu(
-                _text("menu.count_component_prompt"),
-                service.component_count_choices(),
-            )
-            if component is None:
-                return False
-            raw = self._ask("menu.count_value_prompt")
-            if not raw.isdigit() or int(raw) < 1:
-                self._say(_text("menu.invalid") % raw)
-                return False
-            self._report(service.apply_variant_edit(key, kind, int(raw), record_key=component))
-            return True
-        if kind == "add_entity":
-            return self._collect_add_entity(key)
-        if kind == "remove_entity":
-            record_key = self._select_entity(title=_text("menu.select_entity"))
-            if record_key is None:
-                return False
-            self._report(service.apply_variant_edit(key, kind, None, record_key=record_key))
-            return True
-        self._say(_text("menu.invalid") % kind)
-        return False
-
-    def _remove_modification_flow(self, key, record_key, summary) -> bool:
-        """Numbered removal over the variant's own modification edits."""
-        mine = [
-            (index, label)
-            for index, label in summary
-            if label.startswith(record_key + " ")
-        ]
-        if not mine:
-            self._say(_text("menu.no_modifications"))
-            return False
-        entries = [(label, index) for index, label in mine]
-        index = self._numbered_choice(_text("menu.mod_remove_prompt"), entries)
-        if index is None:
-            return False
-        self._report(
-            self._services.variants.apply_variant_edit(
-                key, "remove_modification", index, record_key=record_key
-            )
-        )
-        return True
-
-    def _collect_alignment(self, key: str) -> bool:
-        """The variant's MSA change on one record. Protein or RNA — the
-        two chains that carry an alignment — and the mode menu, with its
-        source question, is the chosen family's own."""
-        record_key = self._select_entity(
-            family=("protein", "rna"),
-            title=_text("menu.select_entity"),
-            empty_note="menu.no_alignment_target",
-        )
-        if record_key is None:
-            return False
-        family = self._record_family(record_key)
-        if family is None:
-            return False
-        mode = self._collect_msa_mode(family)
-        if mode is None:
-            return False
-        source = None
-        if mode not in ("automatic", "free"):
-            source = self._msa_source_payload()
-            if source is None:
-                return False
-        self._report(
-            self._services.variants.apply_variant_edit(
-                key, "alignment", (mode, source), record_key=record_key
-            )
-        )
-        return True
-
-    def _collect_references(self, key: str) -> bool:
-        """The variant's template change on one record. Protein only —
-        templates are a protein question (RNA and DNA carry none)."""
-        record_key = self._select_entity(
-            family="protein",
-            title=_text("menu.select_entity"),
-            empty_note="menu.no_protein_target",
-        )
-        if record_key is None:
-            return False
-        entries = [
-            (_text("menu.templates_search"), "search"),
-            (_text("menu.templates_none"), "none"),
-            (_text("menu.templates_list"), "list"),
-        ]
-        route = self._numbered_choice(_text("menu.templates_menu"), entries)
-        if route is None:
-            return False
-        payload = None
-        if route == "list":
-            path = self._pick_path("menu.template_path_prompt")
-            if not path:
-                return False
-            raw_pairs = self._ask("menu.template_pairs_prompt").strip()
-            pairs = []
-            for token in raw_pairs.split(","):
-                if not token.strip():
-                    continue
-                left, _, right = token.strip().partition(":")
-                pairs.append((left.strip(), right.strip()))
-            payload = [("file", path, pairs)]
-        self._report(
-            self._services.variants.apply_variant_edit(
-                key, "references", (route, payload), record_key=record_key
-            )
-        )
-        return True
-
-    def _collect_add_entity(self, key: str) -> bool:
-        """Guided add-entity: family → (sequence | representation) → the
-        service builds the record(s) — the DNA duplex rides through."""
-        entries = [
-            (_text("menu.family_protein"), "protein"),
-            (_text("menu.family_rna"), "rna"),
-            (_text("menu.family_dna"), "dna"),
-            (_text("menu.family_ligand"), "ligand"),
-        ]
-        family = self._numbered_choice(_text("menu.add_entity_family"), entries)
-        if family is None:
-            return False
-        if family == "ligand":
-            kind = self._ligand_kind()
-            if kind is None:
-                return False
-            representation = self._ask("menu.ligand_value_prompt")
-            if not representation:
-                return False
-            records, error = self._services.variants.build_add_records(
-                family, "", representation=representation, representation_kind=kind
-            )
-        else:
-            sequence = self._ask(_text("menu.entity_seq_prompt") % family)
-            if not sequence:
-                return False
-            records, error = self._services.variants.build_add_records(
-                family, sequence
-            )
-        if error is not None:
-            self._say(_text("menu.not_applied") % error)
-            return False
-        self._report(
-            self._services.variants.apply_variant_edit(key, "add_entity", records)
-        )
-        return True
-
-    def _duplicate_variant(self) -> None:
-        source = self._select_variant()
-        if source is None:
-            return
-        naming = self._ask_name()
-        if naming is None:
-            return
-        new_key, label = naming
-        outcome = self._services.variants.duplicate_spec(source, new_key, label or "")
-        if outcome.ok:
-            self._say(_text("menu.copied") % new_key)
-        else:
-            self._say(_text("menu.not_applied") % (outcome.message or "refused"))
-
-    def _delete_variant(self) -> None:
-        key = self._select_variant()
-        if key is None:
-            return
-        entries = [(_text("menu.delete_yes"), True), (_text("menu.delete_no"), False)]
-        confirmed = self._numbered_choice(
-            _text("menu.delete_confirm") % key, entries, back_note=False
-        )
-        if not confirmed:
-            return
-        outcome = self._services.variants.remove_spec(key)
-        if outcome.ok:
-            self._say(_text("menu.removed") % key)
-        else:
-            self._say(_text("menu.not_applied") % (outcome.message or "refused"))
-
-    def _preview_variant(self) -> None:
-        key = self._select_variant()
-        if key is None:
-            return
-        project = self._project()
-        if project is None:
-            return
-        outcome = self._services.variants.preview(key)
-        if not outcome.ok:
-            self._say(_text("menu.not_applied") % (outcome.message or "failed"))
-            return
-        variant = outcome.variants[0]
-        summary = _summary_of(variant.configuration)
-        self._say(_banner(_text("menu.preview_header") + ": " + key, self._width))
-        self._say()
-        self._say(_text("menu.preview_base_line") % summary["job_name"])
-        self._say()
-        self._say(_text("menu.preview_changes"))
-        for kind, described, _record in self._services.variants.spec_change_descriptions(key):
-            self._say(_text("menu.preview_change_line") % self._change_line(kind, described))
-        self._say()
-        self._say(_text("menu.preview_name") % summary["job_name"])
-        self._say(_text("menu.preview_seeds") % (summary["seed_values"],))
-        self._say(_text("menu.preview_entities"))
-        for record in variant.configuration.records:
-            self._say(_entity_line(record))
-        self._say()
-        self._say(
-            _text("menu.preview_output")
-            % self._file_name_for(project.configuration.metadata.name, key)
-        )
-        answer = self._ask("menu.ask_show_json")
-        if answer.lower() in ("y", "yes"):
-            self._show_json(key)
-
-    def _json_preview_variant(self) -> None:
-        """JSON preview through numbered selection; the serialization is
-        the generation service's (``show_json``), never the UI's."""
-        key = self._select_variant()
-        if key is None:
-            return
-        self._show_json(key)
-
-    def _batch_from_file(self) -> None:
-        """Batch generation with a confirm step: pick the file, show what
-        was detected (the parsed entries, before anything is created),
-        then create — through the same all-or-nothing service call."""
-        self._say(_text("menu.batch_format"))
-        path = self._pick_path("menu.ask_sequence_file")
-        if not path:
-            return
-        detected = self._services.variants.inspect_sequence_file(path)
-        if not detected.ok:
-            self._say(_text("menu.not_applied") % (detected.message or "refused"))
-            return
-        self._say()
-        self._say(_text("menu.batch_file_line") % path)
-        self._say(_text("menu.batch_detected"))
-        for index, entry in enumerate(detected.entries, start=1):
-            self._say(_text("menu.batch_entry_line") % (index, entry))
-        self._say()
-        entries = [
-            (_text("menu.batch_create_all"), True),
-            (_text("menu.batch_cancel"), False),
-        ]
-        proceed = self._numbered_choice(_text("menu.batch_what_now"), entries, back_note=False)
-        if not proceed:
-            return
-        outcome = self._services.variants.generate_from_file(path)
-        if outcome.ok:
-            self._say(_text("menu.batch_done") % outcome.message)
-        else:
-            self._say(_text("menu.not_applied") % (outcome.message or "refused"))
-
-    def _file_name_for(self, project_name: str, key: str) -> str:
-        """The same naming function the export uses — imported through
-        ``app``'s generation module (``ui`` never re-derives names)."""
-        from configbuilder.app.generation_service import variant_file_name
-
-        return variant_file_name(project_name, key)
-
-    # -- export ------------------------------------------------------------------
-
-    def _generate_menu(self) -> None:
-        """One write path. The current job's JSON is always available; the
-        variant rows appear only when variants exist, and the numbers mean
-        the same thing in both modes (1 is always the job itself).
-        """
-        from configbuilder.ui.present import format_findings
-
-        while True:
-            project = self._project()
-            if project is None:
-                return
-            has_variants = bool(project.specs)
-            self._say(_banner(_text("menu.generate_title"), self._width))
-            self._say()
-            self._say(_text("menu.export_dir") % self._output_dir)
-            self._say(_text("menu.variants") % len(project.specs))
-            self._say()
-            self._say(
-                _text("menu.generate_actions")
-                if has_variants
-                else _text("menu.generate_actions_base")
-            )
-            self._say()
-            self._say(_text("menu.back"))
-            choice = self._select()
-            if choice in ("0", "q", "back"):
-                return
-            elif choice == "1":
-                self._generate_base_json()
-            elif choice in ("2", "3") and not has_variants:
-                # The row is on screen so the numbering never shifts; what it
-                # cannot do yet is said rather than silently missing (BUG-008).
-                self._say(_text("menu.generate_needs_variants"))
-            elif choice == "2":
-                self._export(None, format_findings)
-            elif choice == "3":
-                keys = self._select_variants_multi()
-                if not keys:
-                    continue  # cancelled or empty: nothing is generated
-                self._export(keys, format_findings)
-            elif choice == "4":
-                self._change_output_dir()
-            elif choice:
-                self._say(_text("menu.invalid") % choice)
-
-    def _change_output_dir(self) -> None:
-        new_dir = self._pick_path("menu.ask_export_dir")
-        if new_dir:
-            self._output_dir = new_dir
-            self._say(_text("menu.export_dir_changed") % new_dir)
-
-    def _select_variants_multi(self):
-        """Numbered multi-select over the defined variants: type the
-        numbers (e.g. ``1 3``), one at a time is fine too; ``0``/back
-        cancels. Returns spec keys, or ``[]`` when nothing was chosen."""
-        project = self._project()
-        if project is None or not project.specs:
-            self._say(_text("menu.export_none"))
-            return []
-        entries = [
-            ("%s — %s" % (spec.key, spec.label), spec.key) for spec in project.specs
-        ]
-        while True:
-            self._say()
-            self._say(_banner(_text("menu.export_select_title"), self._width))
-            self._say()
-            for index, (label, _) in enumerate(entries, start=1):
-                self._say(_text("menu.choice_line") % (index, label))
-            self._say()
-            self._say(_text("menu.export_select_hint"))
-            self._say()
-            self._say(_text("menu.back"))
-            raw = self._select()
-            if raw in ("0", "q", "back", ""):
-                return []
-            parts = raw.replace(",", " ").split()
-            if all(part.isdigit() and 1 <= int(part) <= len(entries) for part in parts):
-                seen = []
-                for part in parts:
-                    key = entries[int(part) - 1][1]
-                    if key not in seen:
-                        seen.append(key)
-                if seen:
-                    return seen
-            self._say(_text("menu.invalid") % raw)
-
-    def _plan_failure(self, generation_plan, format_findings) -> None:
-        """A refused plan: the message, the conflicting paths when the refusal
-        was a file conflict (so the user knows *which* file stands in the way
-        and what to do about it), and — when the refusal came from validation —
-        the actual blocking findings, so the user sees which rule and which
-        record stand in the way instead of a bare verdict."""
-        self._say(_text("menu.not_applied") % (generation_plan.message or ""))
-        for conflict in generation_plan.conflicts:
-            self._say(_text("menu.export_conflict") % conflict)
-        if generation_plan.findings:
-            status = self._status_for_findings(generation_plan.findings)
-            if status is not None and status.attention():
-                self._say_incomplete(status)
-            self._print_cards(generation_plan.findings, format_findings)
-
-    def _export(self, keys, format_findings) -> None:
-        """Validate (base + selected variants), plan, execute. Validation
-        failures name the variant and the finding; nothing is written on
-        a blocking report (plan §15's fixed sequence, unchanged)."""
-        generation_plan = self._services.generation.plan(self._output_dir, only=keys)
-        if not generation_plan.ok:
-            self._plan_failure(generation_plan, format_findings)
-            return
-        for warning in generation_plan.warnings:
-            self._say(_text("menu.export_warning") % warning)
-        for conflict in generation_plan.conflicts:
-            self._say(_text("menu.export_conflict") % conflict)
-            return
-        for entry in generation_plan.entries:
-            self._say(_text("menu.export_action_line") % (entry.action, entry.path))
-        answer = self._ask("menu.ask_proceed")
-        if answer.lower() not in ("y", "yes"):
-            return
-        result = self._services.generation.execute(generation_plan)
-        if result.ok:
-            for path in result.written:
-                self._say(_text("menu.export_written") % path)
-            for path in result.skipped:
-                self._say(_text("menu.export_skipped") % path)
-            self._say(_text("menu.export_dir") % self._output_dir)
-        else:
-            for error in result.errors:
-                self._say(_text("menu.not_applied") % error)

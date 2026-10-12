@@ -100,7 +100,6 @@ class VariantService:
         if failure is not None:
             return failure
         self._projects._with_specs(self._specs() + (spec,))
-        self._projects._commit_project()
         return MutationOutput(ok=True)
 
     def update_spec(self, key: str, label=None, edits=None) -> MutationOutput:
@@ -122,7 +121,6 @@ class VariantService:
         self._projects._with_specs(
             tuple(spec if s.key == key else s for s in self._specs())
         )
-        self._projects._commit_project()
         return MutationOutput(ok=True)
 
     def remove_spec(self, key: str) -> MutationOutput:
@@ -136,7 +134,6 @@ class VariantService:
                 message="no variant keyed %r exists" % (key,),
             )
         self._projects._with_specs(tuple(s for s in self._specs() if s.key != key))
-        self._projects._commit_project()
         return MutationOutput(ok=True)
 
     def add_spec_from_factor(
@@ -157,12 +154,7 @@ class VariantService:
                 return self._refuse(failure)
         except (EditError, VariantSpecError, ValueError, TypeError) as error:
             return self._refuse(str(error))
-        from configbuilder.model import SequenceTextError
-
-        try:
-            return self.add_spec(key, label or key, (edit,))
-        except SequenceTextError as error:
-            return self._refuse(str(error))
+        return self.add_spec(key, label or key, (edit,))
 
     @staticmethod
     def _edit_class(name: str):
@@ -183,7 +175,13 @@ class VariantService:
     def _family_of_key(project, key: str) -> str:
         """The family alphabet of the record identified by ``key``
         (protein/rna/dna), from the record's own type — the picker never
-        guesses an alphabet from the text."""
+        guesses an alphabet from the text.
+
+        A key the registry holds but that names a record with no sequence
+        (a ligand) is refused in those terms: the record *does* exist, so
+        "no record is identified by 'A'" sent the user looking for a
+        mistake that was not there.
+        """
         for record in project.configuration.records:
             if record.ids.primary.value == key:
                 family = {
@@ -193,7 +191,31 @@ class VariantService:
                 }.get(type(record).__name__)
                 if family:
                     return family
+                raise EditError(
+                    "record %r is a ligand; only a protein, RNA or DNA chain "
+                    "carries a sequence or an MSA" % key
+                )
         raise EditError("no record is identified by %r" % key)
+
+    @staticmethod
+    def _modification_target_failure(project, record_key):
+        """Why ``record_key`` cannot carry a modification, or ``None``.
+
+        The modification vocabulary applies to the polymer families only;
+        a variant edit aimed at a ligand can never expand, so it is refused
+        where the user composes it instead of surfacing later as an
+        expansion failure (the variant-side twin of
+        ``ConfigurationService.add_modification``'s own guard).
+        """
+        for record in project.configuration.records:
+            if record.ids.primary.value == record_key:
+                if isinstance(record, (FamilyARecord, FamilyBRecord, FamilyCRecord)):
+                    return None
+                return (
+                    "record %r is a ligand; modifications belong to a protein, "
+                    "RNA or DNA chain" % (record_key,)
+                )
+        return "no record is identified by %r" % (record_key,)
 
     def _refuse(self, message: str) -> MutationOutput:
         return MutationOutput(ok=False, failure_reason=FailureReason.NO_PATH, message=message)
@@ -221,7 +243,6 @@ class VariantService:
         if failure is not None:
             return failure
         self._projects._with_specs(self._specs() + (spec,))
-        self._projects._commit_project()
         return MutationOutput(ok=True)
 
     # -- expansion (§15 preview / expand) ---------------------------------------------
@@ -305,7 +326,12 @@ class VariantService:
                     "the factor %r is not offered by the picker yet; "
                     "extend add_spec_from_factor" % (factor,)
                 )
-        except (EditError, VariantSpecError, ValueError, TypeError) as error:
+        except (EditError, VariantSpecError, ModelError, ValueError, TypeError) as error:
+            # ``ModelError`` is the model's own base for a refused value
+            # (``SequenceTextError`` for an alphabet violation) and does
+            # **not** derive from ``ValueError``, so catching only
+            # ``ValueError`` let a wrong-alphabet sequence escape as a
+            # traceback out of ``apply_variant_edit`` (BUG-021).
             return None, str(error)
 
     def append_factor(self, key: str, factor: str, value, record_key=None):
@@ -329,12 +355,7 @@ class VariantService:
         edit, failure = self._factor_edit(project, factor, value, record_key)
         if failure is not None:
             return self._refuse(failure)
-        from configbuilder.model import SequenceTextError
-
-        try:
-            return self.update_spec(key, edits=existing.edits + (edit,))
-        except SequenceTextError as error:
-            return self._refuse(str(error))
+        return self.update_spec(key, edits=existing.edits + (edit,))
 
     # -- UI choice tables (§15 vocabulary as numbered menus; the UI never
     #    constructs edits itself — every table answers "what can this
@@ -427,30 +448,43 @@ class VariantService:
         return tuple(records), None
 
     def modification_summary(self, key: str):
-        """The named modifications of one variant's target record.
+        """The variant's modification rows, as the remove picker shows them.
 
-        Returns a list of ``(index, ``'code@position'``)`` pairs for the
-        record the sequence change would target — the remove picker's
-        data, so an index is never counted by hand.
+        Each row is ``(index, "<record> @ <position> (<code>)")`` where
+        ``index`` is the modification's place in the **expanded** record's
+        own modification list — the list ``RemoveModification`` indexes
+        when the edit applies.
+
+        Reading the indices from the expansion (rather than counting this
+        spec's own ``AddModification`` rows) is the whole point: the two
+        numberings differ as soon as the base record already carries a
+        modification, and the mismatched index deleted the *base's*
+        modification while keeping the one the user had picked (BUG-025).
+        ``[]`` means the variant cannot expand, or its records carry no
+        modifications to offer.
         """
-        project = self._projects._require_project()
-        if project is None:
+        if self._find(key) is None:
             return []
-        spec = self._find(key)
-        if spec is None:
+        expanded = self.preview(key)
+        if not expanded.ok:
             return []
         summary = []
-        for index, edit in enumerate(spec.edits):
-            if type(edit).__name__ != "AddModification":
-                continue
-            described = describe_edit(edit)
-            summary.append(
-                (index, "%s @ %s (%s)" % (
-                    described.get("record_key", "?"),
-                    described.get("position", "?"),
-                    described.get("code", "?"),
-                ))
-            )
+        for record in expanded.variants[0].configuration.records:
+            record_key = record.ids.primary.value
+            for index, modification in enumerate(
+                getattr(record, "modifications", ()) or ()
+            ):
+                summary.append(
+                    (
+                        index,
+                        "%s @ %s (%s)"
+                        % (
+                            record_key,
+                            modification.position.value,
+                            modification.code.value,
+                        ),
+                    )
+                )
         return summary
 
     def apply_variant_edit(self, key: str, kind: str, value, record_key=None) -> MutationOutput:
@@ -467,6 +501,9 @@ class VariantService:
             return self.append_factor(key, kind, value, record_key=record_key)
         if kind == "add_modification":
             code, position = value
+            failure = self._modification_target_failure(project, record_key)
+            if failure is not None:
+                return self._refuse(failure)
             try:
                 code_value, position_value = self._modification_values(code, int(position))
                 edit = self._edit_class("AddModification")(
@@ -476,6 +513,9 @@ class VariantService:
                 return self._refuse(str(error))
             return self._append_edit(key, edit)
         if kind == "remove_modification":
+            failure = self._modification_target_failure(project, record_key)
+            if failure is not None:
+                return self._refuse(failure)
             try:
                 edit = self._edit_class("RemoveModification")(
                     EntityId(record_key), int(value)

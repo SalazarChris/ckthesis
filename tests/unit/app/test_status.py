@@ -224,10 +224,11 @@ def test_version_requirement_follows_the_selected_state():
 # -- the display: one status view, shown wherever the user looks --------------
 
 
-def test_master_menu_shows_the_status_block():
+def test_a_blocked_save_shows_the_status_block():
+    """The status view is shown wherever the user looks — here, when a save
+    is refused because the job has no entities yet."""
     services = _services()
-    services.projects.new()
-    console = ScriptedConsole(["0"])
+    console = ScriptedConsole(["1", "", "6", "blocked.json", "0", "0"])
     MenuApp(services, console).run()
 
     out = console.transcript
@@ -237,15 +238,18 @@ def test_master_menu_shows_the_status_block():
     assert "config-001" in out
 
 
-def test_a_refused_generation_names_the_missing_information():
+def test_a_refused_save_names_the_missing_information():
+    """A save with a blocking finding is refused, names the missing field,
+    and leaves the job editable."""
     services = _services()
-    services.projects.new()
-    console = ScriptedConsole(["4", "1", "0", "0"])
+    console = ScriptedConsole(["1", "job", "6", "blocked.json", "0", "0"])
     MenuApp(services, console).run()
 
     out = console.transcript
-    assert "Configuration is incomplete." in out
-    assert "Missing required information:" in out
+    assert "This job cannot be saved yet:" in out
+    assert "Configuration status" in out
     assert "Entities" in out
-    # a refusal never discards the job: the promise is part of the message
-    assert "Your current work has been preserved." in out
+    # the blocked field is named by the catalogue's own row
+    assert "no entities" in out.lower() or "at least one" in out.lower()
+    # the job is still there, editable
+    assert services.projects.project is not None

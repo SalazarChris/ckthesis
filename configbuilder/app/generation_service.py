@@ -511,6 +511,138 @@ class GenerationService:
             reviewed=reviewed,
         )
 
+    def plan_save(
+        self,
+        destination: str,
+        name: str = None,
+        overwrite: bool = False,
+        path_policy=None,
+    ) -> GenerationPlan:
+        """Plan writing the current configuration to an explicit file path.
+
+        The workflow's save action writes wherever the user asks, not into
+        the ``<output>/<slug>/<slug>.json`` layout the bulk generate route
+        uses. The *content* discipline is unchanged: the same validation
+        gate, the same ``to_wire`` → ``encode`` path, the same §13.5
+        resource resolution and §13.3 action table, and the same
+        ``execute`` writes exactly the reviewed bytes.
+
+        ``name`` overrides the wire ``name`` (the slug of it is what lands
+        inside the file) — the variant save uses it so the file carries the
+        variant's name while the base job's model name stays untouched.
+        ``overwrite`` is the UI's *confirmed* decision: the menu asks before
+        replacing an existing file, so the plan may overwrite it.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.NOT_OPEN,
+                message="no project is open",
+            )
+
+        # Step 1: validate the base. Stop on ERROR.
+        base_validation = self._validation.validate_base()
+        if not base_validation.ok:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.VALIDATION_BLOCKED,
+                message="the configuration has blocking findings; save cannot start",
+                findings=tuple(base_validation.report.findings),
+            )
+
+        settings = project.settings or OutputSettings()
+        chosen_policy = (
+            OverwritePolicy("Overwrite")
+            if overwrite
+            else OverwritePolicy(settings.overwrite_policy)
+        )
+        path_choice = PathPolicy(settings.path_policy) if path_policy is None else path_policy
+        wire_name = name or project.configuration.metadata.name
+        # A bare file name has no directory component; resolve it against the
+        # working directory so dirname() is never the empty string (which the
+        # executor would try to makedirs).
+        destination = os.path.abspath(destination)
+        try:
+            slug_wire = slug_name(wire_name)
+            result = to_wire(project.configuration)
+        except TransformError as error:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.TRANSFORM_FAILED,
+                message=str(error),
+            )
+
+        filesystem = self._filesystem if self._filesystem is not None else OsFileView()
+        directory = os.path.dirname(destination)
+        resources, warnings = resolve_resources_into(
+            result.external_resources,
+            directory,
+            directory,
+            path_choice,
+            filesystem,
+        )
+        emitted = {}
+        for resource in resources:
+            if resource.emitted_path is not None and resource.raw_path != resource.emitted_path:
+                emitted.setdefault(resource.wire_field, {})[resource.raw_path] = (
+                    resource.emitted_path
+                )
+        try:
+            document = with_emitted_resource_paths(
+                with_wire_job_name(result.document, slug_wire), emitted
+            )
+            payload = encode(document)
+        except TransformError as error:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.TRANSFORM_FAILED,
+                message=str(error),
+            )
+
+        file_path, action, exists = decide_action(
+            destination, payload, chosen_policy, filesystem
+        )
+        conflicts = (conflict_message(file_path),) if action == "conflict" else ()
+        if conflicts:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.NO_PATH,
+                message="the file already exists with different content; nothing was written",
+                conflicts=conflicts,
+                warnings=tuple(warnings),
+                output_root=directory,
+                project_name=wire_name,
+            )
+
+        reviewed = OutputPlan(
+            project_slug=slug_wire,
+            output_root=directory,
+            overwrite_policy=chosen_policy,
+            path_policy=path_choice,
+            entries=(PlanEntry(file_path, action, payload, exists),),
+            resources=resources,
+            conflicts=(),
+            warnings=tuple(warnings),
+        )
+        return GenerationPlan(
+            ok=True,
+            entries=(
+                ConfigurationPlan(
+                    BASE_PLAN_KEY,
+                    file_path,
+                    action,
+                    reviewed.entries[0].payload_fingerprint,
+                ),
+            ),
+            conflicts=(),
+            warnings=tuple(warnings),
+            format_version=result.version,
+            project_name=wire_name,
+            output_root=directory,
+            reviewed=reviewed,
+        )
+
     def execute(self, generation_plan: GenerationPlan) -> PlanOutput:
         """Write what was reviewed. Nothing here re-derives content: the
         payloads travel inside the plan object ``plan()`` returned, so

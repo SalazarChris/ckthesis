@@ -259,39 +259,62 @@ def test_duplicate_identifier_across_records_becomes_r_ent_002(tmp_path):
 # -- service-level units through the same wiring -----------------------------------------
 
 
-def test_working_copy_round_trips_through_open(tmp_path):
-    """The JSON-first workflow's persistence: the internal working copy is
-    written on every committed change (``new`` included) and ``open`` reads
-    it back. Project-file save/save-as were removed with that workflow."""
+def test_plan_save_writes_to_an_explicit_path_and_reopens(tmp_path):
+    """The workflow's save action writes wherever the user asks — not into
+    the ``<output>/<slug>/<slug>.json`` layout — through the same reviewed
+    serializer, and the file reopens as an ordinary job."""
     with _pin_evidenced():
         projects, configuration, variants, validation, generation = _services()
         _project_with_variant(projects, configuration, variants)
-        path = projects.path
-        assert path and ".configbuilder" in path
-        assert os.path.exists(path)
+        destination = str(tmp_path / "saved" / "job.json")
 
+        plan = generation.plan_save(destination)
+        assert plan.ok, plan.message
+        assert plan.conflicts == ()
+        assert [entry.path for entry in plan.entries] == [destination]
+        assert generation.execute(plan).ok
+
+        document = json.loads(open(destination, encoding="utf-8").read())
+        assert document["name"] == "e2e-job"
+        assert len(document["sequences"]) == 3
+
+        # the saved JSON reopens through the normal import path
         fresh = ProjectService()
-        loaded = fresh.open(path)
-        assert loaded.ok, loaded.message
-        assert loaded.project is not None
-        names = [r.ids.primary.value for r in loaded.project.configuration.records]
-        assert len(names) == 3
-        assert loaded.project.configuration.metadata.name == "E2E Job"
+        result = fresh.import_json_commit(destination)
+        assert result.ok, result.message
+        assert fresh.project.configuration.metadata.name == "e2e-job"
 
 
-def test_new_project_autosaves_the_internal_working_copy():
-    """new() silently persists the working copy in the internal directory,
-    so there is always something for Open saved work to restore."""
+def test_plan_save_names_a_variant_and_keeps_the_other_file(tmp_path):
+    """``name`` overrides the wire name, so a variant saves under its own
+    name while the base job's model name is untouched."""
     with _pin_evidenced():
-        projects, _configuration, _variants, _validation, _generation = _services()
-        projects.new("E2E Job")
-        assert projects.path and ".configbuilder" in projects.path
-        assert os.path.exists(projects.path)
+        projects, configuration, variants, validation, generation = _services()
+        projects.new("Base Job")
+        configuration.set_format_target(version=3, evidence="PIN-001")
+        configuration.add_record("protein", "ACDEFGHIKLMNPQRSTVWY")
 
-        fresh = ProjectService()
-        restored = fresh.load_saved_work()
-        assert restored.ok, restored.message
-        assert fresh.project.configuration.metadata.name == "E2E Job"
+        plan = generation.plan_save(str(tmp_path / "variant.json"), name="Base Job v1")
+        assert plan.ok, plan.message
+        assert generation.execute(plan).ok
+
+        document = json.loads(open(tmp_path / "variant.json", encoding="utf-8").read())
+        assert document["name"] == "base-job-v1"
+        # the base model name did not move
+        assert projects.project.configuration.metadata.name == "Base Job"
+
+
+def test_plan_save_refuses_an_invalid_configuration_without_writing(tmp_path):
+    with _pin_evidenced():
+        projects, _configuration, _variants, validation, generation = _services()
+        projects.new("Empty Job")
+        destination = str(tmp_path / "empty.json")
+
+        plan = generation.plan_save(destination)
+        assert not plan.ok
+        assert plan.failure_reason == FailureReason.VALIDATION_BLOCKED
+        assert plan.findings
+        assert not os.path.exists(destination)
 
 
 def test_variant_service_crud_and_preview(tmp_path):

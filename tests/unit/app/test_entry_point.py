@@ -12,6 +12,7 @@ console — the §18.8 harness, no terminal needed.
 from __future__ import annotations
 
 import ast
+import os
 import shutil
 import subprocess
 import sys
@@ -25,7 +26,7 @@ from configbuilder.ui.services import build_services
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
-MENU_TITLE = "ConfigBuilder"
+MENU_TITLE = "JSON CONFIGURATION BUILDER"
 PROTEIN = "ACDEFGHIKLMNPQRSTVWY"
 
 
@@ -42,8 +43,7 @@ def test_pyproject_declares_this_module():
 
 def test_main_composes_services_into_the_builder(monkeypatch):
     """``main`` is delegation only: the standard wiring goes in, the
-    builder runs over it, and its status is returned. Nothing here
-    builds a project, validates, or serializes."""
+    builder runs over it, and its status is returned."""
     services = object()
     seen = {}
 
@@ -81,10 +81,22 @@ def test_cli_is_a_thin_boundary():
     ], project
 
 
-def _run_process(argv, cwd, stdin_text=""):
+# The subprocess must exercise the checked-out tree, not whatever copy of
+# the package happens to be installed in the environment: an installed
+# distribution shadows the working tree once the child process runs from
+# another cwd, so the repository root goes on PYTHONPATH explicitly.
+_REPO_ENV = {"PYTHONPATH": str(PROJECT_ROOT)}
+
+
+def _run_process(argv, cwd, stdin_text="", env=None):
+    environment = dict(os.environ, **(env or {}))
+    environment["PYTHONPATH"] = os.pathsep.join(
+        [value for value in (str(PROJECT_ROOT), environment.get("PYTHONPATH")) if value]
+    )
     return subprocess.run(
         argv,
         cwd=str(cwd),
+        env=environment,
         input=stdin_text,
         capture_output=True,
         encoding="utf-8",
@@ -93,7 +105,7 @@ def _run_process(argv, cwd, stdin_text=""):
     )
 
 
-def test_module_invocation_shows_the_start_screen_and_exits_cleanly():
+def test_module_invocation_shows_the_main_menu_and_exits_cleanly():
     """``python -m configbuilder`` reaches the application; piped stdin
     (immediate EOF) ends it cleanly with status 0 — never a traceback,
     never a hang."""
@@ -109,8 +121,6 @@ def test_module_invocation_shows_the_start_screen_and_exits_cleanly():
     reason="console script not installed (pip install -e .)",
 )
 def test_console_script_resolves_to_the_entry_point():
-    """The declared command reaches the implemented application. Resolution
-    failure would exit 1 with a ModuleNotFoundError traceback."""
     result = _run_process(["configbuilder"], cwd=Path.cwd())
     assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
     assert MENU_TITLE in result.stdout
@@ -118,27 +128,23 @@ def test_console_script_resolves_to_the_entry_point():
     assert "Traceback" not in result.stderr
 
 
-# -- the same surface with a real pipe, and an output path that cannot be used ------
+# -- the same surface with a real pipe, and a save path that cannot be used -------
 
 
-def test_unusable_output_directory_is_reported_and_the_session_survives(tmp_path):
+def test_unusable_save_path_is_reported_and_the_session_survives(tmp_path):
     """Playtest finding, pinned at the real surface.
 
-    Driven through ``python -m configbuilder`` with piped stdin, a user who
-    names their output directory after an existing *file* used to get
-    ``OSError`` out of the executor: a traceback and a dead session, after
-    nothing but a typed name. The refusal is now reported in the menu's own
-    voice, the session carries on, and the file they named is untouched.
+    A save path whose parent is an existing *file* used to reach the
+    executor's ``OSError``: a traceback and a dead session, after nothing
+    but a typed path. The refusal is now reported in the menu's own voice,
+    the session carries on, and the file the user named is untouched.
     """
     (tmp_path / "out").write_text("not a directory", encoding="utf-8")
     script = "\n".join([
-        "1", "job",                     # start -> New job, name it
-        "1", "1", "1", "1", PROTEIN,    # Edit -> Entities -> Add -> Protein -> sequence
-        "", "",                         # accept the default id and (no) description
-        "0", "0",                       # back to the master menu
-        "4", "4", "out",                # Generate -> change the output directory
-        "1", "1",                       # write this job's JSON -> confirm
-        "0", "0",                       # back out
+        "1", "job",                      # main -> New job, name it
+        "2", "1", PROTEIN, "", "",       # Add entity -> Protein -> sequence
+        "6", "out/child.json",           # Save and show summary -> the bad path
+        "0", "0",                        # leave the job (unsaved -> discard) -> exit
     ]) + "\n"
     result = _run_process(
         [sys.executable, "-m", "configbuilder"], tmp_path, script
@@ -148,7 +154,6 @@ def test_unusable_output_directory_is_reported_and_the_session_survives(tmp_path
     assert "Traceback" not in result.stderr
     assert "could not create the directory" in result.stdout
     assert (tmp_path / "out").read_text(encoding="utf-8") == "not a directory"
-    assert list(tmp_path.glob("out/*")) == [], "nothing may be written"
 
 
 # -- the menu itself (scripted console over the real services) ---------------------
@@ -159,44 +164,45 @@ def _app(script):
     return cli.MenuApp(build_services(), console), console
 
 
-def test_start_screen_lists_new_load_and_exit():
-    app, console = _app([])  # EOF immediately after the start screen
+def test_main_menu_lists_new_open_and_exit():
+    app, console = _app([])  # EOF immediately after the main menu
     assert app.run() == 0
     out = console.transcript
     assert MENU_TITLE in out
-    assert "1) New job" in out
-    assert "2) Open saved work" in out
-    assert "0)  Exit" in out
+    assert "1. New job" in out
+    assert "2. Open a JSON file" in out
+    assert "0. Exit" in out
 
 
-def test_option_1_opens_the_master_menu_over_a_new_job():
-    app, console = _app(["1", "Oct4_POU", "0"])
+def test_new_job_opens_the_job_menu():
+    app, console = _app(["1", "Oct4_POU", "0", "0"])
     assert app.run() == 0
     out = console.transcript
-    assert "Current job: Oct4_POU" in out
-    assert "1) Edit the job" in out  # the master menu
+    assert "Name          : Oct4_POU" in out
+    assert "1. Edit job configurations" in out
+    assert "7. Create variants based on this JSON" in out
 
 
 def _opened(script):
-    """A run that starts at the master menu (a new job, name given)."""
+    """A run that starts at the job menu (a new job, name given)."""
     return _app(["1", "experiment"] + script)
 
 
 @pytest.mark.parametrize("word", ["0", "q", "quit", "exit"])
 def test_exit_words_end_the_menu(word):
-    app, _console = _opened([word])
+    app, _console = _opened([word, word])
     assert app.run() == 0
 
 
-def test_blank_choice_redisplays_the_menu():
-    app, console = _opened(["", "0"])
+def test_blank_choice_redisplays_the_job_menu():
+    app, console = _opened(["", "0", "0"])
     assert app.run() == 0
-    # The master menu was displayed twice: once per loop pass.
-    assert console.transcript.count("Current job: experiment") == 2
+    # The job menu was displayed twice: once per loop pass.
+    assert console.transcript.count("Name          : experiment") == 2
 
 
 def test_unknown_choice_reports_and_keeps_asking():
-    app, console = _opened(["12", "nope", "0"])
+    app, console = _opened(["12", "nope", "0", "0"])
     assert app.run() == 0
     out = console.transcript
     assert "Not a valid choice: '12'" in out
@@ -228,74 +234,57 @@ def test_ctrl_c_ends_the_menu_cleanly():
     assert "Interrupted" in "\n".join(app._console.lines)
 
 
-def test_edit_the_job_submenu_navigation():
-    """1 → Edit the job → 0 back → master menu → 0 exit; the master menu
-    redisplays after the submenu returns."""
-    app, console = _opened(["1", "0", "0"])
+def test_edit_job_configuration_submenu_navigation():
+    """1 → Edit job configurations → 0 back → job menu again → 0 → main → 0."""
+    app, console = _opened(["1", "0", "0", "0"])
     assert app.run() == 0
     out = console.transcript
-    assert "Edit the job" in out
-    assert "Entities" in out
-    assert "Job settings" in out
-    assert "Bonds, modifications & custom components" in out
-    assert "0)  Back" in out
-    # Back at the master menu afterwards.
-    assert out.count("Current job: experiment") == 2
+    assert "EDIT JOB CONFIGURATIONS" in out
+    assert "1. Job name" in out
+    assert "2. Model seeds" in out
+    assert "3. JSON version" in out
+    assert "0. Back" in out
+    # Back at the job menu afterwards, then the main menu.
+    assert out.count("Name          : experiment") == 2
+    assert out.count("1. New job") >= 2
+
 
 # -- the real console's codec, end to end (playtest 2026-10-04) --------------
 
 
 def test_a_legacy_output_code_page_does_not_end_the_session(tmp_path):
-    """The crashing flow, reproduced as a process.
-
-    Creating a variant that renames the job prints the change row
-    ``job name -> X``. On a cp1252 output stream (what a Windows redirect to a
-    file or a pipe uses) that row used to raise ``UnicodeEncodeError`` out of
-    ``Console.write_line`` and end the session with a traceback -- after the
-    variant had already been created, so the user's work appeared to vanish
-    behind a Python error.
-
-    ``PYTHONIOENCODING`` is set explicitly so this reproduces on every
-    platform, not only where the ANSI code page is the default.
-    """
-    import os
-
+    """A variant save on a cp1252 output stream (what a Windows redirect to
+    a file or a pipe uses) must not raise ``UnicodeEncodeError`` out of
+    ``Console.write_line`` and end the session with a traceback."""
     script = "\n".join([
         "1", "job",                  # new job
-        "1", "1", "1", "1",          # edit -> entities -> add -> protein
-        "ACDE", "n", "n",            # sequence, no MSA, no templates
-        "0", "0",                    # back to the master menu
-        "3",                         # variants
-        "1", "1", "v1",              # create a variant named v1
-        "6", "renamed",              # change kind 6 is the job name
-        "0", "0", "0",               # back out and exit
+        "2", "1", "ACDE", "", "",    # add protein
+        "6", "saved.json",           # save the job
+        "7",                         # variants
+        "1", "v1",                   # set the variant name
+        "4", "variant.json",         # save the variant and reset
+        "0", "0", "0",
     ]) + "\n"
 
-    environment = dict(os.environ, PYTHONIOENCODING="cp1252")
-    result = subprocess.run(
+    result = _run_process(
         [sys.executable, "-m", "configbuilder"],
-        cwd=str(tmp_path),
-        env=environment,
-        input=script,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=60,
+        tmp_path,
+        script,
+        env={"PYTHONIOENCODING": "cp1252"},
     )
 
     assert result.returncode == 0, (result.returncode, result.stderr[-600:])
     assert "Traceback" not in result.stderr, result.stderr[-600:]
     assert "UnicodeEncodeError" not in result.stderr
-    assert "Created variant" in result.stdout
-    assert "job name" in result.stdout, result.stdout[-600:]
+    assert "Saved to" in result.stdout
+    assert "Variant saved to" in result.stdout
 
 
 def test_a_garbled_input_byte_does_not_end_the_session(tmp_path):
-    """The other half of the same boundary: a byte the input codec cannot
-    decode used to raise ``UnicodeDecodeError`` out of ``Console.prompt``."""
-    import os
-
+    """A byte the input codec cannot decode must not raise
+    ``UnicodeDecodeError`` out of ``Console.prompt``."""
     environment = dict(os.environ, PYTHONIOENCODING="utf-8")
+    environment["PYTHONPATH"] = str(PROJECT_ROOT)
     result = subprocess.run(
         [sys.executable, "-m", "configbuilder"],
         cwd=str(tmp_path),

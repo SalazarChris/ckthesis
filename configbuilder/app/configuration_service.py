@@ -58,6 +58,15 @@ __all__ = ["ConfigurationService", "ReferenceInput"]
 
 _FAMILY_TYPES = (FamilyARecord, FamilyBRecord, FamilyCRecord, ComponentRecord)
 
+# The family word for a record that carries no sequence, so a refusal names
+# what the user actually picked (a ligand) instead of "record".
+_FAMILY_WORD = {
+    FamilyARecord: "protein",
+    FamilyBRecord: "rna",
+    FamilyCRecord: "dna",
+    ComponentRecord: "ligand",
+}
+
 
 class ReferenceInput:
     """One structural-template reference, as a front end supplies it:
@@ -91,7 +100,6 @@ class ConfigurationService:
 
     def _commit(self, configuration) -> MutationOutput:
         self._projects._replace_project(self._project().with_configuration(configuration))
-        self._projects._commit_project()
         return self._findings_output()
 
     def _findings_output(self) -> MutationOutput:
@@ -382,6 +390,17 @@ class ConfigurationService:
         partner = duplex_partner(configuration, record)
         partner_update = None
         if sequence is not None:
+            # Only the three polymer families have a sequence. A ligand never
+            # does, so a sequence change aimed at one is a user condition to
+            # report — requesting it used to reach ``with_sequence`` on a
+            # ``ComponentRecord`` and escape as an ``AttributeError``
+            # (BUG-020), the same shape as the already-guarded modification
+            # and alignment setters below.
+            if not isinstance(record, (FamilyARecord, FamilyBRecord, FamilyCRecord)):
+                return self._refused(
+                    "a %s record has no sequence to change; its representation is "
+                    "changed instead" % _FAMILY_WORD.get(type(record), "this")
+                )
             family = "protein"
             if isinstance(record, FamilyBRecord):
                 family = "rna"
@@ -506,6 +525,39 @@ class ConfigurationService:
             return self._refused("no modification numbered %d on record %s" % (index + 1, record_key))
         updated = record.with_modifications(
             modifications[:index] + modifications[index + 1 :]
+        )
+        records = tuple(updated if existing is record else existing for existing in configuration.records)
+        return self._commit(configuration.with_records(records))
+
+    def update_modification(self, record_key: str, index: int, code=None, position=None) -> MutationOutput:
+        """Replace one modification in place, keeping its list position.
+
+        Removing and re-adding would move the modification to the end of the
+        record's list (and would half-apply if the re-add were refused); the
+        PTM editor changes the code and/or the position atomically instead.
+        Either argument left as ``None`` keeps the existing value.
+        """
+        configuration = self._configuration()
+        if configuration is None:
+            return self._not_open()
+        primary, failure = self._key(record_key)
+        if failure is not None:
+            return failure
+        record = self._record_for(configuration, primary)
+        if record is None or not hasattr(record, "modifications"):
+            return self._unknown_record(record_key)
+        modifications = tuple(record.modifications)
+        if index < 0 or index >= len(modifications):
+            return self._refused("no modification numbered %d on record %s" % (index + 1, record_key))
+        current = modifications[index]
+        new_code = current.code.value if code is None else code
+        new_position = current.position.value if position is None else position
+        try:
+            replacement = ModificationRecord(ComponentCode(new_code), Position(int(new_position)))
+        except (ModelError, ValueError, TypeError) as error:
+            return self._refused(str(error))
+        updated = record.with_modifications(
+            modifications[:index] + (replacement,) + modifications[index + 1 :]
         )
         records = tuple(updated if existing is record else existing for existing in configuration.records)
         return self._commit(configuration.with_records(records))
@@ -675,6 +727,19 @@ class ConfigurationService:
         if failure is not None:
             return failure
         return self._commit(configuration.with_component_definition(source))
+
+    def clear_component_definition(self) -> MutationOutput:
+        """Remove the job's custom component (userCCD) definition entirely.
+
+        The definition is one resource (inline text or an external path);
+        clearing it returns the job to having none, which is the state a new
+        job starts in — never an empty inline string, which would emit a
+        bogus ``userCCD`` field.
+        """
+        configuration = self._configuration()
+        if configuration is None:
+            return self._not_open()
+        return self._commit(configuration.with_component_definition(None))
 
     # -- linkages (§15 add_linkage / remove_linkage) ---------------------------------
 

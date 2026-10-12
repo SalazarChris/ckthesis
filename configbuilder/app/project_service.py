@@ -1,16 +1,16 @@
 """Project lifecycle (IMPLEMENTATION_PLAN.md §15): ``new``, ``open``,
-``load_saved_work``, ``is_dirty``.
+``import_json_preview`` / ``import_json_commit``, ``is_dirty``.
 
-The workflow is JSON-first: what the user saves is generated AF3 JSON, and
-the ``.cbproj`` working copy is this service's own autosave, never a
-user-facing save target. Project-file save/save-as and the output-policy
-setter were removed with that workflow (audit 2026-09-30); the internal
-working copy is written by ``_commit_project`` and restored by
-``load_saved_work``.
+The workflow is JSON-first and in-memory: the job in hand lives in memory
+and the only save target is an ordinary AF3 JSON file written on request.
+The former ``.cbproj`` working-copy autosave, its internal store and its
+``load_saved_work`` recovery entry point were removed with the menu rework
+(2026-10): the only supported way to resume a saved job is to open its
+JSON. ``open`` remains as the general project-file reader used by the
+tests, and ``is_dirty`` as the edit-tracking flag a front end reads.
 
 Every operation returns a result object; user-caused problems are
-findings or failure reasons, never exceptions. Filesystem access rides
-exclusively on ``persistence`` (plan §5.3 rule 8).
+findings or failure reasons, never exceptions.
 """
 
 from __future__ import annotations
@@ -25,48 +25,21 @@ from configbuilder.persistence import (
     PersistenceError,
     Project,
     load as _load,
-    save as _save,
-    PROJECT_EXTENSION,
 )
 
-__all__ = ["ProjectService", "INTERNAL_PROJECTS_DIR"]
-
-
-INTERNAL_PROJECTS_DIR = ".configbuilder"
-"""Where working project files live, invisible to the user's workflow.
-
-Users work exclusively with AF3 JSON files in their output destination;
-the .cbproj working copy is the application's own resume mechanism,
-kept out of the way in this internal directory under the current
-working directory.
-"""
-
-WORKING_COPIES_KEPT = 50
-"""How many working copies the internal store keeps.
-
-The store is a *cache of recovery candidates*, not an archive: only
-this application's own autosave files live here (never a user's
-generated JSON, never an intentionally saved file), only the newest one
-is ever restored, and pruning on a new job keeps the store from growing
-without bound. Fifty sessions of slack is far more than the recovery
-offer needs.
-"""
+__all__ = ["ProjectService"]
 
 
 class ProjectService:
-    """Owns the currently open project and its persistence.
+    """Owns the currently open project and loads JSON into it.
 
-    Persistence discipline (the JSON-first workflow): the user-visible
-    save action writes **AF3 JSON** through the generation pipeline into
-    the output destination. The canonical .cbproj working copy is
-    maintained silently in ``INTERNAL_PROJECTS_DIR`` — written on every
-    committed change (``_commit_project``) — and ``load_saved_work``
-    restores it on "Open saved work". No prompt, no path ritual.
+    Persistence discipline: the job is edited in memory, and the
+    user-visible save action writes **AF3 JSON** through the generation
+    pipeline. Nothing is autosaved behind the user's back.
     """
 
     def __init__(self, validate=None) -> None:
         self._project = None  # type: Optional[Project]
-        self._path = None  # type: Optional[str]
         self._dirty = False
         self._validate = validate
         self._automatic_names = 0  # how many automatic job names this session minted
@@ -75,95 +48,6 @@ class ProjectService:
         # confirm installs, so the file cannot change under the user between
         # the screen and the answer.
         self._prepared_import = None
-
-    # -- internal working copy ------------------------------------------------
-
-    def _internal_path(self) -> str:
-        import uuid
-
-        root = os.path.join(os.getcwd(), INTERNAL_PROJECTS_DIR)
-        os.makedirs(root, exist_ok=True)
-        return os.path.join(root, "%s.cbproj" % uuid.uuid4().hex)
-
-    def _commit_project(self) -> None:
-        """Silently persist the working copy. Failures are swallowed by
-        design: this is crash protection, not a user-visible action."""
-        if self._project is None:
-            return
-        try:
-            if self._path is None:
-                self._path = self._internal_path()
-            _save(self._project, self._path)
-            self._dirty = False
-        except OSError:
-            pass
-
-    def load_saved_work(self) -> LoadOutput:
-        """Restore the most recent internal working copy, if any.
-
-        Returns ``ok=False`` (``NO_SAVED_WORK``) when none exists — the
-        user simply starts a new job — and also when the open job *is*
-        that copy, with a message saying so: silently re-opening what the
-        user is already editing looked like nothing happened. The restored
-        project becomes the current one exactly as it was left.
-        """
-        import glob as _glob
-
-        root = os.path.join(os.getcwd(), INTERNAL_PROJECTS_DIR)
-        candidates = sorted(
-            _glob.glob(os.path.join(root, "*.cbproj")), key=os.path.getmtime
-        )
-        if not candidates:
-            return LoadOutput(
-                ok=False,
-                failure_reason=FailureReason.NO_SAVED_WORK,
-                message="there is no saved work to reopen",
-            )
-        newest = candidates[-1]
-        if self._project is not None and self._path == newest:
-            return LoadOutput(
-                ok=False,
-                failure_reason=FailureReason.NO_SAVED_WORK,
-                message=(
-                    "the current job is already the most recent working copy; "
-                    "it is kept up to date as you edit"
-                ),
-            )
-        return self.open(newest)
-
-    def _prune_working_copies(self) -> None:
-        """Bound the internal store to the newest ``WORKING_COPIES_KEPT``
-        working copies.
-
-        Called when a new job starts, so the store cannot grow without
-        bound across sessions. Only this application's own autosave files
-        are candidates (``*.cbproj`` in ``INTERNAL_PROJECTS_DIR``): a
-        failure to prune is ignored — recovery still works, the store is
-        just larger than intended.
-        """
-        root = os.path.join(os.getcwd(), INTERNAL_PROJECTS_DIR)
-        try:
-            names = [
-                name
-                for name in os.listdir(root)
-                if name.endswith(PROJECT_EXTENSION)
-            ]
-        except OSError:
-            return
-        if len(names) <= WORKING_COPIES_KEPT:
-            return
-        try:
-            names.sort(
-                key=lambda name: os.path.getmtime(os.path.join(root, name)),
-                reverse=True,
-            )
-        except OSError:
-            return
-        for name in names[WORKING_COPIES_KEPT:]:
-            try:
-                os.remove(os.path.join(root, name))
-            except OSError:
-                pass
 
     # -- state ---------------------------------------------------------------
 
@@ -180,10 +64,6 @@ class ProjectService:
     def project(self):
         """The open project, or ``None``. Read-only for front ends."""
         return self._project
-
-    @property
-    def path(self):
-        return self._path
 
     # -- operations (§15) ------------------------------------------------------
 
@@ -209,7 +89,6 @@ class ProjectService:
             default_job_name,
         )
 
-        self._prune_working_copies()
         job_name = (name or "").strip()
         if not job_name:
             self._automatic_names += 1
@@ -226,9 +105,7 @@ class ProjectService:
             specs=(),
             settings=OutputSettings(),
         )
-        self._path = None
         self._dirty = True
-        self._commit_project()
         return self._project
 
     # -- AF3 JSON import (§7 of the import feature; the same canonical model) --
@@ -338,13 +215,7 @@ class ProjectService:
             specs=(),
             settings=OutputSettings(),
         )
-        # The imported file is not a project file, and the imported job is
-        # the current one from this moment on: commit it to the internal
-        # working copy immediately, so it survives a crash before the
-        # user's next edit (the same promise every other mutation keeps).
-        self._path = None
         self._dirty = True
-        self._commit_project()
         return LoadOutput(
             ok=True,
             project=self._project,
@@ -401,7 +272,6 @@ class ProjectService:
                 message=str(error),
             )
         self._project = result.project
-        self._path = path
         self._dirty = False
         return LoadOutput(
             ok=True,

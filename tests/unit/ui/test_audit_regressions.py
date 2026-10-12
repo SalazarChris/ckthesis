@@ -5,6 +5,12 @@ Each test drives the *real* ``MenuApp`` over a ``ScriptedConsole`` (or the real
 service for a service-level defect), so a fix is pinned at the interface the
 user actually touches rather than at an internal helper.
 
+The menu rework moved several routes. The pins below use the route that still
+exists: PTM management and the per-record modifications submenu for BUG-001 /
+BUG-002, the save action for BUG-007, and the service layer for the bond
+residue prompt, whose menu flow the rework removed along with the rest of the
+session/project management.
+
 The defects covered here:
 
 - BUG-001  a blank modification code crashed the session
@@ -14,16 +20,19 @@ The defects covered here:
 - BUG-005  "Back" in the quantity submenu silently discarded the entity
 - BUG-006  a ligand was offered as a modification carrier
 - BUG-007  there was no explicit save action
-- BUG-008  the Generate screen renumbered when no variants existed
+- BUG-008  the generate menu renumbered between states
 - BUG-009  an invalid choice recursed instead of re-asking
 - BUG-010  ``set_representation`` could let a model error escape
 - BUG-011  ``execute`` wrote the last plan, not the plan it was handed
+- BUG-013  a hint named an action the menu did not show
+- BUG-016  the CCD submenu glued a multi-code ligand into one component
 """
 
 from __future__ import annotations
 
 import glob
 import os
+import re
 
 from configbuilder.app.configuration_service import ConfigurationService
 from configbuilder.app.generation_service import GenerationService
@@ -36,8 +45,22 @@ from configbuilder.ui.services import build_services
 
 PROTEIN = "ACDEFGHIKLMNPQRSTVWY"
 
-# master 1 Edit / 1 Entities / 1 Add / 1 Protein / seq / no MSA / no templates
-PROTEIN_JOB = ["1", "job", "1", "1", "1", "1", PROTEIN, "", "", "0", "0"]
+# main 1 New job → name → job menu 2 Add entity → 1 Protein → sequence → no
+# MSA → no templates; the unit ends at the job menu.
+PROTEIN_JOB = ["1", "job", "2", "1", PROTEIN, "", ""]
+NEW_JOB = ["1", "job"]
+LEAVE_DIRTY = ["0", "2", "0"]      # job: leave → discard → main: exit
+LEAVE_CLEAN = ["0", "0"]
+
+MENU_ACTIONS = (
+    "1. Edit job configurations",
+    "2. Add entity",
+    "3. Edit entity",
+    "4. Custom CCD management",
+    "5. PTM management",
+    "6. Save and show summary",
+    "7. Create variants based on this JSON",
+)
 
 
 def run(script):
@@ -68,7 +91,8 @@ def test_blank_modification_code_is_refused_not_raised():
 
 
 def test_blank_modification_code_through_the_menu_says_cancelled():
-    status, out = run(PROTEIN_JOB + ["1", "3", "3", "1", "", "5", "0", "0", "0"])
+    """The PTM route (job menu 5 → add) refuses a blank code in words."""
+    status, out = run(PROTEIN_JOB + ["5", "2", "1", "", "0"] + LEAVE_DIRTY)
     assert status == 0
     assert "Cancelled" in out
     assert "Traceback" not in out
@@ -87,29 +111,34 @@ def test_blank_ccd_representation_is_refused_not_raised():
 
 
 def test_non_numeric_ptm_position_is_answered_in_user_terms():
-    status, out = run(
-        PROTEIN_JOB + ["1", "3", "3", "1", "SEP", "abc", "0", "0", "0"]
-    )
+    status, out = run(PROTEIN_JOB + ["5", "2", "1", "SEP", "abc", "0"] + LEAVE_DIRTY)
     assert status == 0
     assert "not a whole number" in out
     assert "invalid literal for int()" not in out
 
 
-def test_non_numeric_bond_residue_is_answered_in_user_terms():
-    status, out = run(PROTEIN_JOB + ["1", "3", "1", "1", "abc", "CA", "0", "0", "0"])
-    assert status == 0
-    assert "not a whole number" in out
-    assert "invalid literal for int()" not in out
+def test_a_non_numeric_linkage_residue_is_refused_not_raised():
+    """BUG-002's bond route. The rework removed the menu's bond flow, so the
+    old prompt cannot print a raw Python message any more; what must still
+    hold is that the service wraps the bad residue into a refusal object
+    instead of letting it escape."""
+    _, configuration = _services()
+    configuration.add_record("protein", PROTEIN)
+    outcome = configuration.add_linkage("A", "abc", "CA", "A", 1, "CB")
+    assert outcome.ok is False
+    assert outcome.message and "Traceback" not in outcome.message
 
 
 # -- BUG-003: the preview obeys the generation gate -----------------------
 
 
 def test_json_preview_refuses_an_incomplete_job():
-    status, out = run(["1", "job", "2", "2", "0", "0", "0"])
-    assert status == 0
-    assert "Cannot build JSON" in out
-    assert '"sequences"' not in out
+    services = build_services()
+    services.projects.new("empty")
+    text, error = services.generation.show_json()
+    assert text is None
+    assert error
+    assert '"sequences"' not in (text or "")
 
 
 def test_json_preview_of_a_ready_job_matches_the_written_file(tmp_path):
@@ -151,9 +180,10 @@ def test_multi_copy_record_releases_every_identifier_on_delete():
 
 
 def test_multi_copy_ligand_is_deletable_through_the_menu():
-    """Entities -> 3 Delete -> pick the 3-copy ligand."""
+    """Job menu 3 → the 3-copy ligand → Delete → Yes; the empty list is
+    announced."""
     status, out = run(
-        ["1", "job", "1", "1", "1", "4", "1", "ATP", "3", "3", "1", "0", "0", "0"]
+        NEW_JOB + ["2", "4", "1", "ATP", "3"] + ["3", "1", "2", "1"] + LEAVE_DIRTY
     )
     assert status == 0
     assert "(no entities)" in out
@@ -171,15 +201,13 @@ def test_multi_copy_record_can_carry_a_modification():
 
 
 def test_back_at_the_quantity_menu_says_nothing_was_added():
-    status, out = run(
-        ["1", "job", "1", "1", "1", "4", "1", "ATP", "0", "0", "0", "0"]
-    )
+    status, out = run(NEW_JOB + ["2", "4", "1", "ATP", "0"] + LEAVE_CLEAN)
     assert status == 0
     assert "Cancelled" in out
 
 
 def test_back_at_the_ligand_kind_menu_says_nothing_was_added():
-    status, out = run(["1", "job", "1", "1", "1", "4", "0", "0", "0", "0"])
+    status, out = run(NEW_JOB + ["2", "4", "0"] + LEAVE_CLEAN)
     assert status == 0
     assert "Cancelled" in out
 
@@ -189,10 +217,10 @@ def test_back_at_the_ligand_kind_menu_says_nothing_was_added():
 
 def test_ligand_is_not_offered_as_a_modification_carrier():
     status, out = run(
-        [
-            "1", "job", "1", "1", "1", "4", "1", "ATP", "1",
-            "0", "0", "1", "3", "3", "0", "0", "0",
-        ]
+        NEW_JOB
+        + ["2", "4", "1", "ATP", "1"]
+        + ["5", "2"]                    # PTM → add: the carrier picker is empty
+        + LEAVE_DIRTY
     )
     assert status == 0
     assert "ligands carry no modifications" in out
@@ -202,44 +230,42 @@ def test_ligand_is_not_offered_as_a_modification_carrier():
 
 
 def test_save_action_writes_the_json_and_names_the_path(tmp_path):
-    status, out = run(PROTEIN_JOB + ["4", "4", str(tmp_path), "0", "5", "1", "0"])
+    destination = tmp_path / "job.json"
+    status, out = run(PROTEIN_JOB + ["6", str(destination)] + LEAVE_CLEAN)
     assert status == 0
     assert "Saved to " in out
-    written = glob.glob(os.path.join(str(tmp_path), "**", "*.json"), recursive=True)
-    assert len(written) == 1
-    assert os.path.basename(written[0]) == "job.json"
+    assert os.path.exists(destination)
+    assert os.path.basename(destination) == "job.json"
 
 
 def test_save_action_refuses_an_incomplete_job(tmp_path):
-    status, out = run(["1", "job", "4", "4", str(tmp_path), "0", "5", "0"])
+    destination = tmp_path / "empty.json"
+    status, out = run(NEW_JOB + ["6", str(destination)] + LEAVE_CLEAN)
     assert status == 0
-    assert "cannot be written yet" in out
-    assert not glob.glob(os.path.join(str(tmp_path), "**", "*.json"), recursive=True)
+    assert "cannot be saved yet" in out
+    assert not os.path.exists(destination)
 
 
 def test_save_action_cancelled_writes_nothing(tmp_path):
-    status, out = run(PROTEIN_JOB + ["4", "4", str(tmp_path), "0", "5", "2", "0"])
+    status, out = run(PROTEIN_JOB + ["6", "0"] + LEAVE_DIRTY)
     assert status == 0
     assert "Cancelled" in out
     assert not glob.glob(os.path.join(str(tmp_path), "**", "*.json"), recursive=True)
 
 
-# -- BUG-008: stable Generate numbering ----------------------------------
+# -- BUG-008: the job menu keeps one fixed action list --------------------
 
 
-def test_generate_numbering_is_the_same_with_and_without_variants(tmp_path):
-    without, out_without = run(PROTEIN_JOB + ["4", "2", "0", "0", "0"])
-    assert without == 0
-    assert "no variants to write yet" in out_without
-    assert "4) Change the output directory" in out_without
-
-    with_variants, out_with = run(
-        PROTEIN_JOB
-        + ["3", "1", "1", "WT", "0", "0"]        # Variants -> create "WT" -> back
-        + ["4", "4", str(tmp_path), "0", "0", "0"]  # Generate -> set dir -> back -> exit
-    )
-    assert with_variants == 0
-    assert "4) Change the output directory" in out_with
+def test_the_job_menu_keeps_its_numbering_with_and_without_variants():
+    """The old Generate submenu renumbered between states (BUG-008). The
+    reworked job menu is one static list; it must name the same seven
+    actions whatever the job holds."""
+    bare_status, bare = run(NEW_JOB + LEAVE_CLEAN)
+    full_status, full = run(PROTEIN_JOB + LEAVE_DIRTY)
+    assert bare_status == 0 and full_status == 0
+    for label in MENU_ACTIONS:
+        assert label in bare, label
+        assert label in full, label
 
 
 # -- BUG-009: re-ask by looping, never by recursing ----------------------
@@ -248,8 +274,7 @@ def test_generate_numbering_is_the_same_with_and_without_variants(tmp_path):
 def test_many_invalid_choices_do_not_exhaust_the_stack():
     """200 invalid choices at the entity picker: a recursive re-ask would
     grow the stack once per keystroke."""
-    script = PROTEIN_JOB + ["1", "1", "2"] + ["x"] * 200 + ["0", "0", "0"]
-    status, out = run(script)
+    status, out = run(PROTEIN_JOB + ["3"] + ["x"] * 200 + ["0"] + LEAVE_DIRTY)
     assert status == 0
     assert "Not a valid choice" in out
 
@@ -289,31 +314,32 @@ def test_execute_writes_the_plan_it_was_handed(tmp_path):
     assert "MKTAYIAKQR" not in body
 
 
-def test_master_menu_hint_names_a_label_shown_on_that_menu():
-    """BUG-013: the master menu's working-copy hint must name the action by
-    the wording that menu actually displays. It used to say "Open saved
-    work" - a label that exists only on the start screen, so a beginner
-    looked for an option that was not there (the same confusion BUG-007
-    was about)."""
-    from configbuilder.ui.present.strings import text
-
-    hint = text("menu.work_held_master")
-    master = text("menu.master_actions")
-    assert "Recover the last working copy" in hint
-    assert "Recover the last working copy" in master
-    assert "Open saved work" not in hint
+# -- BUG-013: hints name actions the menu actually shows -----------------
 
 
-def test_start_screen_hint_still_names_its_own_option():
-    """The start screen has no current job, so "Open saved work" is the
-    right wording *there* - and it must match the option it names."""
-    from configbuilder.ui.present.strings import text
+def test_the_leave_hint_names_an_action_the_menu_shows():
+    """The old master menu's hint named "Open saved work" — an option that
+    lived only on the start screen. The reworked builder's leave prompt must
+    name the save the job menu really offers, and no recovery vocabulary may
+    survive the rework."""
+    from configbuilder.ui.present.strings import STRINGS
 
-    assert "Open saved work" in text("menu.work_held")
-    assert "Open saved work" in text("menu.start_actions")
+    assert "saved to a JSON file" in STRINGS["menu.leave_dirty"]
+    assert "Save and show summary" in STRINGS["menu.job_actions"]
+    for value in STRINGS.values():
+        assert "Open saved work" not in value
+        assert "Recover the last working copy" not in value
+        assert "working copy" not in value
 
 
-# -- BUG-016: the CCD submenu's "code(s)" must stay a list of codes ----------
+def test_the_main_menu_names_only_actions_it_shows():
+    from configbuilder.ui.present.strings import STRINGS
+
+    assert "Open a JSON file" in STRINGS["menu.main_actions"]
+    assert "New job" in STRINGS["menu.main_actions"]
+
+
+# -- BUG-016: the ligand "code(s)" route stays a list of codes ---------------
 
 
 def _ligand_codes(services, representation, kind):

@@ -280,9 +280,13 @@ def test_series_ids_are_unique_and_registry_owned(tmp_path, monkeypatch):
 
 
 # -- UI separation ----------------------------------------------------------------
+#
+# The reworked menu asks the quantity at add time and no longer exposes the
+# series planner or the preview screen — those remain service operations,
+# covered above. The UI pin that survives is the guided add-time quantity.
 
 
-def test_ui_quantity_asked_on_add_and_series_only_in_variants(tmp_path, monkeypatch):
+def test_ui_quantity_is_asked_on_add(tmp_path, monkeypatch):
     from configbuilder.app.cli import MenuApp
     from configbuilder.ui.services import build_services
     from configbuilder.ui.render.console import ScriptedConsole
@@ -290,10 +294,9 @@ def test_ui_quantity_asked_on_add_and_series_only_in_variants(tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     console = ScriptedConsole(
         ["1", "QtyUI"]
-        # master 1 (edit) → 1 (entities) → 1 (add) → 4 (ligand/ion)
-        # → 1 (CCD) → NA → qty 2 → back (entities) → back (edit)
-        + ["1", "1", "1", "4", "1", "NA", "2", "0", "0"]
-        + ["0"]
+        # job 2 (add entity) → 4 (ligand) → 1 (CCD) → NA → qty 2, then the
+        # entity picker shows the counted line, then leave → discard → exit
+        + ["2", "4", "1", "NA", "2", "3", "0", "0", "2", "0"]
     )
     app = MenuApp(build_services(), console)
     status = app.run()
@@ -305,85 +308,3 @@ def test_ui_quantity_asked_on_add_and_series_only_in_variants(tmp_path, monkeypa
     assert "concentration" not in out.lower()
     # the entity listing shows the counted ligand line
     assert "x2" in out
-
-
-def test_ui_series_flow_creates_variants_after_confirm(tmp_path, monkeypatch):
-    from configbuilder.app.cli import MenuApp
-    from configbuilder.ui.services import build_services
-    from configbuilder.ui.render.console import ScriptedConsole
-
-    monkeypatch.chdir(tmp_path)
-    console = ScriptedConsole(
-        ["1", "SeriesUI"]
-        # add NA x3 through the ligand flow, back to master
-        + ["1", "1", "1", "4", "1", "NA", "3", "0", "0"]
-        # master 3 -> Variants; 4 = series: comp 1, start 1, factor 10,
-        # levels 3, confirm 1 (Yes)
-        + ["3", "4", "1", "1", "10", "3", "1", "0"]
-        + ["0"]
-    )
-    app = MenuApp(build_services(), console)
-    status = app.run()
-    out = console.transcript
-    assert status == 0
-    assert "Concentration/Quantity Series Preview" in out
-    assert "Will create:" in out
-    # the specs exist in the (autosaved) session - reopen through a fresh app
-    console2 = ScriptedConsole(["2", "0"])  # open saved work -> exit
-    app2 = MenuApp(build_services(), console2)
-    app2.run()
-    specs = app2._services.projects.project.specs
-    assert [spec.key for spec in specs] == ["series_1x", "series_10x", "series_100x"]
-
-
-# -- preview must never traceback (regression: unregistered string keys) ----------
-
-
-def test_preview_renders_for_a_variant_with_no_edits(tmp_path, monkeypatch):
-    from configbuilder.app.cli import MenuApp
-    from configbuilder.ui.services import build_services
-    from configbuilder.ui.render.console import ScriptedConsole
-
-    monkeypatch.chdir(tmp_path)
-    console = ScriptedConsole(
-        ["1", "PrevUI"]
-        + ["1", "1", "1", "4", "1", "NA", "3", "0", "0"]
-        + ["3", "1", "1", "WT", "0", "0"]                # create variant WT (custom name), no edits
-        + ["3", "2", "4", "1", "n", "0", "0", "0"]       # manage -> preview -> WT -> no json
-        + ["0"]
-    )
-    app = MenuApp(build_services(), console)
-    status = app.run()
-    out = console.transcript
-    assert status == 0
-    assert "Preview: WT" in out
-    assert "Changes:" in out
-    assert "Traceback" not in out
-
-
-def test_preview_renders_a_copy_count_change_and_the_edit_flow_collects_it(tmp_path, monkeypatch):
-    from configbuilder.app.cli import MenuApp
-    from configbuilder.ui.services import build_services
-    from configbuilder.ui.render.console import ScriptedConsole
-
-    monkeypatch.chdir(tmp_path)
-    console = ScriptedConsole(
-        ["1", "PrevUI"]
-        + ["1", "1", "1", "4", "1", "NA", "3", "0", "0"]
-        + ["3", "1", "1", "WT", "0", "0"]
-        # edit variant WT: variant 1 -> kind 9 (Component copy count)
-        # -> component 1 -> count 10 -> back lands at Manage
-        + ["3", "2", "1", "1", "9", "1", "10", "0"]
-        + ["4", "1", "n", "0", "0", "0"]                 # preview WT, no json, back
-        + ["0"]
-    )
-    app = MenuApp(build_services(), console)
-    status = app.run()
-    out = console.transcript
-    assert status == 0
-    assert "copy count changed to x10" in out
-    assert "Preview: WT" in out
-    assert "x10" in out
-    assert "Traceback" not in out
-    # the add-entity prompt must never appear for the count kind
-    assert "protein sequence" not in out

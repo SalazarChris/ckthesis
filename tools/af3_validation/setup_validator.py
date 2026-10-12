@@ -7,6 +7,7 @@ added to this project's environment:
 * ``etils[epath]`` -- AF3 reads ``*Path`` fields with it
 * ``rdkit``        -- AF3 validates SMILES ligands with it
 * ``zstandard``    -- AF3 imports it unconditionally for compressed inputs
+* ``msgpack``      -- AF3's chemical-component constants import it
 
 The compiled ``alphafold3.cpp.*`` extensions are deliberately NOT built: AF3
 only ships CMake targets for Linux/macOS, and the JSON-validation path does not
@@ -55,7 +56,7 @@ def install_dependencies():
     command = [
         sys.executable, "-m", "pip", "install", "--quiet",
         "--target", af3_validate.SITE,
-        "etils[epath]", "rdkit", "zstandard",
+        "etils[epath]", "rdkit", "zstandard", "msgpack",
     ]
     completed = subprocess.run(command)
     if completed.returncode != 0:

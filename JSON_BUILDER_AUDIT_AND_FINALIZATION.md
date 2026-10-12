@@ -1923,3 +1923,471 @@ a defect rather than a formatting change:
 | Python 3.9 actually run | 918 | 917 | 30 failures, 2 real defects fixed |
 | G.4 shadowing fix + detectors | **922** | **921** | 1 recovered test, 3 new integrity tests |
 
+---
+
+## H. Entity-Editing Hardening (2026-10-08, later pass)
+
+> **Contents.** H.1 method and scope; H.2 the seven defects found, each with its
+> reproduction and its regression pin; H.3 the invariants that already held and
+> are now pinned; H.4 files changed; H.5 tests added; H.6 commands and results;
+> H.7 what was not tested; H.8 assessment.
+
+> **Scope, stated first because it is the point of the pass.** The generated AF3
+> JSON had already been run through AlphaFold 3 (§F.11, §G.5). This pass
+> therefore changed **no** schema, encoder, contract or generation logic: it
+> hardened the *editor*. Every change below is one of three things — a refusal
+> where the code used to raise, an index that addressed the wrong row, or a pin
+> on a guarantee that was already true but unrecorded. §H.6 shows the AF3 parser
+> suite reporting the same figures as §G.5, which is what "the JSON did not move"
+> means in evidence rather than in prose.
+
+Environment: Windows, CPython 3.11.15, repository `main` at `52b7b1d`, the pass
+left uncommitted (7 modified modules, 4 test files added — §H.4).
+
+### H.1 Method
+
+The audit worked the interaction model rather than the code alone, because that
+is where this program is actually interpreted:
+
+1. **Read the state model first.** `model/records.py` and
+   `identity/registry.py` for how a record and its identifiers are held, then
+   the four mutation surfaces: `app/configuration_service.py` (the base job),
+   `app/variant_service.py` (the specs), `variants/edits.py` (`apply_edit` — what
+   a committed spec becomes) and `ui/render/menus.py` (2 161 lines: the largest
+   file, and the only path a human takes).
+2. **Fuzz the service layer**, where a crash has no menu to hide it: random
+   add/edit/remove chains over every family at `ConfigurationService`, then over
+   `VariantService` and expansion.
+3. **Reproduce each candidate at the menu**, over `ScriptedConsole`, driving the
+   shipped `MenuApp` — five of the seven defects bite only through a menu, and
+   the fuzzer alone could not have shown that.
+4. **Falsify every new test against the pre-fix tree**: `git archive HEAD` into a
+   scratch directory, copy the new test files in, run. **18 of the 30 new unit
+   and lifecycle tests fail there.** The 12 that pass are deliberate locks on
+   behaviour that was already correct (§H.3); a test that cannot fail is not a
+   fix.
+
+### H.2 Defects found
+
+Seven, all of the same shape: an operation the model cannot perform for the
+chosen record, or an index computed in the wrong list, escaping either as a
+Python exception out of a menu or as a silent wrong-row edit.
+
+#### BUG-020 — A sequence change aimed at a ligand ended the session
+* **Severity:** medium (a traceback exits the program; the user loses the run)
+* **How it surfaced:** service fuzzing. `ComponentRecord` has no `with_sequence`;
+  `update_record(key, sequence=...)` reached it anyway.
+* **Expected:** a refusal naming the family, state unchanged.
+* **Actual:** `AttributeError` out of `ConfigurationService.update_record`. The
+  same class of defect the modification and alignment setters already guarded
+  against; only the sequence setter was missing the check.
+* **Files:** `app/configuration_service.py`.
+* **Fix applied:** the setter refuses a non-polymer record in the user's own
+  vocabulary (`a ligand record has no sequence to change; its representation is
+  changed instead`), via a small `_FAMILY_WORD` table. Ligand *descriptions*
+  still edit normally (the guard is about the sequence field only). The variant
+  flow's twin picker was wrong in the same way — it offered ligands for a
+  sequence change and then refused — so its `_family_of_key` now says "record 'A'
+  is a ligand; only a protein, RNA or DNA chain carries a sequence or an MSA"
+  instead of the misleading "no record is identified by 'A'", and the picker
+  itself no longer offers one (`menu.no_polymer_target`).
+* **Regression tests:** `test_a_sequence_change_on_a_ligand_is_refused_not_raised`,
+  `test_a_sequence_change_on_a_multi_copy_ligand_is_refused_too`,
+  `test_a_description_change_on_a_ligand_still_works` (the guard is narrow),
+  `test_a_variant_sequence_aimed_at_a_ligand_says_so`,
+  `test_the_variant_sequence_picker_does_not_offer_a_ligand`.
+* **Status:** **FIXED & VERIFIED** — fails pre-fix, passes after; the refusal
+  leaves representation and identifier untouched.
+
+#### BUG-021 — A wrong-alphabet variant sequence killed the session
+* **Severity:** medium (traceback from an ordinary typo at a prompt)
+* **How it surfaced:** menu playthrough of Variants → change → sequence, answering
+  `ACDEFG` for an RNA chain.
+* **Expected:** the alphabet refusal the model already words, as a result object.
+* **Actual:** `SequenceTextError` escaped `apply_variant_edit`. The factor table
+  caught `(EditError, VariantSpecError, ValueError, TypeError)`, and
+  `SequenceTextError` derives from `ModelError` — which derives from
+  `Exception`, **not** from `ValueError`. The narrower catch looked complete and
+  was not.
+* **Files:** `app/variant_service.py`.
+* **Fix applied:** the factor conversion catches `ModelError` as well; the two
+  now-redundant `from configbuilder.model import SequenceTextError` wrappers
+  around `add_spec`/`update_spec` were deleted rather than left to rot.
+* **Regression tests:** `test_a_variant_sequence_in_the_wrong_alphabet_is_refused_not_raised`,
+  `test_append_factor_refuses_a_wrong_alphabet_too` (the direct route),
+  `test_a_wrong_alphabet_at_the_variant_sequence_prompt_is_refused_not_raised`
+  (the menu route).
+* **Status:** **FIXED & VERIFIED** — and the spec's edits are still `()` after the
+  refusal, so the bad answer left no residue.
+
+#### BUG-022 — Review → Validate died on a variant that cannot expand
+* **Severity:** medium (the reporting path is where a worried user goes)
+* **How it surfaced:** a project holding a spec that can no longer expand — the
+  shape an older build or a hand-edited project file leaves behind. `expand()`
+  raises `EditError` for it.
+* **Expected:** the base report (already computed) plus the reason the variant
+  half is missing.
+* **Actual:** the `EditError` escaped `ValidationService.validate_all`, so the
+  whole session went down from the Review menu.
+* **Files:** `app/validation_service.py`, `app/results.py`,
+  `ui/render/menus.py`.
+* **Fix applied:** `validate_all` catches `(EditError, VariantSpecError)` and
+  returns a `VariantValidationOutput` carrying `failure_reason="expansion_failed"`
+  and the refusal's own wording; the menu prints the base verdict, then says the
+  variant half was not applied and why. The two new fields default to `None`/`""`,
+  so every existing constructor call and every reader keeps its meaning.
+* **Regression tests:** `test_validate_all_reports_an_unexpandable_variant_instead_of_raising`,
+  `test_preview_and_generation_refuse_the_unexpandable_variant_cleanly` (the same
+  spec through preview, `plan` and `show_json` — refusals, never raises),
+  `test_modification_summary_is_empty_when_the_variant_cannot_expand`,
+  `test_review_validate_reports_an_unexpandable_variant_instead_of_raising`.
+* **Status:** **FIXED & VERIFIED.**
+
+#### BUG-023 — `RemoveModification` aimed at a record with no modification list
+* **Severity:** medium (same traceback shape, and it is reachable from a stored
+  spec, not only from a fresh edit)
+* **How it surfaced:** fuzzing `apply_edit` directly, then confirming the earlier
+  composition guard: every sibling case in `apply_edit` checks the record's
+  family first — `RemoveModification` did not.
+* **Expected:** an `EditError`, which is what every caller of `apply_edit`
+  already handles.
+* **Actual:** `AttributeError` reading `.modifications` on a `ComponentRecord`,
+  escaping through expansion.
+* **Files:** `variants/edits.py`, `app/variant_service.py`.
+* **Fix applied:** the family check the sibling edits use, naming the expected
+  carrier ("polymer record"); plus a guard at composition time in
+  `VariantService` (`_modification_target_failure`) so a ligand is refused where
+  the user composes the edit, not later during expansion.
+* **Regression tests:** `test_remove_modification_on_a_non_polymer_is_an_editerror`,
+  `test_a_modification_edit_aimed_at_a_ligand_is_refused_when_composed`,
+  `test_the_variant_modification_picker_does_not_offer_a_ligand`.
+* **Status:** **FIXED & VERIFIED.**
+
+#### BUG-024 — Removing the second of two modifications at one position removed the first
+* **Severity:** high (silent data loss: the wrong modification disappears and the
+  user is told the operation succeeded)
+* **How it surfaced:** reading the base flow's modification picker against the
+  model, which permits two modifications at one position (and an imported AF3
+  file can carry it).
+* **Expected:** the row the user picked is the modification that goes.
+* **Actual:** the picker's payload was the **position**, and the removal looked
+  the index up with `next(i for i, mod in ... if mod.position.value == chosen)` —
+  the first match. Two modifications at position 5: picking the second removed
+  the first.
+* **Files:** `ui/render/menus.py`.
+* **Fix applied:** the row's payload is the modification's own index
+  (`enumerate`), so the payload *is* the address `remove_modification` takes; the
+  position stays in the label where the user reads it. `menu.no_modifications`
+  reworded to match.
+* **Regression tests:** `test_removing_the_second_of_two_modifications_at_one_position_removes_it`,
+  `test_two_modifications_at_one_position_are_removed_row_by_row` (end to end,
+  asserting the surviving row).
+* **Status:** **FIXED & VERIFIED** — both fail pre-fix ('TPO', 5) != ('SEP', 5).
+
+#### BUG-025 — The variant remove-modification picker removed a different row than it showed
+* **Severity:** high (same silent wrong-row deletion, on the variant side, and it
+  could delete the *base's* modification)
+* **How it surfaced:** following the index from the picker into
+  `RemoveModification`, which indexes the **expanded** record's list.
+* **Expected:** the offered index addresses the row the user sees.
+* **Actual:** `modification_summary` numbered this *spec's own* `AddModification`
+  edits from 0, while the edit applied against the expanded record — whose list
+  also holds the base's modifications, ahead of them. As soon as the base
+  carried any modification the two numberings differed, and the mismatch
+  deleted the base's PTM while keeping the one the user had chosen.
+* **Files:** `app/variant_service.py`.
+* **Fix applied:** the summary is read off the expansion
+  (`preview(key).variants[0]`), one row per modification of each record, labelled
+  `"<record> @ <position> (<code>)"`; `[]` when the variant cannot expand.
+* **Regression tests:** `test_modification_summary_indices_address_the_expanded_record`
+  (base PTM at 3, variant adds TPO at 5, the picker must offer 0 and 1 — then the
+  applied index removes exactly the offered row and the base never moves),
+  `test_the_variant_modification_picker_lists_the_expanded_record`,
+  `test_the_variant_removes_the_modification_row_it_showed`.
+* **Status:** **FIXED & VERIFIED.**
+
+#### BUG-026 — Variants → Add a new entity crashed for protein, RNA and DNA
+* **Severity:** high (any user taking that route for the three polymer families
+  got a traceback; only the ligand family worked)
+* **How it surfaced:** sweeping every menu option and family through the
+  acceptance suite — the variant flow carries its own add-entity implementation,
+  and it had drifted from the base flow's.
+* **Expected:** the same prompts the base add flow shows, from the same source.
+* **Actual:** `self._ask(_text("menu.entity_seq_prompt") % family)` — `_ask`
+  takes a **registry key**, and it was handed an already-formatted display
+  string, so the registry raised by design:
+  `KeyError: "no string registered for 'dna sequence: '; add it to
+  ui/present/strings.py"`. The `menu.entity_seq_prompt` key it named had never
+  existed.
+* **Files:** `ui/render/menus.py`, `ui/present/strings.py`.
+* **Fix applied:** both flows now ask through the same registered per-family
+  prompts (`menu.add_protein_prompt` / `menu.add_rna_prompt` /
+  `menu.add_dna_prompt`); the never-registered `menu.entity_seq_prompt` is
+  deleted. The base flow's own table also named a string that does not exist for
+  the ligand entry (`menu.add_ligand_prompt`) — unreachable today because the
+  ligand branch returns first, and corrected rather than left as a trap for the
+  next reordering.
+* **Regression tests:**
+  `test_option_3_variant_add_entity_for_every_family` (4 cases: all four
+  families, through the real menu, asserting the prompt shown, the edits
+  recorded and that the variant *materialises* the added record while the base
+  keeps exactly one).
+* **Status:** **FIXED & VERIFIED** — pre-fix that test reports 3 failed, 1 passed
+  (`KeyError: "no string registered for 'dna sequence: '"`), which is also the
+  proof that the ligand family was the only route that worked.
+
+### H.3 Invariants verified, not changed
+
+These were already true. They are listed because the pass checked them against
+running code and pinned them where no test did:
+
+| Invariant | How it was checked |
+|---|---|
+| Every identifier is unique and the registry agrees with the records | `assert_invariants()` in the lifecycle suite (walks every id of every record, then compares against `identity.assigned_values()`) |
+| A removed identifier is retired, never reused | add A, add B, add C, remove B, add D → `['A', 'C', 'D']`; an imported `["A","B"]` multi-id record removed → the new protein takes `D`, not `A` or `B` |
+| Cancellation changes nothing | add/edit/delete/modify/bond cancellations, alone and interleaved with real operations, compared with `==` against the configuration captured before the script |
+| A cancelled add reserves no identifier | cancelling, then a real add, yields `['A']` and a registry holding only `A` |
+| Modifications stay on the record they were added to | add/remove/re-add, then an entity edit and a reload |
+| An imported document is editable like a built one | import a document with multi-id records, MSA, templates, a bond, `userCCD` and a SMILES ligand; edit, add, remove, save, reload |
+| Variants never mutate the base | base → V1 → edit base → V2 → save; V1 still expands to its own declaration, the base holds only the user's edits |
+| The UI's state is the serialised state | the generated file's ids and sequences are compared with the live model in five tests, including after a refusal to overwrite |
+| Saving never destroys another file | the second save finds the previous file and refuses (policy `Fail`), saying how to proceed, while the model moves on |
+| Serialisation did not move | 13 AF3 example documents imported and re-emitted **byte-identical**, and accepted by AF3's own parser (§H.6) |
+
+### H.4 Files changed
+
+| File | Why |
+|---|---|
+| `configbuilder/app/configuration_service.py` | BUG-020: the sequence setter refuses a non-polymer, with `_FAMILY_WORD` for the wording |
+| `configbuilder/app/variant_service.py` | BUG-021 (`ModelError` in the factor table, two redundant wrappers deleted); BUG-020/023 composition guards (`_family_of_key`, `_modification_target_failure`); BUG-025 (`modification_summary` reads the expansion) |
+| `configbuilder/variants/edits.py` | BUG-023: the family check every sibling case already had |
+| `configbuilder/app/validation_service.py` | BUG-022: an unexpandable variant is reported, not raised |
+| `configbuilder/app/results.py` | BUG-022: `VariantValidationOutput.failure_reason` / `.message`, both defaulted |
+| `configbuilder/ui/render/menus.py` | BUG-024 (the row index is the payload); BUG-026 (registered prompts in the variant add-entity); polymer-only variant pickers; the Review → Validate refusal is printed, not raised |
+| `configbuilder/ui/present/strings.py` | `menu.no_polymer_target` added; the never-registered `menu.entity_seq_prompt` removed; `menu.no_modifications` reworded to what the picker now lists |
+| `tests/e2e/test_menu_acceptance.py` | 4-case variant add-entity acceptance test (BUG-026) |
+| `tests/unit/app/test_edit_guards.py` *(new)* | 12 service-layer pins, one per defect plus the guards' narrowness |
+| `tests/unit/ui/test_edit_hardening.py` *(new)* | 10 menu-level pins |
+| `tests/e2e/test_entity_lifecycle.py` *(new)* | 8 lifecycle/workflow tests (recipes from the task: repeated operations, import, variants, cancellation, save/reload) |
+
+No other module was touched. In particular the encoder, the contract, the
+validator, the planner and `to_wire` are untouched; the diff is
+7 modules / ~250 lines, all of it refusals, indices and messages.
+
+### H.5 Tests added
+
+34 in total (30 in the three new files, 4 cases in the acceptance file).
+Collection: **956** (922 before), passed **955**, skipped 1 (by design).
+
+* **Entity lifecycle** — `test_add_remove_readd_edit_then_save_writes_the_model_it_shows`,
+  `test_every_family_survives_a_full_lifecycle`,
+  `test_an_imported_document_is_editable_like_a_built_one`,
+  `test_a_long_repeated_chain_of_operations_leaves_consistent_state`,
+  `test_cancel_interleaved_with_real_operations_changes_nothing`,
+  `test_cancelling_every_operation_leaves_the_configuration_identical`,
+  `test_cancelled_entity_adds_do_not_reserve_identifiers`.
+* **Modifications** — `test_modification_lifecycle_add_remove_readd_and_reload`,
+  `test_two_modifications_at_one_position_are_removed_row_by_row`,
+  `test_removing_the_second_of_two_modifications_at_one_position_removes_it`,
+  `test_modification_summary_indices_address_the_expanded_record`.
+* **Identifiers** — the registry/record walk in `assert_invariants()` plus the
+  retirement assertions above (add A/B/C, remove B, add D; imported A/B removed).
+* **State safety** — the cancellation pins, the refusal pins (BUG-020/021/023),
+  and `test_preview_and_generation_refuse_the_unexpandable_variant_cleanly`.
+* **Integration** — the import, variant-isolation and long-chain tests above,
+  `test_option_3_variant_add_entity_for_every_family` (4 cases), and the two
+  variant-index pins (BUG-025).
+
+### H.6 Commands and results
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `python -m pytest -o addopts="" -q` | **955 passed, 1 skipped**, exit 0 |
+| Collection | `python -m pytest -o addopts="" --collect-only -q` | 956 collected (922 + 34) |
+| New tests | `python -m pytest tests/unit/app/test_edit_guards.py tests/unit/ui/test_edit_hardening.py tests/e2e/test_entity_lifecycle.py -o addopts="" -q` | **30 passed**, exit 0 — run twice in a row, and nothing is written into the checkout (three tests that used to leave `output/<job>/` in the working directory were given `tmp_path` + `monkeypatch.chdir`) |
+| Falsification | `git archive HEAD` → scratch dir, new tests copied in, `python -m pytest … -q` | **18 failed, 12 passed** — every defect pin reproduces against the pre-fix tree |
+| BUG-026, pre-fix | same scratch, `-k variant_add_entity` | **3 failed, 1 passed**: `KeyError: "no string registered for 'dna sequence: '"` |
+| Lint (CI's own gate) | `ruff check --select E4,E7,E9,F configbuilder` | All checks passed |
+| Python-floor source gate | `ast.parse(…, feature_version=(3, 9))` over every shipped module | all modules parse as 3.9 |
+| AF3 parser suite | `python tools/af3_validation/run_all.py` | **PASS** — positive 13/13, negative 8/8, corpus ACCEPTED=21 UNVERIFIED=2, round trip **13/13 identical**, exit 0 |
+
+### H.7 What was not tested
+
+* **No live-TTY playtest.** Every fix was verified through `ScriptedConsole` and
+  the service layer. §F.12 is the model for a hand-driven session; this pass did
+  not repeat it, so the wording of the new refusals has not been read off a real
+  terminal.
+* **Python 3.9 was not executed here.** This machine currently has 3.11.15 and
+  3.12 and no 3.9 (the `.venv39` of §G is gone). The floor is covered by the
+  syntax gate above and by the CI matrix, not by a local run of the new tests.
+* **The exploratory fuzzers are not shipped.** They live in the audit's scratch
+  directory; the durable pins are the 34 tests listed in §H.5. The long chains
+  are fixed recipes, not randomised menu scripts, so an unvisited sequence of
+  six or more operations could still hide something — the invariants are
+  therefore asserted directly as well (identity registry vs records, every
+  linkage endpoint resolves, no traceback in the transcript).
+* **`userCCD` / `userCCDPath`** remain UNVERIFIED (they need AF3's compiled CIF
+  parser); unchanged by this pass, and unchanged in count from §G.5.
+* **Concurrency and the filesystem edge cases** of §F.7 (two builders sharing an
+  output directory, permissions, a raced plan) were not revisited.
+
+### H.8 Assessment
+
+**READY WITH MINOR RISKS.**
+
+Every defect the audit could reproduce is fixed and pinned by a test that fails
+without the fix; the seven crash-shaped paths now refuse, explain and return to
+the menu with the state untouched; cancellation, identifier retirement, import
+parity, variant isolation, the save-refuses-to-destroy guarantee and
+byte-identical serialisation were *verified* rather than assumed; the suite is
+green on the development interpreter, the lint gate is green, and the AF3 parser
+figures are identical to §G.5, which is the evidence that the working JSON did
+not move.
+
+It is not **READY** outright because of the two limitations in §H.7 that a
+reviewer cannot talk away: the fixes were exercised through the scripted console
+rather than by hand at a real terminal, and the declared interpreter floor was
+verified by a syntax gate and CI rather than executed on this machine.
+
+---
+
+## I. Menu Rework (2026-10-11)
+
+> **Contents.** I.1 scope and method; I.2 the new menu map; I.3 flows removed;
+> I.4 implementation changes; I.5 tests reworked; I.6 commands and results;
+> I.7 what was not tested; I.8 assessment.
+
+Environment: Windows, CPython 3.11.15, repository `main` at `52b7b1d` with the
+§H pass still uncommitted; this pass also left uncommitted.
+
+### I.1 Scope and method
+
+The pass replaced the session/project-management front end with one job
+workflow built around AF3's own concepts. The instruction was the menu itself:
+a main menu that starts a job or opens an existing AF3 JSON, a job menu with
+editing, entity, custom-CCD, PTM, save and variant operations, and no separate
+"masters", working copies, review screens or generation menus. "Variants" are
+copies of the job saved under their own name, not a stored spec catalogue, and
+the JSON file on disk is the only persistence — the internal `.cbproj` working
+copy and its autosave/recovery machinery were removed with the rework.
+
+The method was the same as §H's: read the model and services first, then rework
+the UI layer, then drive the shipped `MenuApp` over `ScriptedConsole` for every
+advertised option (success, refusal, cancellation), and finish with the AF3
+parser suite to prove the emitted JSON did not move. Everything the rework
+stopped exposing but the application still supports (batch variants, quantity
+series, linkage editing, the validation service) kept its service-level tests.
+
+### I.2 The new menu map
+
+| Screen | Options |
+|---|---|
+| main | 1 New job · 2 Open a JSON file · 0 Exit |
+| job | 1 Edit job configurations · 2 Add entity · 3 Edit entity · 4 Custom CCD management · 5 PTM management · 6 Save and show summary · 7 Create variants based on this JSON · 0 Return to main menu |
+| edit job | 1 Job name · 2 Model seeds · 3 JSON version · 0 Back |
+| add entity | 1 Protein · 2 DNA · 3 RNA · 4 Ligand (quantity menu for ligands; MSA/templates chained onto the new record) |
+| edit entity | pick an entity → 1 Edit · 2 Delete · (3 Modifications for a polymer) · 0 Back |
+| per-record modifications | 1 Add · 2 Edit · 3 Remove · 0 Back |
+| Custom CCD | 1 View · 2 Add · 3 Edit · 4 Remove · 0 Back |
+| PTM | 1 View · 2 Add · 3 Edit · 4 Remove · 0 Back |
+| variants | 1 Set variant job name · 2 Add entity · 3 Edit entity · 4 Save variant and reset to base · 0 Back |
+
+A new job arrives with the standard defaults already applied: a name, the
+default seed set, and a **version-3 pin** (`status.DEFAULT_VERSION = 3`).
+Version 3 is the minimum that covers the builder's core fields; a job that uses
+a per-chain or job-level description must raise the pin to 4, which the
+job-settings menu offers and the transform engine names as a requirement rather
+than silently upgrading.
+
+Leaving a dirty job is never silent: the job menu asks Save / Leave without
+saving / Cancel first. Leaving the variant editor always restores the base job.
+
+### I.3 Flows removed (and what remains)
+
+| Removed from the menu | What remains |
+|---|---|
+| Working copy, autosave, recovery, "Open saved work" | Nothing to recover: a job is resumed by opening its JSON. `ProjectService.import_json_preview/commit` is the only load path. |
+| Review configuration / Validate screens | `ValidationService` is unchanged and still gates every save and export. |
+| Variant-spec catalogue (create/manage/batch/series UI) | `VariantService` is unchanged at the service layer, including `generate_from_file`, `quantity_series_plan`, `create_quantity_series`, expansion and `modification_summary`; the UI's variants are save-as copies. |
+| Bonds / linkages menu | `ConfigurationService.add_linkage/remove_linkage` unchanged and covered at the service layer. |
+| Generate JSON menu and output-directory setting | Replaced by "Save and show summary", which writes to an explicit path through `GenerationService.plan_save`. Bulk generation (`plan`/`plan_base`) remains for the services and AF3 tooling. |
+| Quantity-series planner and JSON preview screens | Service operations (`quantity_series_*`, `show_json`) remain, with their service-level tests. |
+
+### I.4 Implementation changes
+
+| File | Why |
+|---|---|
+| `configbuilder/ui/render/menus.py` | Rewritten around the main/job/submenus above. `_record_mod_menu` implemented (entity → Modifications) and the PTM add/edit/remove flows factored into helpers shared by both routes (`_add_modification_to`, `_edit_modification_on`, `_remove_modification_on`, `_select_modification_target`); save through `plan_save`; variants as snapshot/reset; unsaved-change leave prompt; no working-copy or inspection of the deleted store. |
+| `configbuilder/ui/present/strings.py` | Registry rewritten to the new chrome: every key the UI uses is present, every entry is used, and no recovery vocabulary remains. |
+| `configbuilder/app/status.py` | `DEFAULT_VERSION` 4 → 3, with the description/version-4 rule documented. |
+| `configbuilder/app/generation_service.py` | `plan_save(destination, name, overwrite)`: explicit-path save through the same validation gate and serializer; `name` overrides the wire name for variant saves; a bare/missing destination is normalized so `dirname()` is never empty. |
+| `configbuilder/app/project_service.py` | Working-copy autosave/recovery removed; import preview/commit retained. |
+| `configbuilder/app/configuration_service.py`, `results.py`, `validation_service.py`, `variant_service.py`, `variants/edits.py` | §H's hardening retained unchanged by this pass (except `clear_component_definition` / `update_modification` service support used by the new CCD/PTM menus). |
+| `tools/af3_validation/setup_validator.py` | Installs `msgpack`, which current AF3 `main` imports from its chemical-component constants (the documented setup failed without it). |
+| `tools/af3_validation/run_all.py` | The `descriptions_all_families` corpus case pins version 4 explicitly — descriptions are a v4 feature and the builder now defaults to 3, so the case must raise the pin exactly as a user would. |
+| `docs/CONTRACT_PIN.md` | Unchanged content; see I.7 for the environment note. |
+
+### I.5 Tests reworked
+
+The menu-driven suites were rewritten against the new routes; the service-level
+pins and the AF3 tooling were left to judge the JSON.
+
+| File | Change |
+|---|---|
+| `tests/e2e/test_menu_acceptance.py` | Rewritten: 39 tests, every advertised option through the real menu — main/job/config/add/edit, modifications (both routes), CCD (inline/file/cancel), PTM, save (path, refusal, cancellation, overwrite confirmation, summary), variants (name, isolation, reset, two in a row), import (preview, confirm, malformed, missing, unsupported fields, edit and save), and the dirty-leave prompt. |
+| `tests/e2e/test_entity_lifecycle.py` | Rewritten: 8 tests. Reopening is now "open the JSON"; variants are save-as copies; cancellation and identifier-retirement invariants retained. |
+| `tests/unit/ui/test_audit_regressions.py` | Reworked: 26 tests. BUG-001/002/007 pins moved to the surviving routes (PTM, save); BUG-003/013 reworded for the rework; the bond-residue pin is service-level because the menu no longer parses residues; BUG-004/005/006/008/009/011/016 retained. |
+| `tests/unit/ui/test_edit_hardening.py` | Reworked: 7 tests. BUG-024 (wrong-row removal) pinned on the PTM route and again inside a variant; BUG-021 (wrong alphabet) pinned at the new variant editor; a ligand edit asks for its representation; cancellation identity retained. |
+| `tests/unit/variants/test_quantity_series.py` | 17 tests. The series/preview **menu** pins were retired (the UI no longer exposes them); the add-time quantity UI pin was rewritten to the new navigation, and every service-level series test remains. |
+| `tests/unit/app/test_entry_point.py`, `test_status.py`, `test_work_preservation.py`, `tests/e2e/test_app_pipeline.py`, `tests/unit/ui/menu_flows.py`, `test_menu.py`, `test_mod_display.py`, `test_p1_fixes.py`, `test_numbered_flows.py` | Updated earlier in the rework for the new menu, defaults and save API. |
+| `tests/unit/validation/test_no_pin_document_dependency.py` | The installed-package check reads the banner from the string registry instead of the old literal (`ConfigBuilder` → `menu.banner_title`); it had been passing only because the interpreter's editable install pointed at a stale clone. |
+
+Six menu-level pins were retired with the removed flows (three variant-catalogue
+tests in §H's file, three series/preview tests); each retired behavior that
+still exists at the service layer keeps its pin there, and §H's
+`test_edit_guards.py` is untouched.
+
+### I.6 Commands and results
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `python -m pytest -o addopts="" -q` | **923 passed, 1 skipped** (924 collected), exit 0 |
+| Lint (CI's own gate) | `ruff check --select E4,E7,E9,F configbuilder` | All checks passed |
+| Python-floor source gate | `ast.parse(…, feature_version=(3, 9))` over every shipped module | all modules parse as 3.9 |
+| Compile | `python -m compileall -q configbuilder` | ok |
+| AF3 parser suite | `python tools/af3_validation/run_all.py` | **PASS** — positive 13/13, negative 8/8, corpus ACCEPTED=21 UNVERIFIED=2, round trip **13/13 identical**, exit 0 |
+| Real console entry | `configbuilder` fed a keystroke pipe in a scratch directory | exit 0; built a job, wrote `PipeJob.json` (`name=pipejob`, `version=3`, `modelSeeds=[1]`), left cleanly |
+| Real module entry | `python -m configbuilder < /dev/null` | exit 0, menu shown |
+
+### I.7 What was not tested
+
+* **No live-TTY playtest.** Every route was exercised through `ScriptedConsole`
+  or a piped stdin; the new wording has not been read off a real terminal.
+* **Python 3.9 was not executed here.** The floor is covered by the syntax gate
+  and CI's matrix.
+* **`userCCD` / `userCCDPath` remain UNVERIFIED** (they need AF3's compiled CIF
+  parser), unchanged from §G.5/§H.
+* **The UI-run features retired by the rework** — bond editing, batch variants,
+  quantity series, JSON preview, working-copy recovery — are now covered only
+  at the service layer. If any of them is wanted back in the menu, it needs its
+  own pass and pins.
+* **Environment repairs made while verifying, recorded because they affect
+  reproducibility:** the AF3 validator's temp cache (outside the repository) had
+  been partially deleted by the OS temp cleaner, so it was rebuilt from scratch;
+  the venv's editable install of `configbuilder` pointed at an old
+  `%TEMP%\cb-freshclone` left by §H's falsification step and was repointed at
+  this checkout (which is how the banner assertion above surfaced). Neither
+  touches the repository's shipped code.
+
+### I.8 Assessment
+
+**READY WITH MINOR RISKS.** The reworked menu is coherent end to end: every
+advertised option has a success path, a refusal path and (where one exists) a
+cancellation pinned through the shipped `MenuApp`; the suite is green; the lint
+and interpreter-floor gates are green; the real console entry builds and writes
+a valid AF3 file; and AF3's own parser accepts every document the builder emits
+(21 accepted, 13/13 round trips byte-identical). The remaining risk is the one
+named in §H and repeated here: verification is scripted rather than
+hand-played, and the rework intentionally narrowed the menu, so the features it
+stopped exposing now rely on their service tests alone.
+

@@ -12,7 +12,7 @@ from __future__ import annotations
 from configbuilder.app.results import FailureReason, ConfigurationOutput, VariantValidationOutput
 from configbuilder.transform import to_wire
 from configbuilder.validation import ValidationContext
-from configbuilder.variants import expand, declared_changes
+from configbuilder.variants import EditError, VariantSpecError, expand, declared_changes
 
 __all__ = ["ValidationService"]
 
@@ -128,7 +128,18 @@ class ValidationService:
                     )
                 )
             specs = tuple(spec for key in keys for spec in specs if spec.key == key)
-        variants = expand(project.configuration, specs)
+        try:
+            variants = expand(project.configuration, specs)
+        except (EditError, VariantSpecError) as error:
+            # A committed variant that cannot expand is a user condition, not
+            # a crash: the base half above is still reported, the variant half
+            # says why it was not validated. Letting the refusal escape here
+            # took the whole session down from Review → Validate (BUG-022).
+            return VariantValidationOutput(
+                base_report,
+                failure_reason=FailureReason.EXPANSION_FAILED,
+                message=str(error),
+            )
         base_document = to_wire(project.configuration).document
         variant_documents = {variant.key: to_wire(variant.configuration).document for variant in variants}
         # Each variant is validated against a context that carries only

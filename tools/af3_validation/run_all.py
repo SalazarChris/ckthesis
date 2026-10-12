@@ -329,7 +329,14 @@ def _user_ccd_external(services, configuration, refusals, directory):
 
 
 def _descriptions(services, configuration, refusals, directory):
-    """A description on every family, which §4 allows for all four."""
+    """A description on every family, which §4 allows for all four.
+
+    Descriptions are a version-4 feature (the builder now defaults to 3), so
+    the case pins version 4 explicitly — exactly the pin the job-settings
+    menu asks a user for when their job carries a description.
+    """
+    _apply("pin version 4 for descriptions",
+           configuration.set_format_target(version=4), refusals)
     configuration.add_record("protein", PROT, description="protein note")
     configuration.add_record("rna", RNA, description="rna note")
     configuration.add_record("dna", DNA, description="dna note")

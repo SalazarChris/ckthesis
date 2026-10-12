@@ -1,18 +1,19 @@
-"""Shared keystroke scripts for the simplified menu.
+"""Shared keystroke scripts for the reworked menu.
 
-The menu navigation is written down once here, so a menu change is one
-edit instead of one per test file:
+The navigation is written down once here, so a menu change is one edit
+instead of one per test file:
 
-    master    1 Edit the job   2 Review configuration   3 Variants
-              4 Generate JSON  5 Open saved work        6 Import AF3 JSON
-    edit      1 Entities       2 Job settings           3 Bonds, modifications
-                                                         & custom components
-    entities  1 Add  2 Edit  3 Delete
+    main    1 New job        2 Open a JSON file      0 Exit
+    job     1 Edit config    2 Add entity   3 Edit entity
+            4 Custom CCD     5 PTM          6 Save and show summary
+            7 Variants       0 Return to main menu
+    config  1 Job name       2 Model seeds  3 JSON version   0 Back
+    add     1 Protein        2 DNA          3 RNA            4 Ligand
+    edit    1 Edit           2 Delete       0 Back
 
-Every constant is a **self-contained unit that starts and ends at the
-master menu**, so units concatenate: ``OPEN + SEEDS + PROTEIN + [...]``.
-The two "_OPEN" constants deliberately stop inside a submenu, for the
-tests that work there.
+Every constant is a **self-contained unit that starts and ends at the job
+menu**, so units concatenate: ``OPEN + SEEDS + PROTEIN + [...]``. The
+``_THEN_*`` constants deliberately stop inside a submenu.
 """
 
 from __future__ import annotations
@@ -25,39 +26,36 @@ PROTEIN_SEQUENCE = "ACDEFGHIKLMNPQRSTVWY"
 
 # -- openings -----------------------------------------------------------------
 
-OPEN = ["1", "Oct4_POU"]          # start screen: 1 New job, then a name
+OPEN = ["1", "Oct4_POU"]          # main: 1 New job, then a name
 OPEN_BLANK_NAME = ["1", ""]       # blank: the service mints config-NNN
+OPEN_FILE = ["2"]                 # main: 2 Open a JSON file (then the picker)
 
-# -- whole units, each ending back at the master menu -------------------------
+# -- whole units, each ending back at the job menu ----------------------------
 
-# Edit the job → Job settings → seeds → version → back → back
-SEEDS = ["1", "2", "3", "1 2 3 4", "2", "3", "0", "0"]
+# Job → Edit job configurations → seeds → back
+SEEDS = ["1", "2", "1 2 3 4", "0"]
 
-# Edit the job → Entities → Add → Protein → sequence → MSA? templates? → back → back
-PROTEIN = ["1", "1", "1", "1", PROTEIN_SEQUENCE, "", "", "0", "0"]
+# Job → Add entity → Protein → sequence → MSA? templates? → back at the job menu
+PROTEIN = ["2", "1", PROTEIN_SEQUENCE, "", ""]
 
-# The same, with a shorter sequence (the MSA tests) — still ends at master.
-SHORT_PROTEIN = ["1", "1", "1", "1", "ACDEFGHIKLMNP", "", "", "0", "0"]
+SHORT_PROTEIN = ["2", "1", "ACDEFGHIKLMNP", "", ""]
 
-# Edit the job → Entities → Add → DNA → 5'-to-3' strand (a duplex: two records)
-DNA = ["1", "1", "1", "2", "ATGC"]
+# Job → Add entity → DNA → one 5'-to-3' strand (a duplex: two records)
+DNA = ["2", "2", "ATGC"]
 
-# Edit the job → Entities → Add → RNA → sequence → MSA? (no templates) → back → back
-RNA = ["1", "1", "1", "3", "ACGU", "", "0", "0"]
-
-# master 3 (Variants) → 3 (from a sequence file)
-BATCH_FLOW = ["3", "3"]
+# Job → Add entity → RNA → sequence → MSA? → job menu
+RNA = ["2", "3", "ACGU", ""]
 
 # -- openings that stop inside a submenu --------------------------------------
 
-# Edit the job → Entities → Add → Protein → sequence → MSA? templates? — the
-# add flow ends at the *Entities* screen, which is where the MSA work starts.
-PROTEIN_THEN_ENTITIES = ["1", "1", "1", "1", "ACDEFGHIKLMNP", "", ""]
+# Job → Add entity → Protein → sequence → MSA? templates? — stops back at the
+# job menu (the add flow owns the MSA/template questions now).
+PROTEIN_THEN_EDIT = ["2", "1", PROTEIN_SEQUENCE, "", ""]
 
-# From the Entities screen: Edit an entity, then record 1, then two blank
-# answers (keep the sequence and the description) — which lands on the
-# record's own MSA question, the only place an alignment is asked for.
-MSA_EDIT = ["2", "1", "", ""]
+# From the job menu: 3 Edit entity → pick record 1 → 1 Edit → two blank answers
+# (keep the sequence and the description) — which lands on the record's own MSA
+# question, the only place an alignment is asked for.
+EDIT_ENTITY_FIELDS = ["3", "1", "1", "", ""]
 
 
 def protein_job(sequence: str = PROTEIN_SEQUENCE):

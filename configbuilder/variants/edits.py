@@ -537,6 +537,16 @@ def apply_edit(edit, configuration: Configuration) -> Configuration:
 
     if isinstance(edit, RemoveModification):
         record = record_for_key(configuration, edit._record_key)
+        # Every sibling record edit checks the family first; this case did
+        # not, so an edit aimed at a record with no modification list (a
+        # ligand) escaped as an ``AttributeError`` out of expansion
+        # (BUG-023) instead of the EditError every caller handles.
+        _check_record_family(
+            "RemoveModification",
+            record,
+            (FamilyARecord, FamilyBRecord, FamilyCRecord),
+            "polymer record",
+        )
         modifications = list(record.modifications)
         if edit._index >= len(modifications):
             raise EditError(
