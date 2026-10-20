@@ -12,6 +12,7 @@ import pytest
 from configbuilder.identity import EntityId, IdentityRegistry, Multiplicity
 from configbuilder.model import (
     AlignmentBoth,
+    AlignmentUnpairedOnly,
     ByCode,
     ByNotation,
     ComponentCode,
@@ -21,6 +22,7 @@ from configbuilder.model import (
     Explicit,
     External,
     FamilyARecord,
+    FormatTarget,
     FamilyBRecord,
     FamilyCRecord,
     Inline,
@@ -31,6 +33,7 @@ from configbuilder.model import (
     PathSpec,
     Pinned,
     Position,
+    Present,
     ReferenceRecord,
     ResidueRef,
     Seed,
@@ -372,17 +375,109 @@ def test_r_ver_001_negative_unverified_blocks():
     assert "R-VER-001" in _rule_ids(report)
 
 
+def _pinned(version, records=(), seeds=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)):
+    """A configuration with an explicit pin (the operator's own choice)."""
+    return _configuration(records=records, seeds=seeds).with_format_target(
+        FormatTarget(version_selection=Pinned(version))
+    )
+
+
+def _features_context(configuration):
+    """The join ``app`` performs: the mapping layer's own feature answer."""
+    from configbuilder.transform import used_version_features
+
+    return ValidationContext(
+        used_version_features=used_version_features(configuration)
+    )
+
+
 def test_r_ver_002_bare_pin_is_clean():
     """An unevidenced pin is the operator's explicit choice; provenance
     is optional and never a condition for generating output."""
-    from configbuilder.model import FormatTarget
-
     registry = IdentityRegistry()
     configuration = _configuration(identity=registry).with_format_target(
         FormatTarget(version_selection=Pinned(3))
     )
-    report = validate(configuration)
+    report = validate(configuration, _features_context(configuration))
     assert "R-VER-002" not in _rule_ids(report)
+
+
+def _reported(report, rule_id="R-VER-002"):
+    return [finding for finding in report.findings if finding.rule_id == rule_id]
+
+
+def test_r_ver_002_refuses_a_description_above_the_pin():
+    """A version-4 field on a version-3 job blocks, naming the version — the
+    same refusal the generation gate makes, now visible to readiness."""
+    protein = _protein(entity="A", seq="PEPTIDE")
+    protein = protein.with_description(Present("chain A"))
+    configuration = _pinned(3, records=(protein,))
+
+    findings = _reported(validate(configuration, _features_context(configuration)))
+
+    assert len(findings) == 1
+    assert findings[0].severity is Severity.ERROR
+    assert "description" in findings[0].user_message
+    assert "version 4" in findings[0].user_message
+    assert "version 3" in findings[0].user_message
+    assert "description" in findings[0].diagnostic
+
+
+def test_r_ver_002_accepts_the_pin_that_covers_the_feature():
+    protein = _protein(entity="A", seq="PEPTIDE")
+    protein = protein.with_description(Present("chain A"))
+    configuration = _pinned(4, records=(protein,))
+    assert _reported(validate(configuration, _features_context(configuration))) == []
+
+
+def test_r_ver_002_an_unset_field_is_never_a_conflict():
+    """Only features the configuration actually uses are compared."""
+    configuration = _pinned(1, records=(_protein(entity="A"),))
+    assert _reported(validate(configuration, _features_context(configuration))) == []
+
+
+def test_r_ver_002_checks_a_path_feature_only_while_its_path_mode_is_active():
+    """Inline alignment text is a version-1 field; an external file is not."""
+    inline = _protein(
+        entity="A", alignment=AlignmentUnpairedOnly(Inline(">q\nPEPTIDE"))
+    )
+    external = _protein(
+        entity="A", alignment=AlignmentUnpairedOnly(External(PathSpec("msa.a3m")))
+    )
+    pinned_one_inline = _pinned(1, records=(inline,))
+    assert _reported(
+        validate(pinned_one_inline, _features_context(pinned_one_inline))
+    ) == []
+
+    pinned_one_path = _pinned(1, records=(external,))
+    findings = _reported(validate(pinned_one_path, _features_context(pinned_one_path)))
+    assert len(findings) == 1
+    assert "unpairedMsaPath" in findings[0].diagnostic
+
+
+def test_r_ver_002_reports_an_external_custom_ccd_file_below_version_three():
+    configuration = _configuration().with_component_definition(
+        External(PathSpec("ligand.cif"))
+    )
+    configuration = configuration.with_format_target(
+        FormatTarget(version_selection=Pinned(2))
+    )
+    findings = _reported(validate(configuration, _features_context(configuration)))
+    assert len(findings) == 1
+    assert "userCCDPath" in findings[0].diagnostic
+
+
+def test_r_ver_002_reports_not_checked_without_the_join():
+    """No facts: say so (WARNING), never pretend the pin covers everything
+    (the same discipline the variant rules follow)."""
+    findings = _reported(validate(_pinned(3)))
+    assert len(findings) == 1
+    assert findings[0].severity is Severity.WARNING
+
+
+def test_r_ver_002_says_nothing_while_the_version_is_unverified():
+    """R-VER-001 blocks that state; a second finding would only duplicate it."""
+    assert _reported(validate(_configuration())) == []
 
 
 # -- R-POL info-only policies --------------------------------------------------------------

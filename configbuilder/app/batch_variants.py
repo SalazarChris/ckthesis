@@ -29,20 +29,33 @@ lines are reported together with their file line numbers.
 The input is a list of ``(line_number, text)`` pairs — the
 ``persistence.read_sequence_file`` shape — so this module never touches
 the filesystem (plan §5.3 rule 8) and stays testable without files.
+
+Supports multiple input types:
+- Protein sequences (FASTA-like .txt files)
+- Ligand SMILES strings
+- DNA sequences
+
+Each input type gets its own record builder, and the same variant spec
+architecture is used for all — manual and batch variants are identical
+in kind, visible in the same variant list, and exportable through the
+same generation pipeline.
 """
 
 from __future__ import annotations
 
 from configbuilder.identity import IdentityRegistry, Multiplicity
 from configbuilder.model import (
+    ByNotation,
+    ComponentRecord,
     FamilyARecord,
+    FamilyCRecord,
     ModelError,
     SequenceText,
     SequenceTextError,
 )
 from configbuilder.variants import AddRecord, VariantSpec
 
-__all__ = ["BatchError", "batch_specs_for_sequences"]
+__all__ = ["BatchError", "batch_specs_for_sequences", "BATCH_RECORD_BUILDERS"]
 
 
 class BatchError(Exception):
@@ -51,48 +64,78 @@ class BatchError(Exception):
 
 
 def _protein_record(entity_value: str, text: str):
-    """The record one sequence becomes. The family → builder table is the
-    extension point: a future input kind (RNA, ligand representation)
-    adds one builder here and nothing else changes."""
+    """The record one protein sequence becomes."""
     return FamilyARecord(
         ids=Multiplicity([entity_value]), sequence=SequenceText(text, "protein")
     )
 
 
-_RECORD_BUILDERS = {"protein": _protein_record}
+def _dna_record(entity_value: str, text: str):
+    """The record one DNA sequence becomes."""
+    return FamilyCRecord(
+        ids=Multiplicity([entity_value]), sequence=SequenceText(text, "dna")
+    )
 
 
-def batch_specs_for_sequences(entries, registry: IdentityRegistry, key_prefix: str = "batch"):
+def _ligand_record(entity_value: str, smiles: str):
+    """The record one ligand (SMILES) becomes.
+
+    A ligand's representation is the model's ``ByNotation`` sum-type case,
+    not a ``SequenceText``: SMILES is not a sequence alphabet, and wrapping
+    it in one made every ligand batch refuse with "unknown sequence family".
+    """
+    return ComponentRecord(
+        ids=Multiplicity([entity_value]),
+        representation=ByNotation(smiles),
+    )
+
+
+# Extendable record builder table — add new input types here.
+BATCH_RECORD_BUILDERS = {
+    "protein": _protein_record,
+    "dna": _dna_record,
+    "ligand": _ligand_record,
+}
+
+
+def batch_specs_for_sequences(entries, registry: IdentityRegistry, family: str = "protein", key_prefix: str = "batch"):
     """Turn cleaned sequence entries into independent variant specs.
 
     ``entries`` is a sequence of ``(line_number, text)`` pairs;
     ``registry`` is a **clone** of the base registry used only to
-    allocate this batch's identifiers. Returns the tuple of
+    allocate this batch's identifiers. ``family`` is the entity family
+    ("protein", "dna", or "ligand"). Returns the tuple of
     ``VariantSpec`` (each with exactly one ``AddRecord`` edit); raises
     ``BatchError`` when the batch as a whole is unusable.
 
     Naming: keys are ``<prefix>_NN`` and labels ``<prefix> NN`` —
     two-digit, deterministic, ordered by input position. No sequence
     text ever enters a name or a filename.
+    
+    Each variant is an independent ``base + AddRecord`` spec, identical
+    in kind to a hand-created variant. All variants start from the same
+    base configuration and are generated in parallel, never sequentially.
     """
     entries = tuple(entries)
     if not entries:
         raise BatchError("the sequence file contains no usable sequences")
 
-    builder = _RECORD_BUILDERS.get("protein")
-    if builder is None:  # unreachable today; guards the extension point
-        raise BatchError("no record builder for batch sequence input")
+    builder = BATCH_RECORD_BUILDERS.get(family)
+    if builder is None:
+        raise BatchError("no record builder for family %r" % family)
 
     seen = set()
     duplicates = []
     for _, text in entries:
-        if text in seen and text not in duplicates:
-            duplicates.append(text)
-        seen.add(text)
+        # For ligands, we check the SMILES; for sequences, we check the text.
+        key = text if family == "ligand" else text.strip().upper()
+        if key in seen and key not in duplicates:
+            duplicates.append(key)
+        seen.add(key)
     if duplicates:
         raise BatchError(
-            "the sequence file contains duplicate sequences: %s"
-            % ", ".join("%s…" % text[:12] for text in duplicates)
+            "the file contains duplicate %s sequences: %s"
+            % (family, ", ".join("%s…" % v[:12] for v in duplicates))
         )
 
     failures = []
@@ -100,7 +143,7 @@ def batch_specs_for_sequences(entries, registry: IdentityRegistry, key_prefix: s
     for index, (line_number, text) in enumerate(entries, start=1):
         try:
             entity = registry.allocate(owner="batch_variant")
-            record = builder(entity.value, text)
+            record = builder(entity.value, text.strip())
         except (ModelError, SequenceTextError) as error:
             failures.append("line %d: %s" % (line_number, error))
             continue
@@ -112,7 +155,7 @@ def batch_specs_for_sequences(entries, registry: IdentityRegistry, key_prefix: s
         specs.append(spec)
     if failures:
         raise BatchError(
-            "%d of %d sequences are invalid:\n  %s"
-            % (len(failures), len(entries), "\n  ".join(failures))
+            "%d of %d %s sequences are invalid:\n  %s"
+            % (len(failures), len(entries), family, "\n  ".join(failures))
         )
     return tuple(specs)

@@ -66,6 +66,7 @@ class ValidationContext:
         variant_registries=None,
         variant_seeds=None,
         base_registry=None,
+        used_version_features=None,
     ) -> None:
         self.filesystem = filesystem if filesystem is not None else NullFilesystemPort()
         self.chemistry = chemistry if chemistry is not None else NullChemistryProbe()
@@ -82,6 +83,13 @@ class ValidationContext:
         # from. When absent the rule falls back to the validated
         # configuration's own registry (single-variant callers).
         self.base_registry = base_registry
+        # The version-sensitive features this configuration uses, as
+        # ``((feature name, minimum version), ...)`` — the mapping layer's
+        # own answer, computed by ``transform`` and joined here by ``app``
+        # (the same pattern as the VARIANT inputs above). ``None`` means the
+        # join did not happen, and R-VER-002 then reports "not checked" as a
+        # WARNING rather than pretending the pin covers everything.
+        self.used_version_features = used_version_features
 
 
 def _run_rule(rule: Rule, configuration: Configuration, report: Report, context: ValidationContext) -> None:

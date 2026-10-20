@@ -10,6 +10,7 @@ from configbuilder.transform.engine import (
     TransformResult,
     WireDocument,
     to_wire,
+    used_version_features,
     with_emitted_resource_paths,
     with_wire_job_name,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "WireDocument",
     "from_wire",
     "to_wire",
+    "used_version_features",
     "with_emitted_resource_paths",
     "with_wire_job_name",
     "DNA_FIELDS",

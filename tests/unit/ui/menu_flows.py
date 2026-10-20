@@ -32,16 +32,16 @@ OPEN_FILE = ["2"]                 # main: 2 Open a JSON file (then the picker)
 
 # -- whole units, each ending back at the job menu ----------------------------
 
-# Job → Edit job configurations → seeds → back
-SEEDS = ["1", "2", "1 2 3 4", "0"]
+# Job → Edit job configurations → seeds → specific values → back
+SEEDS = ["1", "2", "1", "1 2 3 4", "0"]
 
 # Job → Add entity → Protein → sequence → MSA? templates? → back at the job menu
 PROTEIN = ["2", "1", PROTEIN_SEQUENCE, "", ""]
 
 SHORT_PROTEIN = ["2", "1", "ACDEFGHIKLMNP", "", ""]
 
-# Job → Add entity → DNA → one 5'-to-3' strand (a duplex: two records)
-DNA = ["2", "2", "ATGC"]
+# Job → Add entity → DNA → sequence → yes to complement → back at job menu
+DNA = ["2", "2", "ATGC", "1"]
 
 # Job → Add entity → RNA → sequence → MSA? → job menu
 RNA = ["2", "3", "ACGU", ""]

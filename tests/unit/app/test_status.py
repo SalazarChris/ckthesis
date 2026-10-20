@@ -221,6 +221,41 @@ def test_version_requirement_follows_the_selected_state():
     assert services.validation.status().ready
 
 
+def test_a_version_too_low_for_a_used_field_is_not_ready_and_names_the_version():
+    """A per-entity description is written from version 4 only, so a job
+    pinned to 3 must not read as ready — and the finding, the readiness
+    verdict and the JSON preview must all tell the same story.
+
+    This is the Stage 3 inconsistency, now impossible: readiness reads the
+    same mapping-layer facts the generation gate refuses on.
+    """
+    services = _job_with_protein()
+    key = _record_key(services)
+    assert services.validation.status().ready
+
+    assert services.configuration.update_record(key, description="tagged").ok
+    conflicting = services.validation.status()
+
+    assert not conflicting.ready
+    assert conflicting.field("version").state == FieldState.INVALID
+    assert "version 4" in conflicting.field("version").message
+
+    # Generation now refuses at the readiness gate — the same verdict the
+    # status view shows — instead of reaching the transform's feature check.
+    # One refusal, one reason, and the field that explains it is the
+    # INVALID version row asserted above.
+    text, reason = services.generation.show_json()
+    assert text is None
+    assert "not ready" in reason
+
+    # Raising the pin explicitly — the user's own action — clears it.
+    assert services.configuration.set_format_target(version=4).ok
+    resolved = services.validation.status()
+    assert resolved.ready
+    assert resolved.field("version").state == FieldState.PROVIDED
+    assert services.generation.show_json()[0] is not None
+
+
 # -- the display: one status view, shown wherever the user looks --------------
 
 
@@ -235,7 +270,7 @@ def test_a_blocked_save_shows_the_status_block():
     assert "Configuration status" in out
     assert "STATUS: INCOMPLETE" in out
     assert "MISSING" in out
-    assert "config-001" in out
+    assert "Untitled job 1" in out
 
 
 def test_a_refused_save_names_the_missing_information():

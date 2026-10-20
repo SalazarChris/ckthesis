@@ -20,12 +20,44 @@ dev = [
     "pytest>=7",
     "hypothesis>=6",
 ]
+# The SOP §6 comparative-analysis stack for af3_analysis (the builder above
+# still needs nothing). numpy and pandas are hard requirements; the rest are
+# used when present and fall back to documented internal implementations when
+# not, so this extra is the full recommended set, not a minimum.
+analysis = [
+    "numpy>=1.21",
+    "pandas>=1.3",
+    "biopython>=1.79",
+    "scipy>=1.7",
+    "matplotlib>=3.5",
+    "PyYAML>=5.4",
+    "freesasa>=2.1",
+]
+# The optional desktop front end (Stage 1: review & preview). It is deliberately
+# NOT installed with the core package or with ``[dev]``, so CI's 3.9 job and
+# ``pip install .`` on 3.9 still need nothing. The floor below still admits 3.9:
+# there the range resolves to PySide6 6.10.3, while 6.11 and later require 3.10+
+# (which is what yields the current 6.12). Prefer a 3.10+ interpreter -- it is the
+# verified combination, and 6.11.2 is the first PySide6 the GUI suite is green
+# on:  pip install -e ".[gui]"
+gui = [
+    "PySide6>=6.6",
+]
 
 [project.scripts]
 configbuilder = "configbuilder.app.cli:main"
 
+# The desktop front end is a separate launcher, so the console entry point
+# above keeps working exactly as before. It is a ``gui-scripts`` entry so a
+# future Windows packaging step can suppress a console window; today it
+# behaves like any console script. PySide6 (the ``gui`` extra) must be
+# installed first; a 3.10-or-newer interpreter is recommended for it (see the
+# ``gui`` extra's note above for the 3.9 case).
+[project.gui-scripts]
+af3-json-builder = "configbuilder.ui.render.qt.application:main"
+
 [tool.setuptools.packages.find]
-include = ["configbuilder*"]
+include = ["configbuilder*", "af3_analysis*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

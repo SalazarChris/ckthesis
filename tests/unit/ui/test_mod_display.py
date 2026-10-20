@@ -55,7 +55,7 @@ def test_selected_entity_screen_includes_mod_rows():
 def test_no_mod_block_for_unmodified_records():
     transcript, status = _run(["5", "1", "0", "0", "0"], mod_positions=())
     assert status == 0
-    assert "No modifications are set" in transcript
+    assert "No post-translational modifications are set" in transcript
     assert "SEP at residue" not in transcript
 
 
@@ -72,5 +72,5 @@ def test_mods_added_through_the_ui_appear_in_the_view():
         mod_positions=(),
     )
     assert status == 0
-    assert "Modification added." in transcript
+    assert "Post-translational modification added." in transcript
     assert "SEP at residue 1 (A)" in transcript

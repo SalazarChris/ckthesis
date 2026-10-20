@@ -59,8 +59,8 @@ __all__ = [
 
 # -- the default policy -------------------------------------------------------------
 
-AUTO_NAME_PREFIX = "config-"
-"""Automatic job names are ``config-NNN`` (``default_job_name``).
+AUTO_NAME_PREFIX = "Untitled job "
+"""Automatic job names are ``Untitled job N`` (``default_job_name``).
 
 The prefix doubles as the marker the status view uses to report a name as
 *automatic* rather than user-supplied.
@@ -91,7 +91,7 @@ transform engine names that requirement rather than silently upgrading.
 
 def default_job_name(index: int) -> str:
     """The automatic job name for sequence position ``index`` (1-based)."""
-    return "%s%03d" % (AUTO_NAME_PREFIX, index)
+    return "%s%d" % (AUTO_NAME_PREFIX, index)
 
 
 def is_automatic_name(name: str) -> bool:
@@ -99,14 +99,15 @@ def is_automatic_name(name: str) -> bool:
 
     Value-based rather than provenance-tracked: the model carries no
     "who typed this" flag, and adding one would change the project file for
-    a display detail. A user who deliberately types ``config-007`` sees it
-    reported as automatic — harmless, and the opposite error (calling a
+    a display detail. A user who deliberately types ``Untitled job 7`` sees
+    it reported as automatic — harmless, and the opposite error (calling a
     generated name user-supplied) never happens.
     """
     text = (name or "").strip()
     if not text.startswith(AUTO_NAME_PREFIX):
         return False
-    return text[len(AUTO_NAME_PREFIX) :].isdigit()
+    rest = text[len(AUTO_NAME_PREFIX):]
+    return rest.isdigit() or (rest and rest[0].isdigit() and rest[1:].isdigit())
 
 
 def is_default_seeds(values) -> bool:

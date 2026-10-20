@@ -35,6 +35,8 @@ __all__ = [
     "TEMPLATE_PATH_MIN_VERSION",
     "USER_CCD_PATH_MIN_VERSION",
     "PATH_FEATURE_MIN_VERSIONS",
+    "FEATURE_WORDS",
+    "feature_word",
 ]
 
 # Features added by later input versions (AlphaFold 3 docs/input.md,
@@ -57,6 +59,29 @@ PATH_FEATURE_MIN_VERSIONS = {
     "mmcifPath": TEMPLATE_PATH_MIN_VERSION,
     "userCCDPath": USER_CCD_PATH_MIN_VERSION,
 }
+
+# How each version-sensitive feature is named when something has to explain a
+# refusal to a user ("this job uses …"). The keys are the wire field names
+# *this* table already holds and the versions above are keyed by, so a wire
+# name never has to be spelled outside ``transform`` (plan §10.1); the words
+# are plain English for whoever quotes them (today: R-VER-002's finding, which
+# validation builds from the facts ``used_version_features`` hands it).
+FEATURE_WORDS = {
+    "description": "a per-entity description",
+    "unpairedMsaPath": "an external MSA file (unpairedMsaPath)",
+    "pairedMsaPath": "an external paired-MSA file (pairedMsaPath)",
+    "mmcifPath": "an external template structure file (mmcifPath)",
+    "userCCDPath": "an external custom-CCD definition file (userCCDPath)",
+}
+
+
+def feature_word(feature_name: str) -> str:
+    """The plain-English name of one version-sensitive feature.
+
+    A feature this table does not know is still named by its own field, so a
+    new mapping row is explained before its wording is written down.
+    """
+    return FEATURE_WORDS.get(feature_name, "the %s field" % feature_name)
 
 # (accessor-name, wire-field, mapping-id, emission-rule, min-version)
 #

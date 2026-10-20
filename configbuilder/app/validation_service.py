@@ -10,7 +10,7 @@ that every screen reads.
 from __future__ import annotations
 
 from configbuilder.app.results import FailureReason, ConfigurationOutput, VariantValidationOutput
-from configbuilder.transform import to_wire
+from configbuilder.transform import to_wire, used_version_features
 from configbuilder.validation import ValidationContext
 from configbuilder.variants import EditError, VariantSpecError, expand, declared_changes
 
@@ -30,14 +30,22 @@ class ValidationService:
         project = self._projects._require_project()
         return project.configuration if project is not None else None
 
-    def _context(self, base_document=None, variants=()):
+    def _context(self, base_document=None, variants=(), configuration=None):
         """The join point: validation stays independent of transform and
         variants (plan §5.3 rule 2), so ``app`` hands it the comparison
-        data as plain values."""
+        data as plain values.
+
+        ``configuration`` (when given) also brings the version-sensitive
+        features that configuration uses — the mapping layer's own answer —
+        so R-VER-002 refuses exactly what the generation gate would refuse.
+        """
         context = ValidationContext(
             filesystem=self._filesystem,
             chemistry=self._chemistry,
             run_preflight=self._run_preflight,
+            used_version_features=(
+                used_version_features(configuration) if configuration is not None else None
+            ),
         )
         if base_document is not None:
             context.base_document = base_document
@@ -65,7 +73,9 @@ class ValidationService:
             )
         from configbuilder.validation import validate
 
-        report = validate(configuration, self._context())
+        report = validate(
+            configuration, self._context(configuration=configuration)
+        )
         return ConfigurationOutput(ok=not report.blocking(), report=report)
 
     def status(self):
@@ -111,7 +121,10 @@ class ValidationService:
             )
         from configbuilder.validation import validate
 
-        base_report = validate(project.configuration, self._context())
+        base_report = validate(
+            project.configuration,
+            self._context(configuration=project.configuration),
+        )
         if base_report.blocking():
             return VariantValidationOutput(base_report)
         specs = project.specs
@@ -152,7 +165,7 @@ class ValidationService:
         declared_by_key = {spec.key: declared_changes(spec) for spec in specs}
         variant_reports = {}
         for variant in variants:
-            context = self._context()
+            context = self._context(configuration=variant.configuration)
             context.base_document = base_document
             context.base_registry = project.configuration.identity
             context.variant_documents = {variant.key: variant_documents[variant.key]}

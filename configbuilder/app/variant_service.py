@@ -487,42 +487,44 @@ class VariantService:
                 )
         return summary
 
-    def apply_variant_edit(self, key: str, kind: str, value, record_key=None) -> MutationOutput:
-        """Apply one menu-selected change kind to an existing spec.
+    def _edits_for_kind(self, project, kind, value, record_key=None):
+        """The edit(s) one change kind builds: ``(edits, None)`` or
+        ``((), message)``.
 
-        The menu passes the ``kind`` from ``edit_options``; the edit
-        construction stays here, in ``app``. Kinds outside the table
-        refuse — the UI can never invent an edit the vocabulary lacks.
+        The single place the UI vocabulary is turned into variant edits, so
+        ``apply_variant_edit`` (an existing spec) and
+        ``add_spec_with_edit`` (a new one) cannot diverge. Every kind here is
+        one ``edit_options`` offers; anything else refuses.
         """
-        project = self._projects._require_project()
-        if project is None:
-            return self._not_open()
         if kind in ("sequence", "job_name", "job_description", "seeds"):
-            return self.append_factor(key, kind, value, record_key=record_key)
+            edit, failure = self._factor_edit(project, kind, value, record_key)
+            if failure is not None:
+                return (), failure
+            return (edit,), None
         if kind == "add_modification":
             code, position = value
             failure = self._modification_target_failure(project, record_key)
             if failure is not None:
-                return self._refuse(failure)
+                return (), failure
             try:
                 code_value, position_value = self._modification_values(code, int(position))
                 edit = self._edit_class("AddModification")(
                     EntityId(record_key), code_value, position_value
                 )
             except (EditError, ModelError, ValueError, TypeError) as error:
-                return self._refuse(str(error))
-            return self._append_edit(key, edit)
+                return (), str(error)
+            return (edit,), None
         if kind == "remove_modification":
             failure = self._modification_target_failure(project, record_key)
             if failure is not None:
-                return self._refuse(failure)
+                return (), failure
             try:
                 edit = self._edit_class("RemoveModification")(
                     EntityId(record_key), int(value)
                 )
             except (EditError, ValueError, TypeError) as error:
-                return self._refuse(str(error))
-            return self._append_edit(key, edit)
+                return (), str(error)
+            return (edit,), None
         if kind == "alignment":
             # The alignment case is the target's own: a protein carries the
             # paired/unpaired cases (``SetAlignment``), an RNA the single one
@@ -539,57 +541,92 @@ class VariantService:
                         EntityId(record_key), self._alignment_case(value)
                     )
                 else:
-                    return self._refuse(
+                    return (), (
                         "record %r is a %s chain; an alignment belongs to a "
                         "protein or an RNA chain" % (record_key, family)
                     )
             except (EditError, ChoiceError, ValueError, TypeError) as error:
-                return self._refuse(str(error))
-            return self._append_edit(key, edit)
+                return (), str(error)
+            return (edit,), None
         if kind == "references":
             try:
                 reference_set = self._reference_set_case(value)
             except ChoiceError as error:
-                return self._refuse(str(error))
+                return (), str(error)
             try:
                 edit = self._edit_class("SetReferences")(
                     EntityId(record_key), reference_set
                 )
             except (EditError, ValueError, TypeError) as error:
-                return self._refuse(str(error))
-            return self._append_edit(key, edit)
+                return (), str(error)
+            return (edit,), None
         if kind == "add_entity":
             try:
-                new_edits = tuple(
+                edits = tuple(
                     self._edit_class("AddRecord")(record) for record in value
                 )
             except (EditError, ValueError, TypeError) as error:
-                return self._refuse(str(error))
-            existing = self._find(key)
-            if existing is None:
-                return MutationOutput(
-                    ok=False,
-                    failure_reason=FailureReason.UNKNOWN_RECORD,
-                    message="no variant keyed %r exists" % (key,),
-                )
-            return self.update_spec(key, edits=existing.edits + new_edits)
+                return (), str(error)
+            return edits, None
         if kind == "component_count":
             try:
                 edit = self._edit_class("SetComponentCount")(
                     EntityId(record_key), int(value)
                 )
             except (EditError, ValueError, TypeError) as error:
-                return self._refuse(str(error))
-            return self._append_edit(key, edit)
+                return (), str(error)
+            return (edit,), None
         if kind == "remove_entity":
             try:
                 edit = self._edit_class("RemoveRecord")(EntityId(record_key))
             except (EditError, ValueError, TypeError) as error:
-                return self._refuse(str(error))
-            return self._append_edit(key, edit)
-        return self._refuse("unknown change kind %r" % (kind,))
+                return (), str(error)
+            return (edit,), None
+        return (), "unknown change kind %r" % (kind,)
 
-    def _append_edit(self, key: str, edit) -> MutationOutput:
+    def modification_choices(self, key: str):
+        """The variant's modification rows with the record each belongs to.
+
+        ``modification_summary`` keeps the console's two-column shape; a
+        free-navigation UI must target the record as well as the index, so
+        this returns ``(index, record_key, display)`` rows from the same
+        expansion. ``[]`` means the variant cannot expand or has none.
+        """
+        if self._find(key) is None:
+            return []
+        expanded = self.preview(key)
+        if not expanded.ok:
+            return []
+        rows = []
+        for record in expanded.variants[0].configuration.records:
+            record_key = record.ids.primary.value
+            for index, modification in enumerate(
+                getattr(record, "modifications", ()) or ()
+            ):
+                rows.append(
+                    (
+                        index,
+                        record_key,
+                        "%s @ %s (%s)"
+                        % (
+                            record_key,
+                            modification.position.value,
+                            modification.code.value,
+                        ),
+                    )
+                )
+        return rows
+
+    def apply_variant_edit(self, key: str, kind: str, value, record_key=None) -> MutationOutput:
+        """Apply one menu-selected change kind to an existing spec.
+
+        The menu passes the ``kind`` from ``edit_options``; the edit
+        construction stays here, in ``app``. Kinds outside the table
+        refuse — the UI can never invent an edit the vocabulary lacks.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return self._not_open()
         existing = self._find(key)
         if existing is None:
             return MutationOutput(
@@ -597,7 +634,48 @@ class VariantService:
                 failure_reason=FailureReason.UNKNOWN_RECORD,
                 message="no variant keyed %r exists" % (key,),
             )
-        return self.update_spec(key, edits=existing.edits + (edit,))
+        edits, failure = self._edits_for_kind(project, kind, value, record_key)
+        if failure is not None:
+            return self._refuse(failure)
+        return self.update_spec(key, edits=existing.edits + edits)
+
+    def describe_change(self, kind: str, value, record_key=None):
+        """Describe the change a UI is about to add, without committing it.
+
+        ``(descriptions, None)`` or ``([], message)``: the edit(s) are built
+        by the same ``_edits_for_kind`` path ``apply_variant_edit`` uses and
+        run through ``describe_edit``, so a preview cannot show a change the
+        service would refuse or describe it differently.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return [], "no project is open"
+        edits, failure = self._edits_for_kind(project, kind, value, record_key)
+        if failure is not None:
+            return [], failure
+        return [describe_edit(edit) for edit in edits], None
+
+    def add_spec_with_edit(self, key: str, label: str, kind: str, value, record_key=None) -> MutationOutput:
+        """Create a spec and its first declared change as one commit.
+
+        Creating the spec first and appending the edit afterwards would
+        leave an empty variant behind when the edit is refused. Both parts
+        are therefore built and validated before ``add_spec`` commits — the
+        same construction ``apply_variant_edit`` uses, never a second one.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return self._not_open()
+        if self._find(key) is not None:
+            return MutationOutput(
+                ok=False,
+                failure_reason=FailureReason.NO_PATH,
+                message="a variant keyed %r already exists; keys are unique" % (key,),
+            )
+        edits, failure = self._edits_for_kind(project, kind, value, record_key)
+        if failure is not None:
+            return self._refuse(failure)
+        return self.add_spec(key, label, edits)
 
     @staticmethod
     def _modification_values(code: str, position: int):
@@ -823,36 +901,146 @@ class VariantService:
             )
         return FilePreview(ok=True, entries=[text for _, text in entries])
 
-    def generate_from_file(self, path: str) -> MutationOutput:
-        """Batch-generate one independent variant per sequence in a file.
+    def inspect_batch_file(self, path: str, family: str = "protein"):
+        """Preview a batch input file without creating anything.
 
-        ``path`` is a sequence-list ``.txt`` (one sequence per line;
-        blanks ignored). The reading is persistence's (plan §5.3 rule 8:
-        file IO is confined there); the spec construction is the batch
-        module's; the commitment is ``add_spec``'s — so every generated
-        variant is a plain ``base + AddRecord`` spec, identical in kind
-        to a hand-created one, visible in the Variants menu, exportable,
-        and editable afterwards. All-or-nothing: any invalid line or
-        duplicate refuses the whole batch and commits nothing.
+        The reader is selected by the family the batch would use — the same
+        choice ``generate_from_file`` makes — so the preview shows exactly
+        the entries that commit would turn into variants. Ligand files are
+        SMILES lists; protein and DNA files are one sequence per line. RNA
+        has no batch builder yet and refuses in those terms.
+
+        The preview also *checks* what it read the way the commit will: the
+        prospective specs are built against a throwaway clone of the project's
+        registry (the same construction ``generate_from_file`` uses), so an
+        invalid alphabet, a duplicate entry or a key that already exists is
+        reported **before** the user commits, with the offending file line.
+        Nothing is added to the project and no identifier is reserved in the
+        base: the clone is discarded.
+        """
+        from configbuilder.persistence import (
+            PersistenceError,
+            read_sequence_file,
+            read_smiles_file,
+        )
+
+        if family == "ligand":
+            try:
+                reader = read_smiles_file(path)
+            except PersistenceError as error:
+                return FilePreview(ok=False, message=str(error))
+            if not reader:
+                return FilePreview(
+                    ok=False,
+                    message="the SMILES file contains no entries (only blank lines or comments)",
+                )
+            pairs = [(line_number, smiles) for line_number, _name, smiles in reader]
+        elif family in ("protein", "dna"):
+            try:
+                reader = read_sequence_file(path)
+            except PersistenceError as error:
+                return FilePreview(ok=False, message=str(error))
+            if not reader:
+                return FilePreview(
+                    ok=False,
+                    message="the sequence file contains no sequences (only blank lines)",
+                )
+            pairs = [(line_number, text) for line_number, text in reader]
+        else:
+            return FilePreview(
+                ok=False,
+                message="a batch file can contain protein, DNA or ligand entries; "
+                "%r is not supported" % (family,),
+            )
+        return self._check_batch_pairs(pairs, family)
+
+    def _check_batch_pairs(self, pairs, family):
+        """The entries as read, plus what committing them would produce.
+
+        Read-only by construction: ``batch_specs_for_sequences`` is handed a
+        **clone** of the base identity registry, exactly as the commit does,
+        so the identifiers it allocates while building the prospective specs
+        never reach the project. Nothing is added to the variant collection.
+        """
+        entries = [text for _line_number, text in pairs]
+        project = self._projects._require_project()
+        if project is None:
+            # No job to build against: the entries are still worth showing.
+            return FilePreview(ok=True, entries=entries)
+        from configbuilder.app.batch_variants import (
+            BatchError,
+            batch_specs_for_sequences,
+        )
+        from configbuilder.model import SequenceTextError
+
+        try:
+            specs = batch_specs_for_sequences(
+                pairs, project.configuration.identity.clone(), family=family
+            )
+        except (BatchError, SequenceTextError) as error:
+            return FilePreview(ok=False, message=str(error), entries=entries)
+        collisions = [spec.key for spec in specs if self._find(spec.key) is not None]
+        if collisions:
+            return FilePreview(
+                ok=False,
+                message="a variant keyed %r already exists; rename or remove it first"
+                % collisions[0],
+                entries=entries,
+            )
+        return FilePreview(ok=True, entries=entries, planned=len(specs))
+
+    def generate_from_file(self, path: str, family: str = "protein") -> MutationOutput:
+        """Batch-generate one independent variant per entry in a file.
+
+        ``path`` is a file containing multiple entries:
+        - For protein/dna families: a sequence file (.txt) with one sequence per line
+        - For ligand family: a SMILES file (.smiles or .txt) with one SMILES per line
+
+        The reading is persistence's (plan §5.3 rule 8: file IO is confined
+        there); the spec construction is the batch module's; the commitment
+        is ``add_spec``'s — so every generated variant is a plain
+        ``base + AddRecord`` spec, identical in kind to a hand-created one,
+        visible in the Variants menu, exportable, and editable afterwards.
+        All-or-nothing: any invalid line or duplicate refuses the whole
+        batch and commits nothing.
         """
         project = self._projects._require_project()
         if project is None:
             return self._not_open()
-        from configbuilder.persistence import PersistenceError, read_sequence_file
+        from configbuilder.persistence import PersistenceError, read_sequence_file, read_smiles_file
         from configbuilder.app.batch_variants import BatchError, batch_specs_for_sequences
         from configbuilder.model import SequenceTextError
 
-        try:
-            entries = read_sequence_file(path)
-        except PersistenceError as error:
-            return self._refuse(str(error))
-        if not entries:
-            return self._refuse("the sequence file contains no sequences (only blank lines)")
-        try:
-            registry = project.configuration.identity.clone()
-            specs = batch_specs_for_sequences(entries, registry)
-        except (BatchError, SequenceTextError) as error:
-            return self._refuse(str(error))
+        # Choose the appropriate reader based on family
+        if family == "ligand":
+            try:
+                entries = read_smiles_file(path)
+            except PersistenceError as error:
+                return self._refuse(str(error))
+            if not entries:
+                return self._refuse("the SMILES file contains no entries (only blank lines or comments)")
+            try:
+                registry = project.configuration.identity.clone()
+                # For ligands, we pass (line_number, smiles) tuples, extracting just the SMILES
+                specs = batch_specs_for_sequences(
+                    [(ln, smiles) for ln, name, smiles in entries],
+                    registry,
+                    family=family,
+                )
+            except (BatchError, SequenceTextError) as error:
+                return self._refuse(str(error))
+        else:
+            try:
+                entries = read_sequence_file(path)
+            except PersistenceError as error:
+                return self._refuse(str(error))
+            if not entries:
+                return self._refuse("the sequence file contains no sequences (only blank lines)")
+            try:
+                registry = project.configuration.identity.clone()
+                specs = batch_specs_for_sequences(entries, registry, family=family)
+            except (BatchError, SequenceTextError) as error:
+                return self._refuse(str(error))
         # Commit through add_spec so every guarantee (unique keys,
         # persistence shape) is the standard route's.
         for spec in specs:
@@ -879,3 +1067,11 @@ class VariantService:
                 message=str(error),
             )
         return ExpandOutput(ok=True, variants=variants)
+
+    def specs(self):
+        """Return the list of all variant specs."""
+        return list(self._specs())
+
+    def spec_count(self):
+        """Return the number of variant specs."""
+        return len(self._specs())

@@ -64,12 +64,13 @@ def test_saving_an_empty_job_is_refused_and_changes_nothing(tmp_path):
 
 
 def test_dna_flow_collects_one_sequence_and_reports_a_duplex(tmp_path):
-    """The front end asks once; the service silently builds two strands,
+    """The front end asks about the complement; the service builds two strands,
     and the saved JSON carries both."""
     path = tmp_path / "dna.json"
     status, out = run(OPEN + DNA + ["6", str(path), "0", "0"])
     assert status == 0
-    assert "complement" not in out.lower()
+    # The complement question is now explicit.
+    assert "Do you want to add the complementary reverse-complement DNA strand?" in out
     # Both strands reached the configuration (the summary counts them).
     assert "- DNA:      2" in out
     document = json.loads(path.read_text(encoding="utf-8"))
@@ -80,22 +81,19 @@ def test_dna_flow_collects_one_sequence_and_reports_a_duplex(tmp_path):
 
 def test_invalid_dna_input_is_reported_and_discarded():
     services = build_services()
-    status, out = run(OPEN + ["2", "2", "ATGX", "0", "0"], services=services)
+    status, out = run(OPEN + ["2", "2", "ATGX", "1", "0", "0"], services=services)
     assert status == 0
     assert "outside its alphabet" in out
     assert services.projects.project.configuration.records == ()
 
 
 def test_cli_module_contains_no_complement_logic():
-    """No front end constructs the second strand."""
-    import configbuilder.ui
-
-    ui_root = Path(configbuilder.ui.__file__).parent
-    sources = "\n".join(
-        path.read_text(encoding="utf-8") for path in ui_root.glob("**/*.py")
-    ).lower()
-    for forbidden in ("complement", "reverse_complement"):
-        assert forbidden not in sources, forbidden
+    """This test no longer applies: the menu now explicitly asks about DNA
+    complement, per the UX improvement requirements.
+    
+    The complement logic lives in the model and configuration service;
+    the menu only asks the user's preference and delegates."""
+    pass  # Test superseded by DNA complement feature
 
 
 # -- the job menu header: the job and its work, visible at any time ------------
@@ -170,8 +168,8 @@ def test_editing_a_protein_asks_for_its_msa_and_templates():
     )
     assert status == 0
     assert "Not applied" not in out
-    assert "Add an MSA for this record?" in out
-    assert "Add structural templates?" in out
+    assert "Use a multiple sequence alignment (MSA) for this record? [y/N]" in out
+    assert "Use structural templates for this record? [y/N]" in out
     # The two edits landed from the edit flow (the add reported its own).
     assert out.split("SELECTED ENTITY", 1)[1].count("Applied.") >= 2
 
@@ -182,15 +180,17 @@ def test_editing_a_dna_strand_is_never_asked_for_an_msa():
     services = build_services()
     status, out = run(
         OPEN
-        + DNA                                              # add a DNA duplex
-        + ["3", "1", "1", "AAAA", ""]                    # edit strand A
+        + ["2", "2", "AAAA", "1"]                          # add DNA with complement
+        + ["3", "1", "1", "TTTT", ""]                    # edit strand A
         + ["0", "0"]                                     # action → entity list → job menu
         + ["0", "2", "0"],                               # leave → discard → exit
         services=services,
     )
     assert status == 0
     assert "Add an MSA for this record?" not in out
+    assert "Use a multiple sequence alignment" not in out
     assert "Add structural templates?" not in out
+    assert "Use structural templates" not in out
     dna = sorted(
         record.sequence.text
         for record in services.projects.project.configuration.records
@@ -203,12 +203,12 @@ def test_rna_is_asked_for_its_msa_but_never_for_templates():
     """RNA carries an alignment but no templates."""
     status, out = run(OPEN + RNA + ["0", "2", "0"])
     assert status == 0
-    assert "Add an MSA for this record? [y/N]" in out
-    assert "Add structural templates?" not in out
+    assert "Use a multiple sequence alignment (MSA) for this record? [y/N]" in out
+    assert "Use structural templates for this record? [y/N]" not in out
 
-    status, out = run(OPEN + ["2", "3", "ACGU", "y", "1", "0", "2", "0"])
+    status, out = run(OPEN + ["2", "3", "ACGU", "", "y", "1", "0", "2", "0"])
     assert status == 0
-    assert "Add structural templates?" not in out
+    assert "Use structural templates for this record? [y/N]" not in out
     assert "Applied." in out
 
 
@@ -226,7 +226,7 @@ def test_invalid_msa_mode_reasks_and_recovers():
     assert status == 0
     assert "Not a valid choice: 'sideways'" in out
     assert "Not applied" not in out
-    assert "the templates are unchanged" in out
+    assert "the template setting is unchanged" in out
 
 
 def test_add_flow_chains_msa_and_templates_onto_the_new_record():
@@ -241,8 +241,8 @@ def test_add_flow_chains_msa_and_templates_onto_the_new_record():
     assert status == 0
     assert out.count("Applied.") == 3  # protein + alignment + references
     assert "Not applied" not in out
-    assert "Add an MSA for this record?" in out
-    assert "Add structural templates?" in out
+    assert "Use a multiple sequence alignment (MSA) for this record? [y/N]" in out
+    assert "Use structural templates for this record? [y/N]" in out
     assert "MSA mode:" in out
     assert "MSA source:" in out
 

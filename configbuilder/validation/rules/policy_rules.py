@@ -10,11 +10,24 @@ from __future__ import annotations
 from configbuilder.model import (
     Auto,
     Configuration,
-    Pinned,
     Unverified,
 )
-from configbuilder.validation.catalogue import Rule
+from configbuilder.validation.catalogue import Rule, Severity
 from configbuilder.validation.report import FieldPath, Finding, Report
+
+
+def _feature_rows(features):
+    """The joined version-feature facts, each as ``(name, version, wording)``.
+
+    The naming and the wording are both the mapping layer's: ``transform``
+    hands ``app`` ``(feature, minimum version, plain-English name)`` rows and
+    ``app`` joins them into this context, so nothing here spells a wire field
+    (plan §10.1) — this rule only compares a number and quotes the words.
+    """
+    for row in features:
+        name, min_version = row[0], row[1]
+        wording = row[2] if len(row) > 2 else "the %s field" % name
+        yield name, min_version, wording
 
 
 def _add(
@@ -53,20 +66,26 @@ def check_r_ver_001(configuration: Configuration, report: Report, rule: Rule) ->
         )
 
 
-def check_r_ver_002(configuration: Configuration, report: Report, rule: Rule) -> None:
-    """A pin must carry its verification provenance in the model, and Auto
-    must only span evidenced versions; the version is never silently raised
-    and never inferred. The evidence reference (e.g. a ``PIN-nnn`` record)
-    is supplied by the operator — the runtime does not read any document to
-    obtain it. Wire-level feature comparison runs in transform; this rule
-    checks the provenance that travels with the selection."""
+def check_r_ver_002(configuration: Configuration, report: Report, rule: Rule, context=None) -> None:
+    """A feature requiring a version above the selected one is an error naming
+    the feature — the version is never silently raised.
+
+    The facts are the mapping layer's (``((feature, minimum version), ...)``
+    computed by ``transform`` from the same tables that gate emission) and
+    arrive through the context, joined by ``app``. Validation therefore
+    refuses exactly what generation refuses, which is what keeps the
+    readiness verdict from contradicting the JSON preview and the save path.
+
+    A pin's evidence reference is optional recorded provenance, never a
+    condition for generating output; an ``Auto`` selection that spans no
+    evidenced version is still reported here.
+    """
     selection = configuration.format_target.version_selection
-    if isinstance(selection, Pinned):
-        # The pin itself is the operator's explicit choice; an evidence
-        # reference is optional recorded provenance, never a condition for
-        # generating output.
-        pass
-    elif isinstance(selection, Auto):
+    if isinstance(selection, Unverified):
+        # R-VER-001 already blocks this: there is no selected version to
+        # compare a feature against, and reporting twice helps nobody.
+        return
+    if isinstance(selection, Auto):
         if not selection.evidenced:
             _add(
                 report,
@@ -74,6 +93,38 @@ def check_r_ver_002(configuration: Configuration, report: Report, rule: Rule) ->
                 "The automatic version selection includes no evidenced versions.",
                 "Auto has an empty evidenced set",
                 (FieldPath("Auto", None, "version_selection"),),
+            )
+            return
+        # The engine's own Auto semantics: the minimum evidenced version.
+        effective = min(selection.evidenced)
+    else:
+        effective = selection.version
+
+    features = getattr(context, "used_version_features", None) if context is not None else None
+    if features is None:
+        _add(
+            report,
+            rule,
+            "Version-feature consistency could not be checked: the features this job uses were not provided to the validator.",
+            "context lacks used_version_features (the transform-side join)",
+            (FieldPath("FormatTarget", None, "version_selection"),),
+            severity=Severity.WARNING,
+        )
+        return
+
+    for feature_name, min_version, feature_words in _feature_rows(features):
+        if effective < min_version:
+            _add(
+                report,
+                rule,
+                "This job uses %s, which is written from input version %d, but the job is "
+                "set to version %d. Raise the job's JSON version, or remove the field."
+                % (feature_words, min_version, effective),
+                "feature %r requires version %d, selected version is %d"
+                % (feature_name, min_version, effective),
+                (FieldPath("FormatTarget", None, "version_selection"),),
+                suggestion="Pin version %d or later in the job's settings (the version is never changed automatically)."
+                % min_version,
             )
 
 

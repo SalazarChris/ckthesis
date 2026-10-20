@@ -43,6 +43,8 @@ from configbuilder.app.results import (
     PlanOutput,
 )
 from configbuilder.output import (
+    OVERWRITE_POLICIES,
+    PATH_POLICIES,
     OverwritePolicy,
     OutputPlan,
     PathPolicy,
@@ -134,6 +136,115 @@ class GenerationService:
         except TransformError as error:
             return None, str(error)
         return None, "nothing to show"
+
+    # -- the front end's scope and policy surface --------------------------
+
+    def output_policy_choices(self):
+        """The policy names a front end may offer, in the service's order.
+
+        Names, not policy objects: ``ui`` imports ``app`` only, so the picker
+        values travel as the same plain strings the manifest records. An
+        empty tuple would mean the policy family is unavailable; both are
+        closed sets today.
+        """
+        return {
+            "overwrite": tuple(policy.name for policy in OVERWRITE_POLICIES),
+            "path": tuple(policy.name for policy in PATH_POLICIES),
+        }
+
+    def output_defaults(self):
+        """The open project's own output settings, as policy names.
+
+        These are the defaults the service itself would use when a plan is
+        made without an explicit choice, read from ``project.settings`` (the
+        safe defaults when a project carries none). The GUI preselects them;
+        it never decides them.
+        """
+        project = self._projects._require_project()
+        settings = project.settings if project is not None else None
+        return {
+            "overwrite": (
+                settings.overwrite_policy
+                if settings is not None
+                else OVERWRITE_POLICIES[0].name
+            ),
+            "path": (
+                settings.path_policy
+                if settings is not None
+                else PATH_POLICIES[0].name
+            ),
+        }
+
+    def plan_selection(
+        self,
+        output_root,
+        scope="variants",
+        only=None,
+        overwrite_policy=None,
+        path_policy=None,
+    ) -> GenerationPlan:
+        """Plan one generation scope, with policy *names* from a picker.
+
+        ``scope`` is the service's own vocabulary: ``"variants"`` plans every
+        variant and the manifest (``plan``), ``"selected"`` plans exactly the
+        keys in ``only`` (``plan(only=...)``), and ``"base"`` plans the base
+        configuration's single file (``plan_base``, no manifest). Policy names
+        are matched against the closed policy sets; an unknown name is a
+        refused plan, not a silent fallback to a different policy.
+
+        Nothing is written here: this only narrows which existing planning
+        method runs and turns the picker's names into policy values.
+        """
+        overwrite, problem = _named_policy(
+            OVERWRITE_POLICIES, OverwritePolicy, overwrite_policy, "overwrite"
+        )
+        if problem is not None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.INVALID_CHOICE,
+                message=problem,
+            )
+        path_choice, problem = _named_policy(
+            PATH_POLICIES, PathPolicy, path_policy, "path"
+        )
+        if problem is not None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.INVALID_CHOICE,
+                message=problem,
+            )
+
+        if scope == "base":
+            return self.plan_base(
+                output_root,
+                overwrite_policy=overwrite,
+                path_policy=path_choice,
+            )
+        if scope == "selected":
+            keys = tuple(only or ())
+            if not keys:
+                return GenerationPlan(
+                    ok=False,
+                    failure_reason=FailureReason.INVALID_CHOICE,
+                    message="choose exactly one variant to generate",
+                )
+            return self.plan(
+                output_root,
+                overwrite_policy=overwrite,
+                path_policy=path_choice,
+                only=keys,
+            )
+        if scope not in ("variants", "all"):
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.INVALID_CHOICE,
+                message="unknown generation scope %r" % (scope,),
+            )
+        return self.plan(
+            output_root,
+            overwrite_policy=overwrite,
+            path_policy=path_choice,
+        )
 
     def plan(self, output_root: str, overwrite_policy=None, path_policy=None, only=None) -> GenerationPlan:
         """Steps 1–6 in exactly this order. Nothing is written here.
@@ -684,6 +795,25 @@ class GenerationService:
 
 
 # -- module helpers ------------------------------------------------------------------
+
+
+def _named_policy(policies, policy_class, name, label):
+    """``(policy, None)`` for a picker name, or ``(None, refusal message)``.
+
+    The policy sets are closed; matching by name keeps the front end's
+    vocabulary in sync with the manifest's (policies are recorded by name).
+    ``None`` means "use the project's setting", the same default ``plan``
+    and ``plan_base`` already apply.
+    """
+    if name is None:
+        return None, None
+    for policy in policies:
+        if policy.name == name:
+            return policy, None
+    return None, (
+        "%r is not a supported %s policy; choose one of: %s"
+        % (name, label, ", ".join(policy.name for policy in policies))
+    )
 
 
 def _entry_by_file_name(planned, file_name: str):

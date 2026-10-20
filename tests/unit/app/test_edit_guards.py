@@ -254,3 +254,108 @@ def test_modification_summary_indices_address_the_expanded_record():
 def test_modification_summary_is_empty_when_the_variant_cannot_expand():
     services = _legacy_spec_services()
     assert services.variants.modification_summary("V1") == []
+
+
+# -- Stage 4: a ligand edit is one transaction, never a partial change --------
+
+
+def _ligand_services(copies: int = 1):
+    services = _services()
+    services.projects.new("ligand-edit")
+    assert services.configuration.add_record(
+        "ligand", representation="ATP", representation_kind="ccd", copies=copies
+    ).ok
+    return services
+
+
+def test_a_ligand_representation_and_description_change_together():
+    services = _ligand_services()
+    record_key = services.projects.project.configuration.records[0].ids.primary.value
+
+    outcome = services.configuration.update_component_record(
+        record_key, codes=["NAG", "BMA"], description="glycan"
+    )
+
+    assert outcome.ok, outcome.message
+    record = services.projects.project.configuration.records[0]
+    assert [code.value for code in record.representation.codes] == ["NAG", "BMA"]
+    assert record.description.value == "glycan"
+
+
+def test_a_refused_representation_changes_nothing_at_all():
+    """The atomic guarantee: the description is *not* applied either, and the
+    prior representation is still the one in the model."""
+    services = _ligand_services()
+    record_key = services.projects.project.configuration.records[0].ids.primary.value
+    assert services.configuration.update_component_record(
+        record_key, description="kept"
+    ).ok
+    before = services.projects.project.configuration
+
+    outcome = services.configuration.update_component_record(
+        record_key, codes=["CCD_X"], description="replaced"
+    )
+
+    assert outcome.ok is False
+    assert "CCD_" in outcome.message
+    configuration = services.projects.project.configuration
+    record = configuration.records[0]
+    assert [code.value for code in record.representation.codes] == ["ATP"]
+    assert record.description.value == "kept"
+    assert configuration == before  # the whole configuration is untouched
+
+
+def test_an_atomic_ligand_edit_keeps_identifiers_and_multiplicity():
+    services = _ligand_services(copies=3)
+    record_key = services.projects.project.configuration.records[0].ids.primary.value
+    before_ids = [
+        entity.value
+        for entity in services.projects.project.configuration.records[0].ids.ids
+    ]
+
+    assert services.configuration.update_component_record(
+        record_key, notation="CCO", description="solvent"
+    ).ok
+
+    record = services.projects.project.configuration.records[0]
+    assert [entity.value for entity in record.ids.ids] == before_ids
+    assert record.ids.count == 3
+    assert record.representation.text == "CCO"
+    # The registry still answers for every copy, and for nothing else.
+    for value in before_ids:
+        assert services.projects.project.configuration.identity.is_taken(value)
+
+
+def test_an_atomic_ligand_edit_needs_something_to_change():
+    services = _ligand_services()
+    record_key = services.projects.project.configuration.records[0].ids.primary.value
+    before = services.projects.project.configuration
+
+    outcome = services.configuration.update_component_record(record_key)
+
+    assert outcome.ok is False
+    assert "nothing was supplied" in outcome.message
+    assert services.projects.project.configuration == before
+
+
+def test_an_atomic_ligand_edit_refuses_both_representations_at_once():
+    services = _ligand_services()
+    record_key = services.projects.project.configuration.records[0].ids.primary.value
+
+    outcome = services.configuration.update_component_record(
+        record_key, codes=["ATP"], notation="CCO"
+    )
+
+    assert outcome.ok is False
+    assert "not both" in outcome.message
+
+
+def test_an_atomic_ligand_edit_on_a_polymer_sequence_record_is_refused():
+    services = _services()
+    services.projects.new("protein")
+    services.configuration.add_record("protein", PROTEIN)
+
+    outcome = services.configuration.update_component_record("A", notation="CCO")
+
+    assert outcome.ok is False
+    assert "no record is identified by 'A'" in outcome.message

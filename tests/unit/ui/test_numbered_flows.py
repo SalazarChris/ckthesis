@@ -82,7 +82,7 @@ def test_ptm_add_picks_the_record_by_number():
         + ["2", "0"]
     )
     assert status == 0
-    assert "Modification added." in out
+    assert "Post-translational modification added." in out
     assert "Not applied" not in out
 
 
@@ -96,7 +96,7 @@ def test_ptm_remove_offers_a_numbered_list():
         + ["2", "0"]
     )
     assert status == 0
-    assert "Modification removed." in out
+    assert "Post-translational modification removed." in out
     assert "Not applied" not in out
 
 
@@ -108,7 +108,7 @@ def test_ptm_edit_updates_in_place():
         + ["2", "0"]
     )
     assert status == 0
-    assert "Modification updated." in out
+    assert "Post-translational modification updated." in out
     assert "TPO" in out
 
 
@@ -119,7 +119,7 @@ def test_ptm_remove_on_a_clean_record_says_so():
         + ["5", "4", "1", "0", "0", "2", "0"]  # remove on a record with none
     )
     assert status == 0
-    assert "carries no modifications" in out
+    assert "carries no post-translational modifications" in out
 
 
 def test_msa_records_are_picked_by_number():

@@ -53,6 +53,7 @@ class FailureReason:
     FUTURE_VERSION = "future_version"
     UNKNOWN_RECORD = "unknown_record"
     NO_PATH = "no_path"
+    INVALID_CHOICE = "invalid_choice"
 
 
 class MutationOutput:
@@ -188,14 +189,21 @@ class FilePreview:
     ``entries`` carries the detected sequence texts in file order; the
     committed batch re-reads the file through the same persistence
     reader, so what is confirmed is exactly what would be created.
+
+    ``planned`` is how many variants the commit would create (Stage 8),
+    computed by building the very specs ``generate_from_file`` builds —
+    against a throwaway registry clone — so the count and any refusal are
+    known *before* the user commits. ``None`` means "not determined" (no
+    project is open, or the file itself was refused).
     """
 
-    __slots__ = ("ok", "message", "entries")
+    __slots__ = ("ok", "message", "entries", "planned")
 
-    def __init__(self, ok, message="", entries=()) -> None:
+    def __init__(self, ok, message="", entries=(), planned=None) -> None:
         self.ok = bool(ok)
         self.message = message or ""
         self.entries = tuple(entries)
+        self.planned = planned
 
     def __repr__(self) -> str:
         return "FilePreview(ok=%r, entries=%d)" % (self.ok, len(self.entries))

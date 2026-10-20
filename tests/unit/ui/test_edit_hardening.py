@@ -75,7 +75,7 @@ def test_removing_the_second_of_two_modifications_at_one_position_removes_it():
         + LEAVE_DIRTY
     )
     assert status == 0
-    assert "Modification removed." in out
+    assert "Post-translational modification removed." in out
     assert "Not applied" not in out
     assert _mods(services) == [("SEP", 5)]
 
@@ -89,7 +89,7 @@ def test_removing_the_first_of_two_modifications_at_one_position_removes_it():
         + LEAVE_DIRTY
     )
     assert status == 0
-    assert "Modification removed." in out
+    assert "Post-translational modification removed." in out
     assert _mods(services) == [("TPO", 5)]
 
 

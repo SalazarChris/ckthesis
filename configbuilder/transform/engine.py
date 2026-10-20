@@ -21,16 +21,18 @@ from configbuilder.model import (
     FamilyARecord,
     FamilyBRecord,
     FamilyCRecord,
+    Present,
     fold_version_selection,
 )
 from configbuilder.transform.mappings import (
+    DESCRIPTION_MIN_VERSION,
     DNA_FIELDS,
     LIGAND_FIELDS,
     PATH_FEATURE_MIN_VERSIONS,
     PROTEIN_FIELDS,
     RNA_FIELDS,
     ROOT_FIELDS,
-    DESCRIPTION_MIN_VERSION,
+    feature_word,
 )
 from configbuilder.transform.presence import OMITTED
 
@@ -39,6 +41,7 @@ __all__ = [
     "TransformResult",
     "WireDocument",
     "to_wire",
+    "used_version_features",
     "with_emitted_resource_paths",
     "with_wire_job_name",
 ]
@@ -109,33 +112,48 @@ def _select_version(configuration: Configuration) -> int:
     return fold_version_selection(selection, on_unverified, on_pinned, on_auto)
 
 
-def _used_features(configuration: Configuration) -> set:
+def used_version_features(configuration: Configuration) -> Tuple[Tuple[str, int, str], ...]:
     """The wire features this configuration uses that have a minimum version.
 
     ``description`` is the v4 textual field; the external file fields
     (``unpairedMsaPath``, ``pairedMsaPath``, ``mmcifPath``, ``userCCDPath``)
     are the v2/v3 fields that point at a file rather than carrying text. The
     minimum versions come from the mapping layer, never from here.
+
+    Public because the version-feature gate exists twice by design: this
+    module refuses to *emit* such a document (``_check_version_features``),
+    and ``app`` joins this same answer into validation so readiness cannot
+    say "ready" while generation refuses (R-VER-002). Only features the
+    configuration actually uses appear — an unset field never does, and a
+    path-mode field only while its path mode is active.
+
+    Returns a sorted tuple rather than a set: the facts cross a module
+    boundary into validation, and a deterministic order keeps a finding's
+    wording (and any test asserting on it) stable. Each row is
+    ``(feature, min_version, wording)`` — the wording travels with the name
+    so validation can explain the refusal without ever naming a wire field
+    itself (plan §10.1; the words live in the mapping layer).
     """
     features = set()
     for record in configuration.records:
         if not isinstance(record, (FamilyARecord, FamilyBRecord, FamilyCRecord, ComponentRecord)):
             continue
-        from configbuilder.model import Present
-
         if isinstance(record.description, Present):
             features.add(("description", DESCRIPTION_MIN_VERSION))
     for requirement in _collect_external_resources(configuration):
         min_version = PATH_FEATURE_MIN_VERSIONS.get(requirement.kind)
         if min_version is not None:
             features.add((requirement.kind, min_version))
-    return features
+    return tuple(
+        (name, min_version, feature_word(name))
+        for name, min_version in sorted(features)
+    )
 
 
 def _check_version_features(configuration: Configuration, version: int, evidenced: Tuple[int, ...]) -> None:
     """A feature needing a version above the pin is an error naming the
     feature — the version is never silently raised (plan §10.3)."""
-    for feature_name, min_version in _used_features(configuration):
+    for feature_name, min_version, _word in used_version_features(configuration):
         if version < min_version:
             raise TransformError(
                 "feature %r requires format version %d, but the evidenced "
@@ -304,22 +322,30 @@ def with_emitted_resource_paths(document: WireDocument, emitted_paths) -> WireDo
     """
     if not emitted_paths:
         return document
-    adjusted = WireDocument(document)
-    sequences = adjusted.get("sequences")
-    if not isinstance(sequences, list):
-        return adjusted
-    for entity in sequences:
-        if not isinstance(entity, dict):
-            continue
-        for family_object in entity.values():
-            if not isinstance(family_object, dict):
-                continue
-            field_paths = emitted_paths.get("mmcifPath", {})
-            for key, value in list(family_object.items()):
-                if key in field_paths and isinstance(value, str) and value in field_paths:
-                    family_object[key] = field_paths[value]
-    for key in ("userCCDPath",):
-        field_paths = emitted_paths.get(key, {})
-        if key in adjusted and isinstance(adjusted[key], str) and adjusted[key] in field_paths:
-            adjusted[key] = field_paths[adjusted[key]]
-    return adjusted
+
+    def rewrite(value):
+        # Copy-on-write: the input document is never mutated (the previous
+        # implementation wrote through the shallow copy into the caller's
+        # nested dicts), and the field name gates the rewrite, so a sequence
+        # string that happens to equal a path is untouched.
+        if isinstance(value, dict):
+            result = WireDocument() if isinstance(value, WireDocument) else {}
+            for key, item in value.items():
+                field_paths = emitted_paths.get(key)
+                if (
+                    isinstance(item, str)
+                    and field_paths is not None
+                    and item in field_paths
+                ):
+                    result[key] = field_paths[item]
+                else:
+                    result[key] = rewrite(item)
+            return result
+        if isinstance(value, list):
+            return [rewrite(item) for item in value]
+        return value
+
+    # Every field the planner named is rewritten wherever it occurs: a
+    # chain's alignment paths, a template entry's ``mmcifPath`` (nested under
+    # ``templates``), and the root ``userCCDPath`` alike.
+    return WireDocument(rewrite(document))

@@ -57,7 +57,7 @@ MENU_ACTIONS = (
     "2. Add entity",
     "3. Edit entity",
     "4. Custom CCD management",
-    "5. PTM management",
+    "5. Post-translational modification management",
     "6. Save and show summary",
     "7. Create variants based on this JSON",
 )
@@ -223,7 +223,7 @@ def test_ligand_is_not_offered_as_a_modification_carrier():
         + LEAVE_DIRTY
     )
     assert status == 0
-    assert "ligands carry no modifications" in out
+    assert "ligands carry no post-translational modifications" in out
 
 
 # -- BUG-007: an explicit save action exists and reports its path ---------
@@ -266,6 +266,16 @@ def test_the_job_menu_keeps_its_numbering_with_and_without_variants():
     for label in MENU_ACTIONS:
         assert label in bare, label
         assert label in full, label
+
+MENU_ACTIONS = (
+    "1. Edit job configurations",
+    "2. Add entity",
+    "3. Edit entity",
+    "4. Custom CCD management",
+    "5. Post-translational modification management",
+    "6. Save and show summary",
+    "7. Create variants based on this JSON",
+)
 
 
 # -- BUG-009: re-ask by looping, never by recursing ----------------------

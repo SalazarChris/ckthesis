@@ -562,6 +562,29 @@ class ConfigurationService:
         records = tuple(updated if existing is record else existing for existing in configuration.records)
         return self._commit(configuration.with_records(records))
 
+    def _representation_from(self, codes, notation):
+        """The representation value for ``codes`` XOR ``notation``.
+
+        Returns ``(representation, None)`` or ``(None, MutationOutput)``; the
+        single place the CCD/SMILES choice and the component-code validation
+        live, shared by ``set_representation`` and
+        ``update_component_record``.
+        """
+        try:
+            if codes is not None and notation is not None:
+                return None, self._refused("choose codes or a notation, not both")
+            if codes is not None:
+                if isinstance(codes, str):
+                    return ByCode((ComponentCode(codes),)), None
+                return ByCode(tuple(ComponentCode(code) for code in codes)), None
+            if notation is not None:
+                return ByNotation(notation), None
+        except (ModelError, ValueError, TypeError) as error:
+            # Same guard as ``add_modification``: an empty code raises the
+            # model's ``ValueTypeError``, which is not a ``ValueError`` (BUG-010).
+            return None, self._refused(str(error))
+        return None, self._refused("a representation needs codes or a notation")
+
     def set_representation(self, record_key: str, codes=None, notation=None) -> MutationOutput:
         """Set a component record's representation: CCD code(s) or a SMILES
         notation — exactly one, as vocabulary-level data (plan §16.4)."""
@@ -574,23 +597,50 @@ class ConfigurationService:
         record = self._record_for(configuration, primary)
         if record is None or not hasattr(record, "representation"):
             return self._unknown_record(record_key)
-        try:
-            if codes is not None and notation is not None:
-                return self._refused("choose codes or a notation, not both")
-            if codes is not None:
-                if isinstance(codes, str):
-                    representation = ByCode((ComponentCode(codes),))
-                else:
-                    representation = ByCode(tuple(ComponentCode(code) for code in codes))
-            elif notation is not None:
-                representation = ByNotation(notation)
-            else:
-                return self._refused("a representation needs codes or a notation")
-        except (ModelError, ValueError, TypeError) as error:
-            # Same guard as ``add_modification``: an empty code raises the
-            # model's ``ValueTypeError``, which is not a ``ValueError`` (BUG-010).
-            return self._refused(str(error))
+        representation, failure = self._representation_from(codes, notation)
+        if failure is not None:
+            return failure
         updated = record.with_representation(representation)
+        records = tuple(updated if existing is record else existing for existing in configuration.records)
+        return self._commit(configuration.with_records(records))
+
+    def update_component_record(self, record_key: str, codes=None, notation=None, description=None) -> MutationOutput:
+        """Change a ligand's representation and/or description as one edit.
+
+        A ligand's editable fields are built and validated **before** anything
+        is committed, and the single ``_commit`` at the end is the only
+        mutation — so a refusal of any part leaves the configuration exactly
+        as it was. The two-call route a front end would otherwise need
+        (``set_representation`` then ``update_record``) could apply the first
+        change and then fail the second.
+
+        Identifiers are never touched: no allocation, no rename, and a copy
+        multiplicity stays exactly as the registry holds it. Passing neither a
+        representation nor a description is refused rather than silently
+        committing an unchanged record.
+        """
+        configuration = self._configuration()
+        if configuration is None:
+            return self._not_open()
+        primary, failure = self._key(record_key)
+        if failure is not None:
+            return failure
+        record = self._record_for(configuration, primary)
+        if record is None or not hasattr(record, "representation"):
+            return self._unknown_record(record_key)
+        updated = record
+        if codes is not None or notation is not None:
+            representation, failure = self._representation_from(codes, notation)
+            if failure is not None:
+                return failure
+            updated = updated.with_representation(representation)
+        if description is not None:
+            updated = updated.with_description(self._presence(description))
+        if updated is record:
+            return self._refused(
+                "nothing was supplied to change: give a representation (codes or a "
+                "notation) and/or a description"
+            )
         records = tuple(updated if existing is record else existing for existing in configuration.records)
         return self._commit(configuration.with_records(records))
 

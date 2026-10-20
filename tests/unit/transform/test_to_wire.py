@@ -224,6 +224,31 @@ def test_unpaired_path_form():
     )
 
 
+def test_emitted_paths_rewrite_alignment_fields_without_mutating_the_document():
+    """CopyIntoAssets must point the JSON at the copied asset (§13.5).
+
+    The rewrite is per wire field and leaves the source document untouched:
+    the pre-flight pass and the final document share the transform's input.
+    """
+    from configbuilder.transform import with_emitted_resource_paths
+
+    document = to_wire(
+        _configuration(
+            records=(
+                _protein(
+                    "A",
+                    alignment=AlignmentUnpairedOnly(source=External(PathSpec("query.a3m"))),
+                ),
+            )
+        )
+    ).document
+    adjusted = with_emitted_resource_paths(
+        document, {"unpairedMsaPath": {"query.a3m": "assets/query.a3m"}}
+    )
+    assert adjusted["sequences"][0]["protein"]["unpairedMsaPath"] == "assets/query.a3m"
+    assert document["sequences"][0]["protein"]["unpairedMsaPath"] == "query.a3m"
+
+
 def test_paired_path_form():
     result = to_wire(
         _configuration(

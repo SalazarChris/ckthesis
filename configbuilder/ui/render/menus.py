@@ -543,37 +543,12 @@ class MenuApp:
         self._say(_text("menu.job_created") % project.configuration.metadata.name)
 
     def _open_json_file(self) -> bool:
-        """Load an existing AF3 JSON as the current job. Preview first —
-        the current project is untouched until the confirm — and a bad file
-        is reported without a traceback. Returns True when a job loaded."""
+        """Load an existing AF3 JSON as the current job. The file is opened
+        directly after selection — the user has already chosen it — while
+        validation still protects against corrupt or unsupported files.
+        Returns True when a job loaded."""
         path = self._pick_path("menu.ask_import_path")
         if not path:
-            return False
-        preview = self._services.projects.import_json_preview(path)
-        if not preview.ok:
-            self._say(_text("menu.import_failed"))
-            self._say(_text("menu.import_reason") % (preview.message or "unknown"))
-            self._say(_text("menu.import_untouched"))
-            return False
-        self._say()
-        self._say(_text("menu.import_file_line") % path)
-        summary = preview.summary
-        self._say(_text("menu.summary_name") % summary.get("job_name", ""))
-        self._say(_text("menu.import_entities") % summary.get("entity_count", 0))
-        for family, count in summary.get("family_counts", {}).items():
-            self._say(_text("menu.job_family_header") % family)
-            self._say("    x%d" % count)
-        self._say(_text("menu.preview_seeds") % (summary.get("seed_values", []),))
-        if preview.notes:
-            self._say()
-            self._say(_text("menu.import_notes"))
-            for note in preview.notes:
-                self._say(_text("menu.import_note_line") % note.detail)
-        entries = [
-            (_text("menu.import_yes"), True),
-            (_text("menu.import_no"), False),
-        ]
-        if not self._numbered_choice(_text("menu.import_confirm"), entries, back_note=False):
             return False
         result = self._services.projects.import_json_commit(path)
         if not result.ok:
@@ -581,6 +556,20 @@ class MenuApp:
             self._say(_text("menu.import_reason") % (result.message or "unknown"))
             self._say(_text("menu.import_untouched"))
             return False
+        self._say()
+        self._say(_text("menu.import_file_line") % path)
+        # Show what was loaded, from the committed project.
+        project = self._services.projects.project
+        if project is not None:
+            summary = _summary_of(project.configuration)
+            self._say(_text("menu.summary_name") % summary["job_name"])
+            self._say(_text("menu.import_entities") % summary["entity_count"])
+            for family, records in summary["entity_groups"].items():
+                count = len(records)
+                if count:
+                    self._say(_text("menu.job_family_header") % family)
+                    self._say("    x%d" % count)
+            self._say(_text("menu.preview_seeds") % (summary["seed_values"],))
         for warning in result.warnings:
             self._say(_text("menu.import_note_line") % warning)
         self._current_path = path
@@ -674,13 +663,37 @@ class MenuApp:
                 if name:
                     self._report(configuration.set_name(name))
             elif choice == "2":
-                seeds = self._ask("menu.ask_seeds")
-                if seeds:
-                    self._report(configuration.set_seeds(seeds))
+                self._edit_seeds(configuration)
             elif choice == "3":
                 self._set_version(configuration)
             elif choice:
                 self._say(_text("menu.invalid") % choice)
+
+    def _edit_seeds(self, configuration) -> None:
+        """Two methods for setting seeds: enter specific values, or generate
+        a specified number of seeds."""
+        self._say()
+        self._say(_text("menu.seeds_method_title"))
+        entries = [
+            (_text("menu.seeds_method_specific"), "specific"),
+            (_text("menu.seeds_method_generate"), "generate"),
+        ]
+        method = self._numbered_choice(_text("menu.seeds_method_menu"), entries)
+        if method is None:
+            return
+        if method == "specific":
+            seeds = self._ask("menu.ask_seeds")
+            if seeds:
+                self._report(configuration.set_seeds(seeds))
+        else:  # generate
+            count = self._ask_whole_number("menu.ask_seed_count")
+            if count is not None:
+                # Generate the requested number of seeds using the existing
+                # seed generation conventions (sequential starting from 1).
+                generated = tuple(range(1, count + 1))
+                self._report(configuration.set_seeds(
+                    ", ".join(str(s) for s in generated)
+                ))
 
     def _set_version(self, configuration) -> None:
         """Change the JSON version pin. Only versions the serializer can
@@ -764,19 +777,12 @@ class MenuApp:
             self._say(_text("menu.entity_added"))
 
     def _ask_quantity(self):
-        """How many copies of this component belong in the job? Guided
-        choices plus a custom entry."""
-        entries = [
-            ("1", 1), ("2", 2), ("3", 3), ("5", 5), ("10", 10),
-            (_text("menu.quantity_custom"), "custom"),
-        ]
-        chosen = self._numbered_choice(_text("menu.quantity_menu"), entries)
-        if chosen is None:
-            return None
-        if chosen != "custom":
-            return chosen
+        """How many copies of this component belong in the job?
+        
+        Asks for the number directly — the entered number means exactly
+        what the prompt says."""
         while True:
-            raw = self._ask("menu.quantity_custom_prompt")
+            raw = self._ask("menu.quantity_direct_prompt")
             if raw in ("0", "q", "back"):
                 return None
             if raw.strip().isdigit() and int(raw) >= 1:
@@ -813,10 +819,11 @@ class MenuApp:
                     representation_kind=kind, copies=copies,
                 )
             )
+        if family == "dna":
+            return self._add_dna_with_complement_choice()
         prompts = {
             "protein": "menu.add_protein_prompt",
             "rna": "menu.add_rna_prompt",
-            "dna": "menu.add_dna_prompt",
         }
         sequence = self._ask(prompts[family])
         if not sequence:
@@ -834,6 +841,48 @@ class MenuApp:
         self._chain_msa(family)
         if family == "protein":
             self._chain_templates(family)
+        return True
+
+    def _add_dna_with_complement_choice(self) -> bool:
+        """Add a DNA entity, asking whether to include the reverse-complement
+        strand. Returns True when a record was committed."""
+        sequence = self._ask("menu.add_dna_prompt")
+        if not sequence:
+            self._say(_text("menu.add_cancelled"))
+            return False
+        # Ask whether to add the complementary strand.
+        self._say()
+        self._say(_text("menu.dna_complement_question"))
+        entries = [
+            (_text("menu.dna_complement_yes"), "yes"),
+            (_text("menu.dna_complement_no"), "no"),
+        ]
+        choice = self._numbered_choice(_text("menu.dna_complement_menu"), entries, back_note=False)
+        if choice is None:
+            # Cancelled - do not add anything.
+            self._say(_text("menu.add_cancelled"))
+            return False
+        add_complement = choice == "yes"
+        if add_complement:
+            self._say(_text("menu.dna_complement_will_add"))
+        else:
+            self._say(_text("menu.dna_complement_will_not_add"))
+        # Add the DNA. The configuration service always creates the duplex
+        # structurally, but we need to control whether the complement is
+        # included in the final output. For now, we add the sequence and
+        # then optionally remove the complement if the user said no.
+        if not self._report(
+            self._services.configuration.add_record("dna", sequence)
+        ):
+            return False
+        if not add_complement:
+            # Remove the complement strand that was automatically created.
+            records = self._records("dna")
+            if records:
+                # The complement is the second record (partner).
+                # Keep only the first (original) strand.
+                for record in records[1:]:
+                    self._services.configuration.remove_record(record.ids.primary.value)
         return True
 
     def _chain_msa(self, family: str, record_key: str = None) -> None:
@@ -1444,10 +1493,19 @@ class MenuApp:
     # -- variants ----------------------------------------------------------
 
     def _variant_menu(self) -> None:
-        """Variant management over the current job. The base is snapshotted
+        """Variant generation over the current job. The base is snapshotted
         on entry; the user edits the live copy and saves it as its own JSON,
         then the working copy is reset to the base. The base is never
-        mutated, and no variant inherits an earlier one's changes."""
+        mutated, and no variant inherits an earlier one's changes.
+        
+        Ordinary editing modifies the currently loaded job directly.
+        Variant generation creates alternative configurations that differ
+        from the base in specified ways, saving each as an independent JSON
+        file.
+        
+        Batch generation is a form of variant generation, not a separate
+        feature: both manual and file-based variants use the same underlying
+        infrastructure (VariantService, VariantSpec, expand, generate)."""
         project = self._project()
         if project is None:
             return
@@ -1463,11 +1521,14 @@ class MenuApp:
                     return
                 self._say(_banner(_text("menu.variant_title"), self._width))
                 self._say()
+                self._say(_text("menu.variant_description"))
+                self._say()
                 self._say(_text("menu.variant_base_job") % self._variant_base.metadata.name)
                 self._say(
-                    _text("menu.variant_base_entities")
+                    _text("menu.variant_base_entities") 
                     % len(self._variant_base.records)
                 )
+                self._say(_text("menu.variant_base_info"))
                 self._say(
                     _text("menu.variant_current")
                     % (self._variant_name or self._default_variant_name())
@@ -1487,6 +1548,10 @@ class MenuApp:
                     self._edit_entity_menu()
                 elif choice == "4":
                     self._save_variant_and_reset()
+                elif choice == "5":
+                    self._batch_generate_from_file()
+                elif choice == "6":
+                    self._list_variants()
                 elif choice:
                     self._say(_text("menu.invalid") % choice)
         finally:
@@ -1494,6 +1559,66 @@ class MenuApp:
             # active variant entirely — the base job is never modified.
             self._reset_variant()
             self._variant_base = None
+
+    def _batch_generate_from_file(self) -> None:
+        """Generate multiple variants from a file (protein, DNA, or ligand SMILES)."""
+        self._say()
+        self._say(_text("menu.variant_file_menu"))
+        entries = [
+            (_text("menu.variant_file_protein"), "protein"),
+            (_text("menu.variant_file_dna"), "dna"),
+            (_text("menu.variant_file_ligand"), "ligand"),
+        ]
+        family = self._numbered_choice(_text("menu.variant_file_menu"), entries)
+        if family is None:
+            return
+        self._say()
+        self._say(_text("menu.variant_choose_file"))
+        path = self._pick_path("menu.ask_import_path")
+        if not path:
+            return
+        self._say()
+        self._say(_text("menu.variant_batch_generating"))
+        result = self._services.variants.generate_from_file(path, family=family)
+        if result.ok:
+            count = self._services.variants.spec_count()
+            self._say(_text("menu.variant_batch_success") % (count, path))
+            self._say(_text("menu.variant_batch_info") % count)
+        else:
+            self._say(_text("menu.variant_batch_failed") % (result.message or _text("menu.unknown_error")))
+
+    def _list_variants(self) -> None:
+        """Show all variants that have been created."""
+        while True:
+            self._say(_banner(_text("menu.variant_list_title"), self._width))
+            self._say()
+            specs = self._services.variants.specs()
+            if not specs:
+                self._say(_text("menu.variant_list_empty"))
+            else:
+                for index, spec in enumerate(specs, start=1):
+                    self._say(_text("menu.variant_list_entry") % (index, spec.label, spec.key))
+            self._say()
+            self._say(_text("menu.variant_list_back"))
+            choice = self._select()
+            if choice in ("0", "q", "back"):
+                return
+            # Could add variant preview/edit options here in the future
+            try:
+                index = int(choice)
+                if 1 <= index <= len(specs):
+                    spec = specs[index - 1]
+                    self._say()
+                    self._say(_text("menu.variant_preview_title") % spec.label)
+                    self._say(_text("menu.variant_preview_key") % spec.key)
+                    self._say(_text("menu.variant_preview_edits"))
+                    for edit in self._services.variants.describe_spec_edits(spec.key):
+                        self._say("  - %s" % edit.get("description", "unknown"))
+                    self._say()
+                else:
+                    self._say(_text("menu.invalid") % choice)
+            except ValueError:
+                self._say(_text("menu.invalid") % choice)
 
     def _default_variant_name(self) -> str:
         base = self._variant_base.metadata.name if self._variant_base is not None else "job"

@@ -203,7 +203,13 @@ def test_no_version_without_an_explicit_target():
 def test_pinned_version_needs_no_evidence_to_validate_clean():
     """An unevidenced pin is a valid explicit choice: R-VER-002 does not
     fire, and a cited pin stays clean — provenance travels when given but
-    is never required. Same result whether the doc exists or not."""
+    is never required. Same result whether the doc exists or not.
+
+    The context carries the version-feature facts the way ``app`` joins
+    them (R-VER-002 compares the pin against what the job actually uses),
+    so this also proves an evidenced and an unevidenced pin behave
+    identically on the real path.
+    """
     from configbuilder.identity import IdentityRegistry, Multiplicity
     from configbuilder.model import (
         Configuration,
@@ -213,7 +219,8 @@ def test_pinned_version_needs_no_evidence_to_validate_clean():
         SeedSet,
         SequenceText,
     )
-    from configbuilder.validation import validate
+    from configbuilder.transform import used_version_features
+    from configbuilder.validation import ValidationContext, validate
 
     def _config(evidence):
         return Configuration(
@@ -230,9 +237,17 @@ def test_pinned_version_needs_no_evidence_to_validate_clean():
             FormatTarget(version_selection=Pinned(3, evidence=evidence))
         )
 
-    bare = validate(_config(""))
+    def _report(configuration):
+        return validate(
+            configuration,
+            ValidationContext(
+                used_version_features=used_version_features(configuration)
+            ),
+        )
+
+    bare = _report(_config(""))
     assert "R-VER-002" not in [f.rule_id for f in bare.findings]
-    cited = validate(_config("PIN-001"))
+    cited = _report(_config("PIN-001"))
     assert "R-VER-002" not in [f.rule_id for f in cited.findings]
 
 

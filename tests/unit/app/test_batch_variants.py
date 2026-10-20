@@ -256,3 +256,135 @@ def test_generated_variants_pass_variant_validation(tmp_path):
     assert not result.base_report.blocking()
     for key, report in result.variant_reports.items():
         assert not report.blocking(), (key, [f.user_message for f in report.blocking()])
+
+
+# -- ligand batches: SMILES is a representation, never a sequence -------------------
+
+
+def test_a_ligand_smiles_batch_builds_component_records(tmp_path):
+    """A ligand file becomes ligand records with a ByNotation representation.
+
+    Regression: the builder wrapped SMILES in ``SequenceText(..., "ligand")``,
+    an unknown sequence family, so every ligand batch refused before creating
+    anything even though the CLI offered the option.
+    """
+    from configbuilder.model import ByNotation, ComponentRecord
+
+    projects, configuration, variants, _ = _services()
+    path = _write(tmp_path, "first CCO\nCCC\n", name="ligands.smiles")
+
+    outcome = variants.generate_from_file(path, family="ligand")
+
+    assert outcome.ok, outcome.message
+    assert [spec.key for spec in projects._specs()] == ["batch_01", "batch_02"]
+    expanded = _expanded_variants(variants, projects)
+    for key, smiles in (("batch_01", "CCO"), ("batch_02", "CCC")):
+        added = expanded[key].configuration.records[-1]
+        assert isinstance(added, ComponentRecord)
+        assert isinstance(added.representation, ByNotation)
+        assert added.representation.text == smiles
+    # The base still has only its own protein.
+    assert len(projects.project.configuration.records) == 1
+
+
+def test_inspect_batch_file_previews_the_family_reader(tmp_path):
+    projects, configuration, variants, _ = _services()
+    protein = _write(tmp_path, "MSTNPKP\nGKKIGYS\n")
+    preview = variants.inspect_batch_file(protein, family="protein")
+    assert preview.ok
+    assert preview.entries == ("MSTNPKP", "GKKIGYS")
+
+    smiles = _write(tmp_path, "first CCO\nCCC\n", name="ligands.smiles")
+    preview = variants.inspect_batch_file(smiles, family="ligand")
+    assert preview.ok
+    assert preview.entries == ("CCO", "CCC")
+    assert projects._specs() == ()
+
+
+def test_inspect_batch_file_refuses_an_unsupported_family(tmp_path):
+    projects, configuration, variants, _ = _services()
+    path = _write(tmp_path, "ACGU\n")
+    preview = variants.inspect_batch_file(path, family="rna")
+    assert not preview.ok
+    assert "not supported" in preview.message
+    assert projects._specs() == ()
+
+
+def test_inspect_batch_file_reports_the_planned_count_and_the_lines(tmp_path):
+    """Stage 8: the preview checks the batch the way the commit will.
+
+    A usable file reports how many variants the commit would create; an
+    unusable one is refused with the offending line *before* anything is
+    created, and the base keeps its identifiers and its records because the
+    check runs against a discarded registry clone.
+    """
+    projects, configuration, variants, _ = _services()
+    good = _write(tmp_path, "MSTNPKP\nGKKIGYS\n")
+
+    preview = variants.inspect_batch_file(good, family="protein")
+
+    assert preview.ok, preview.message
+    assert preview.planned == 2
+
+    bad = _write(tmp_path, "MSTNPKP\nACD EFG\n", name="bad.txt")
+    before = projects.project.configuration
+    preview = variants.inspect_batch_file(bad, family="protein")
+
+    assert not preview.ok
+    assert "line 2" in preview.message
+    assert preview.entries == ("MSTNPKP", "ACD EFG"), "what was read is shown"
+    assert projects._specs() == ()
+    assert projects.project.configuration is before, "no record was reserved"
+
+
+def test_inspect_batch_file_reports_a_key_that_already_exists(tmp_path):
+    """A collision the commit would refuse is visible before the commit."""
+    projects, configuration, variants, _ = _services()
+    assert variants.add_spec_with_edit("batch_01", "Taken", "job_name", "x").ok
+    path = _write(tmp_path, "MSTNPKP\n")
+
+    preview = variants.inspect_batch_file(path, family="protein")
+
+    assert not preview.ok
+    assert "batch_01" in preview.message
+    assert [spec.key for spec in projects._specs()] == ["batch_01"]
+
+
+# -- create a spec and its first change atomically ----------------------------------
+
+
+def test_add_spec_with_edit_commits_the_spec_and_its_change_together():
+    projects, configuration, variants, _ = _services()
+    outcome = variants.add_spec_with_edit(
+        "long_loop", "Long loop", "sequence", "GGGGS", record_key="A"
+    )
+    assert outcome.ok, outcome.message
+    spec = projects._specs()[0]
+    assert spec.label == "Long loop"
+    assert [type(edit).__name__ for edit in spec.edits] == ["SetSequence"]
+    assert "GGGGS" not in projects.project.configuration.records[0].sequence.text
+
+
+def test_add_spec_with_edit_refuses_without_leaving_a_spec():
+    projects, configuration, variants, _ = _services()
+    before = projects.project.configuration
+    outcome = variants.add_spec_with_edit(
+        "bad", "Bad", "sequence", "ACDE\nFGH", record_key="A"
+    )
+    assert not outcome.ok
+    assert projects._specs() == ()
+    assert projects.project.configuration is before
+
+
+def test_add_spec_with_edit_keeps_keys_unique():
+    projects, configuration, variants, _ = _services()
+    assert variants.add_spec_with_edit(
+        "v1", "V1", "job_name", "one"
+    ).ok
+    before = projects.project.configuration
+    outcome = variants.add_spec_with_edit(
+        "v1", "Again", "job_name", "two"
+    )
+    assert not outcome.ok
+    assert [spec.key for spec in projects._specs()] == ["v1"]
+    assert projects.project.configuration is before

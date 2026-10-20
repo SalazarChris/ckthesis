@@ -15,7 +15,12 @@ from configbuilder.persistence.schema import (
     Project,
     upgrade,
 )
-from configbuilder.persistence.sequences import read_sequence_file
+from configbuilder.persistence.sequences import (
+    parse_sequence_text,
+    parse_smiles_text,
+    read_sequence_file,
+    read_smiles_file,
+)
 from configbuilder.persistence.store import PROJECT_EXTENSION, load, save
 
 __all__ = [
@@ -27,7 +32,10 @@ __all__ = [
     "PROJECT_EXTENSION",
     "Project",
     "load",
+    "parse_sequence_text",
+    "parse_smiles_text",
     "read_sequence_file",
+    "read_smiles_file",
     "save",
     "upgrade",
 ]

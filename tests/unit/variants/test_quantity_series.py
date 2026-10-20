@@ -303,8 +303,7 @@ def test_ui_quantity_is_asked_on_add(tmp_path, monkeypatch):
     out = console.transcript
     assert status == 0
     # the add flow asked the quantity question and never mentioned series
-    assert "How many copies?" in out
-    assert "Custom quantity" in out
+    assert "How many copies of this ligand do you want?" in out
     assert "concentration" not in out.lower()
     # the entity listing shows the counted ligand line
     assert "x2" in out
