@@ -38,15 +38,8 @@ Thumbs.db
 # Root-anchored: nothing under tests/fixtures/ is affected by this rule.
 /testdata/
 
-# The three planning documents below describe how the project was built rather
-# than what it ships, and they are read by nothing — no test, fixture or runtime
-# module. They stay on disk and untracked by decision, not by accident.
-#
-# `AUTHORITATIVE_SPEC.md` and `DOMAIN_MAPPING.md` are deliberately NOT here:
-# `tests/contract/test_catalogue_traceability.py` reads both files and fails
-# collection without them, so a clone that omitted them could not run the suite
-# at all. They are the contract this builder's rule catalogue is transcribed
-# from, i.e. test input, not commentary.
+# Planning documents that describe how the project was built rather than
+# what it ships. They stay on disk and untracked by decision.
 IMPLEMENTATION_PLAN.md
 HANDOFF.md
 CHECKLIST.md
@@ -58,12 +51,21 @@ CHECKLIST.md
 # and launchers only. These files remain in the working copy so they can still
 # be read or run, but they are not part of Git and no clone needs them.
 #
-#   tests/       the local test suite and its fixtures
+#   tests/       the local test suite
+#   fixtures/    golden recipes, compatibility projects and builder fixtures
 #   docs/        local reports, prompts and reference material
-#   .github/    local CI configuration
+#   .github/     local CI configuration
 #   *.md         root specifications, audits and READMEs
-#
+#   af3_analysis/          separate comparative-analysis package
+#   generated_jobs/        local generated output and recipes
+#   .stage*                local review screenshots and notes
+#   pytest-of-*/           pytest's local temp workspace
 tests/
+fixtures/
 docs/
 .github/
 *.md
+af3_analysis/
+generated_jobs/
+.stage*
+pytest-of-*/
