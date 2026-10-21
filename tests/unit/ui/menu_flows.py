@@ -27,7 +27,7 @@ PROTEIN_SEQUENCE = "ACDEFGHIKLMNPQRSTVWY"
 # -- openings -----------------------------------------------------------------
 
 OPEN = ["1", "Oct4_POU"]          # main: 1 New job, then a name
-OPEN_BLANK_NAME = ["1", ""]       # blank: the service mints config-NNN
+OPEN_BLANK_NAME = ["1", ""]       # blank: the service names it "Untitled job N"
 OPEN_FILE = ["2"]                 # main: 2 Open a JSON file (then the picker)
 
 # -- whole units, each ending back at the job menu ----------------------------

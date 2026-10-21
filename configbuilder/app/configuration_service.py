@@ -220,17 +220,22 @@ class ConfigurationService:
 
     # -- records -----------------------------------------------------------------
 
-    def add_record(self, family: str, sequence: str = "", representation="", copies: int = 1, description=None, representation_kind=""):
+    def add_record(self, family: str, sequence: str = "", representation="", copies: int = 1, description=None, representation_kind="", duplex: bool = True):
         """Add a record; identity allocates its identifiers (plan §8.1).
 
         ``family`` is ``"protein"`` / ``"rna"`` / ``"dna"`` / ``"ligand"``.
         ``copies`` > 1 reserves an ordered copy multiplicity (plan §8.2).
 
-        A ``dna`` entry is a duplex (DNA duplex feature): the caller
-        supplies one 5'-to-3' strand and this service commits **two**
+        A ``dna`` entry is a duplex by default (DNA duplex feature): the
+        caller supplies one 5'-to-3' strand and this service commits **two**
         records — the given strand and its reverse complement — each with
-        its own registry-allocated identifier. The complement is built
-        here at the domain boundary, never in a front end.
+        its own registry-allocated identifier. The complement is built here
+        at the domain boundary, never in a front end.
+
+        ``duplex=False`` commits only the supplied strand, the same lone
+        record an imported single-chain DNA entity produces. It is a
+        deliberate choice of the caller (the console's complement question);
+        the default remains the duplex so no existing caller changes.
         """
         configuration = self._configuration()
         if configuration is None:
@@ -260,7 +265,7 @@ class ConfigurationService:
         registry = configuration.identity.clone()
         records, failure = self._build_records(
             family, sequence, representation, copies, registry,
-            representation_kind=representation_kind,
+            representation_kind=representation_kind, duplex=duplex,
         )
         if failure is not None:
             return failure
@@ -270,7 +275,7 @@ class ConfigurationService:
             configuration.with_records(configuration.records + records).with_identity(registry)
         )
 
-    def _build_records(self, family, sequence, representation, copies, registry: IdentityRegistry, representation_kind=""):
+    def _build_records(self, family, sequence, representation, copies, registry: IdentityRegistry, representation_kind="", duplex=True):
         """Build the record(s) with registry-allocated identifiers.
 
         Returns ``(records, None)`` or ``((), MutationOutput)``. Every
@@ -283,7 +288,7 @@ class ConfigurationService:
         """
         owner = "record"
         try:
-            strands = 2 if family == "dna" else copies
+            strands = 2 if family == "dna" and duplex else copies
             allocated = [registry.allocate(owner=owner) for _ in range(strands)]
             if family == "ligand":
                 representation_value = self._ligand_representation(representation, kind=representation_kind)
@@ -299,6 +304,8 @@ class ConfigurationService:
                 ids = Multiplicity([allocated[0].value])
                 return (FamilyBRecord(ids=ids, sequence=text),), None
             given = FamilyCRecord(ids=Multiplicity([allocated[0].value]), sequence=text)
+            if not duplex:
+                return (given,), None
             partner = given.complement()
             partner = FamilyCRecord(
                 ids=Multiplicity([allocated[1].value]),

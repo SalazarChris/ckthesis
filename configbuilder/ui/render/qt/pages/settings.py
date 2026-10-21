@@ -99,18 +99,23 @@ class JobSettingsPanel(QWidget):
         grid.setVerticalSpacing(5)
 
         self.name_edit = QLineEdit()
+        # A QGridLayout label is not a buddy, so the screen reader needs the
+        # field's own name; it is the same wording the visible label carries.
+        self.name_edit.setAccessibleName(_text("gui.field_job_name"))
         self.name_apply = QPushButton(_text("gui.settings_apply"))
         self.name_state = caption_label()
         self.name_edit.returnPressed.connect(self.apply_name)
         self.name_apply.clicked.connect(self.apply_name)
 
         self.seeds_edit = QLineEdit()
+        self.seeds_edit.setAccessibleName(_text("gui.field_seeds"))
         self.seeds_apply = QPushButton(_text("gui.settings_apply"))
         self.seeds_state = caption_label()
         self.seeds_edit.returnPressed.connect(self.apply_seeds)
         self.seeds_apply.clicked.connect(self.apply_seeds)
 
         self.version_combo = QComboBox()
+        self.version_combo.setAccessibleName(_text("gui.field_version"))
         for version in SUPPORTED_VERSIONS:
             self.version_combo.addItem(str(version), version)
         self.version_apply = QPushButton(_text("gui.settings_apply"))

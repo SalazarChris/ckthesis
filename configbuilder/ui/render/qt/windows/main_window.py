@@ -201,6 +201,10 @@ class MainWindow(QMainWindow):
         # not a destination, not in the sidebar and not reachable from any
         # button. Save JSON… is the user-facing route to the file itself.
         self._preview = PreviewPage(self._state, notify=self._notify, parent=self)
+        # It is not in the workspace stack and has no destination any more, so
+        # it must not be an unmanaged visible child: hiding it keeps its
+        # controls out of the tab order as well as off the screen.
+        self._preview.hide()
         self._build_shell()
         # The Overview's entity summary changes destination; nothing else
         # about it is special.

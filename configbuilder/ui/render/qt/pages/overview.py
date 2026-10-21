@@ -128,7 +128,12 @@ class OverviewPage(QWidget):
         self.entities_button.setProperty("role", "quiet")
         self.entities_button.clicked.connect(self.entities_requested.emit)
         row.addWidget(self.entities_button)
-        row.addWidget(caption_label(_text("gui.entity_summary_hint")), 1)
+        # Wrap: the hint's full sentence is wider than the content area at the
+        # window's 940 px minimum, and an unwrapped label forced the whole
+        # Overview into a horizontal scrollbar there.
+        row.addWidget(
+            caption_label(_text("gui.entity_summary_hint"), wrap=True), 1
+        )
         layout.addLayout(row)
         return card
 

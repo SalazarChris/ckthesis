@@ -867,23 +867,15 @@ class MenuApp:
             self._say(_text("menu.dna_complement_will_add"))
         else:
             self._say(_text("menu.dna_complement_will_not_add"))
-        # Add the DNA. The configuration service always creates the duplex
-        # structurally, but we need to control whether the complement is
-        # included in the final output. For now, we add the sequence and
-        # then optionally remove the complement if the user said no.
-        if not self._report(
-            self._services.configuration.add_record("dna", sequence)
-        ):
-            return False
-        if not add_complement:
-            # Remove the complement strand that was automatically created.
-            records = self._records("dna")
-            if records:
-                # The complement is the second record (partner).
-                # Keep only the first (original) strand.
-                for record in records[1:]:
-                    self._services.configuration.remove_record(record.ids.primary.value)
-        return True
+        # The service decides the record shape: ``duplex=False`` commits the
+        # supplied strand alone (the same lone record an imported single DNA
+        # chain produces), so the console never adds a pair and then deletes
+        # it. Either answer is one operation.
+        return self._report(
+            self._services.configuration.add_record(
+                "dna", sequence, duplex=add_complement
+            )
+        )
 
     def _chain_msa(self, family: str, record_key: str = None) -> None:
         """The record's MSA question: y -> collect, N/blank -> skip."""

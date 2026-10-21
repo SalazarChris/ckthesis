@@ -13,10 +13,13 @@ Menu depth reference (see ``ui/render/menus.py``)::
 
     main     1 New job   2 Open a JSON file   0 Exit
     job      1 Edit job configurations   2 Add entity   3 Edit entity
-             4 Custom CCD management      5 PTM management
+             4 Custom CCD management      5 Post-translational modification
+             management
              6 Save and show summary      7 Create variants based on this JSON
-    config   1 Job name  2 Model seeds  3 JSON version  0 Back
-    add      1 Protein   2 DNA   3 RNA   4 Ligand
+    config   1 Job name  2 Model seeds → 1 specific / 2 generate  3 JSON version
+             0 Back
+    add      1 Protein   2 DNA (+ complement yes/no)   3 RNA   4 Ligand
+             0 Back
     edit     1 Edit      2 Delete   (3 Modifications for a polymer)  0 Back
     CCD      1 View  2 Add  3 Edit  4 Remove  0 Back
     PTM      1 View  2 Add  3 Edit  4 Remove  0 Back
@@ -24,8 +27,10 @@ Menu depth reference (see ``ui/render/menus.py``)::
              0 Back
 
 A dirty job never leaves silently: at the job menu ``0`` asks Save / Leave
-without saving / Cancel first. Leaving variant management always restores the
-base job — a variant exists only in the file it was saved to.
+without saving / Cancel first. Opening a JSON file commits it directly after
+the path is chosen; the picker itself can still be cancelled with ``0``.
+Leaving variant management always restores the base job — a variant exists
+only in the file it was saved to.
 """
 
 from __future__ import annotations
@@ -47,7 +52,7 @@ NEW_JOB = ["1", "job"]
 # job 2 Add entity → family → that family's answers → job menu
 ADD_PROTEIN = ["2", "1", PROTEIN, "", ""]          # sequence, MSA no, templates no
 ADD_RNA = ["2", "3", "ACGU", ""]                   # sequence, MSA no
-ADD_DNA = ["2", "2", "ATGC"]                       # one strand in, a duplex out
+ADD_DNA = ["2", "2", "ATGC", "1"]                 # one strand in, yes to the complement: a duplex out
 ADD_LIGAND = lambda value, quantity: ["2", "4", "1", value, quantity]
 # job 3 Edit entity → pick → action … → 0 → 0 back to the job menu
 LEAVE_DIRTY = ["0", "2", "0"]                      # job: leave → discard → main: exit
@@ -119,7 +124,7 @@ def test_new_job_arrives_with_the_documented_defaults():
 def test_a_blank_job_name_is_generated_by_the_service():
     status, out, services = run(["1", ""] + LEAVE_CLEAN)
     assert status == 0
-    assert services.projects.project.configuration.metadata.name == "config-001"
+    assert services.projects.project.configuration.metadata.name == "Untitled job 1"
 
 
 # -- add entity: every family, refusals and cancellations --------------------
@@ -186,7 +191,7 @@ def test_job_settings_change_name_seeds_and_version():
         NEW_JOB
         + ["1"]                        # job → config
         + ["1", "renamed"]             # config 1: name
-        + ["2", "1 2 3 4"]             # config 2: seeds
+        + ["2", "1", "1 2 3 4"]       # config 2: seeds → method 1: specific values
         + ["3", "3"]                   # config 3: version
         + ["0"]                        # config → job
         + LEAVE_DIRTY
@@ -203,9 +208,9 @@ def test_invalid_job_settings_are_refused_in_the_users_terms():
         NEW_JOB
         + ["1"]                        # job → config
         + ["3", "9"]                   # unsupported JSON version
-        + ["2", "not seeds"]           # the service refuses
+        + ["2", "1", "not seeds"]     # seeds → specific values: the service refuses
         + ["0"]                        # config → job
-        + LEAVE_DIRTY
+        + LEAVE_CLEAN                  # neither refusal changed the job
     )
     assert status == 0
     assert "Unsupported JSON version" in out
@@ -223,7 +228,7 @@ def test_the_job_menu_numbering_is_stable_across_states():
         "2. Add entity",
         "3. Edit entity",
         "4. Custom CCD management",
-        "5. PTM management",
+        "5. Post-translational modification management",
         "6. Save and show summary",
         "7. Create variants based on this JSON",
         "0. Return to main menu",
@@ -284,9 +289,9 @@ def test_the_entity_modifications_submenu_adds_edits_and_removes():
         + LEAVE_DIRTY
     )
     assert status == 0
-    assert "Modification added." in out
-    assert "Modification updated." in out
-    assert "Modification removed." in out
+    assert "Post-translational modification added." in out
+    assert "Post-translational modification updated." in out
+    assert "Post-translational modification removed." in out
     record = services.projects.project.configuration.records[0]
     assert record.modifications == ()
 
@@ -295,15 +300,16 @@ def test_ptm_management_adds_edits_and_removes():
     status, out, services = run(
         NEW_JOB
         + ADD_PROTEIN
-        + ["5", "2", "1", "TPO", "3"]                          # add
+        + ["5", "2", "1", "TPO", "3"]                          # add to entity A
         + ["5", "3", "1", "1", "", "4"]                        # edit row 1 → position 4
         + ["5", "4", "1", "1"]                                 # remove row 1
+        + ["0"]                                                  # PTM → job
         + LEAVE_DIRTY
     )
     assert status == 0
-    assert "Modification added." in out
-    assert "Modification updated." in out
-    assert "Modification removed." in out
+    assert "Post-translational modification added." in out
+    assert "Post-translational modification updated." in out
+    assert "Post-translational modification removed." in out
     assert services.projects.project.configuration.records[0].modifications == ()
 
 
@@ -315,7 +321,7 @@ def test_a_ligand_carries_no_modifications_and_is_told_so():
         + LEAVE_DIRTY
     )
     assert status == 0
-    assert "ligands carry no modifications" in out
+    assert "ligands carry no post-translational modifications" in out
 
 
 # -- custom CCD management ---------------------------------------------------
@@ -542,7 +548,7 @@ def _af3_file(tmp_path, name="in.json", job="imported", seeds=(1, 2)):
 def test_open_json_reports_the_preview_and_replaces_the_job(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     path = _af3_file(tmp_path)
-    status, out, services = run(["2", str(path), "1"] + LEAVE_CLEAN)
+    status, out, services = run(["2", str(path)] + LEAVE_CLEAN)
     assert status == 0
     assert "Name: imported" in out
     assert "Entities: 1" in out
@@ -554,10 +560,9 @@ def test_open_json_reports_the_preview_and_replaces_the_job(tmp_path, monkeypatc
     assert configuration.records[0].sequence.text == PROTEIN
 
 
-def test_open_json_can_be_cancelled_at_the_confirm(tmp_path, monkeypatch):
+def test_open_json_can_be_cancelled_at_the_picker(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    path = _af3_file(tmp_path)
-    status, out, services = run(["2", str(path), "2", "0"])
+    status, out, services = run(["2", "0", "0"])
     assert status == 0
     assert "JSON opened." not in out
     assert services.projects.project is None
@@ -577,7 +582,7 @@ def test_open_json_reports_malformed_and_missing_files(tmp_path, monkeypatch):
     assert "Could not open this JSON." in out
 
 
-def test_open_json_reports_unsupported_fields_before_loading(tmp_path, monkeypatch):
+def test_open_json_reports_unsupported_fields_while_loading(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     path = tmp_path / "extra.json"
     path.write_text(
@@ -595,7 +600,7 @@ def test_open_json_reports_unsupported_fields_before_loading(tmp_path, monkeypat
         ),
         encoding="utf-8",
     )
-    status, out, services = run(["2", str(path), "1"] + LEAVE_CLEAN)
+    status, out, services = run(["2", str(path)] + LEAVE_CLEAN)
     assert status == 0
     assert "not supported for editing" in out
     # the supported parts are preserved
@@ -607,7 +612,7 @@ def test_an_opened_job_can_be_edited_and_saved(tmp_path, monkeypatch):
     source = _af3_file(tmp_path)
     destination = tmp_path / "out" / "saved.json"
     status, out, _ = run(
-        ["2", str(source), "1"]
+        ["2", str(source)]
         + ["3", "1", "1", OTHER_PROTEIN, "", "", "", "0", "0"]
         + ["6", str(destination)]
         + LEAVE_CLEAN

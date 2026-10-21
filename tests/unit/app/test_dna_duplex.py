@@ -107,6 +107,37 @@ def test_dna_rejects_copies_because_duplex_is_automatic():
     assert "duplex" in outcome.message
 
 
+def test_duplex_false_commits_only_the_supplied_strand():
+    """The console's "single-stranded" answer is one record, not a pair that
+    is then deleted (which removed both strands)."""
+    projects, configuration = _service_with_protein()
+    outcome = configuration.add_record("dna", "ATGC", duplex=False)
+
+    assert outcome.ok, outcome.message
+    dna = [
+        record
+        for record in projects.project.configuration.records
+        if isinstance(record, FamilyCRecord)
+    ]
+    assert [(record.ids.primary.value, record.sequence.text) for record in dna] == [
+        ("B", "ATGC")
+    ]
+    assert projects.project.configuration.identity.is_taken("B")
+    assert not projects.project.configuration.identity.is_taken("C")
+
+
+def test_a_single_strand_edit_and_remove_need_no_partner():
+    projects, configuration = _service_with_protein()
+    configuration.add_record("dna", "ATGC", duplex=False)
+
+    assert configuration.update_record("B", sequence="GGGG").ok
+    assert _strands(projects) == [("B", "GGGG")]
+
+    assert configuration.remove_record("B").ok
+    assert _strands(projects) == []
+    assert not projects.project.configuration.identity.is_taken("B")
+
+
 # -- keeping the duplex consistent through edits and deletes ----------------------
 #
 # The builder creates the duplex, so it owns the invariant: whatever the user

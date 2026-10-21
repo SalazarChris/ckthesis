@@ -108,10 +108,10 @@ $env:QT_QPA_PLATFORM = "offscreen"
 .\.venv-gui\Scripts\python.exe -m pytest -o addopts="" -q tests/gui
 ```
 
-Known pre-existing failures: the `tests/e2e` modules still script the older
-numbered terminal menu and fail (13 node IDs, listed in
-`docs/GUI_STAGE7_FINAL_UX_AND_RELEASE_REPORT.md`). Every GUI, architecture,
-app, output and serialization suite passes.
+The `tests/e2e` modules drive the current menu (including the DNA
+complement question and the direct-open import flow), so they pass with the
+rest: the core suite has no known failures. See
+`docs/GUI_AUTOMATED_QA_REPORT.md` for the latest full-suite evidence.
 
 ## Packaging
 

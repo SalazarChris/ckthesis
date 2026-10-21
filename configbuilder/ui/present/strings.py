@@ -898,7 +898,7 @@ STRINGS = {
     "gui.output_title": "Generate output files",
     "gui.output_intro": (
         "Review the plan first - nothing is written until you confirm. Save "
-        "JSON in the File menu writes one file; this page writes the planned "
+        "JSON in the FILE footer writes one file; this page writes the planned "
         "project folder, any copied assets and the manifest."
     ),
     "gui.output_base": "Base job: %s - %d entities, %d variants",

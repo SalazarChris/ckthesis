@@ -29,7 +29,8 @@ RNA = "ACGUACGU"
 NEW = lambda name: ["1", name]
 ADD_PROTEIN = lambda sequence: ["2", "1", sequence, "", ""]
 ADD_RNA = lambda sequence: ["2", "3", sequence, ""]
-ADD_DNA = lambda sequence: ["2", "2", sequence]
+ADD_DNA = lambda sequence: ["2", "2", sequence, "1"]  # yes to the complement
+ADD_LONE_DNA = lambda sequence: ["2", "2", sequence, "2"]  # single strand
 ADD_LIGAND = lambda value, copies="1": ["2", "4", "1", value, copies]
 DELETE_ENTITY = lambda number: ["3", str(number), "2", "1", "0"]
 EDIT_PROTEIN = lambda number, sequence, description="": [
@@ -53,7 +54,7 @@ REMOVE_MOD = lambda number, row: ["3", str(number), "3", "3", str(row), "0", "0"
 REMOVE_MOD_NONE = lambda number: ["3", str(number), "3", "3", "0", "0", "0"]
 CANCEL_DELETE = ["3", "1", "2", "2", "0", "0"]
 SAVE = lambda destination: ["6", str(destination)]
-REOPEN = lambda path: ["2", str(path), "1"]
+REOPEN = lambda path: ["2", str(path)]
 LEAVE_DIRTY = ["0", "2", "0"]
 LEAVE_CLEAN = ["0", "0"]
 EXIT = ["0"]
@@ -179,6 +180,28 @@ def test_every_family_survives_a_full_lifecycle(tmp_path, monkeypatch):
     configuration = assert_invariants(services, out)
     assert status == 0
     assert [record.ids.primary.value for record in configuration.records] == ["A", "B", "E"]
+
+
+# -- a single supplied DNA strand -------------------------------------------
+
+
+def test_dna_can_be_added_as_one_supplied_strand():
+    """The "single-stranded" answer adds exactly the strand the user typed.
+
+    Regression: the console used to add the duplex and then remove its
+    partner, which removed both strands and left an empty job while still
+    reporting that an entity had been added.
+    """
+    status, out, services = run(
+        NEW("Lone DNA") + ADD_LONE_DNA("ATGC") + LEAVE_DIRTY
+    )
+    configuration = assert_invariants(services, out)
+    assert status == 0
+    assert [type(record).__name__ for record in configuration.records] == [
+        "FamilyCRecord"
+    ]
+    assert configuration.records[0].sequence.text == "ATGC"
+    assert "Only the supplied strand will be used." in out
 
 
 # -- modifications -----------------------------------------------------------
