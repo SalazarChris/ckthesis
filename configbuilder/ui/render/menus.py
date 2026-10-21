@@ -28,7 +28,6 @@ from configbuilder.model.records import (
 )
 
 from configbuilder.app.configuration_service import ReferenceInput
-from configbuilder.app.results import FailureReason
 from configbuilder.app.status import FieldState
 from configbuilder.ui.present.sequence import residue_at
 from configbuilder.ui.present.strings import text as _text
@@ -1451,23 +1450,15 @@ class MenuApp:
         return True
 
     def _write_json(self, destination: str, name, overwrite: bool) -> bool:
-        """Validate, serialize and write the current configuration through
-        the generation service. Nothing is written before the plan succeeds;
-        a failed write keeps the in-memory job intact."""
-        from configbuilder.ui.present import format_findings
-
+        """Serialize and write the current configuration through the
+        generation service. Nothing is written before the plan succeeds; a
+        failed write keeps the in-memory job intact. There is no readiness
+        gate: a serializable configuration is written."""
         plan = self._services.generation.plan_save(
             destination, name=name, overwrite=overwrite
         )
         if not plan.ok:
-            if plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
-                self._say(_text("menu.save_job_blocked"))
-                status = self._services.validation.status()
-                if status is not None:
-                    self._say_status(status)
-                self._print_cards(plan.findings, format_findings)
-            else:
-                self._say(_text("menu.not_applied") % (plan.message or ""))
+            self._say(_text("menu.not_applied") % (plan.message or ""))
             for conflict in plan.conflicts:
                 self._say(_text("menu.export_conflict") % conflict)
             return False

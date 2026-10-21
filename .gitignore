@@ -52,17 +52,18 @@ HANDOFF.md
 CHECKLIST.md
 
 # ---------------------------------------------------------------------------
-# Version-controlled project material (deliberately NOT ignored).
+# Verification material: kept on disk, deliberately untracked.
 #
-# `tests/`, `fixtures/` and `docs/` were excluded wholesale by earlier rules,
-# which left the whole suite, its fixtures and the contract-pin document
-# untracked: `git ls-files tests` returned 0 files, so no clone could reproduce
-# the audit's test result. They are tracked now.
+# The builder was verified locally; the repository now carries the application
+# and launchers only. These files remain in the working copy so they can still
+# be read or run, but they are not part of Git and no clone needs them.
 #
-#   tests/                   the suite, including tests/fixtures/af3_pipeline/
-#   fixtures/                golden recipes, compatibility .cbproj files, builder
-#   docs/                    CONTRACT_PIN.md (cited by tests), PROJECT_AUDIT.md
-#   AUTHORITATIVE_SPEC.md    read by tests/contract/test_catalogue_traceability
-#   DOMAIN_MAPPING.md        read by tests/contract/test_catalogue_traceability
+#   tests/       the local test suite and its fixtures
+#   docs/        local reports, prompts and reference material
+#   .github/    local CI configuration
+#   *.md         root specifications, audits and READMEs
 #
-# `__pycache__/` above still excludes compiled test bytecode.
+tests/
+docs/
+.github/
+*.md

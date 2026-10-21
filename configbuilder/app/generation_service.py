@@ -2,13 +2,14 @@
 
 The generation sequence is fixed in exactly one place, in this order:
 
-1. Validate the base. Stop on ``ERROR``.
-2. Expand variants.
-3. Validate each variant, including the drift check.
-4. Transform each variant.
-5. Encode each wire document.
-6. Build the output plan, including collision detection and the manifest
+1. Expand variants.
+2. Transform each variant.
+3. Encode each wire document.
+4. Build the output plan, including collision detection and the manifest
    payload.
+
+There is no readiness gate: a configuration that the serializer can
+represent is generated. Model constructors still reject impossible values.
 
 Everything before ``execute`` is pure planning (plan §13.3): nothing is
 written without a plan, and ``execute`` performs writes only — it does
@@ -17,7 +18,7 @@ written. The service returns result objects and writes nothing itself
 (plan §5.3 rule 8: filesystem access is confined to ``output`` and
 ``persistence``).
 
-Two wire-level agreements happen between steps 4 and 5, both through
+Two wire-level agreements happen between steps 2 and 3, both through
 ``transform`` so wire vocabulary never leaks into ``app`` (plan §10.1):
 
 - the job ``name`` field carries the same derived name the directory
@@ -25,10 +26,9 @@ Two wire-level agreements happen between steps 4 and 5, both through
 - external resource paths are rewritten to their emitted forms (§13.5
   path policies) — via ``transform.with_emitted_resource_paths``.
 
-Validation (steps 1 and 3) runs on the semantic documents; the
-rewrites happen afterwards, so the drift comparison never sees them.
 The manifest joins the plan as an ordinary planned file (§13.1): same
-overwrite policy, atomic write, part of the reviewed layout.
+overwrite policy, atomic write, part of the reviewed layout. Its
+``validation_summary`` is empty because validation is not run.
 """
 
 from __future__ import annotations
@@ -73,7 +73,6 @@ from configbuilder.transform import (
     with_emitted_resource_paths,
     with_wire_job_name,
 )
-from configbuilder.validation import Report
 from configbuilder.variants import describe_edit
 
 __all__ = ["GenerationService"]
@@ -85,9 +84,10 @@ class GenerationService:
     """Runs the fixed generation sequence; hands the reviewed plan to
     ``output`` for execution."""
 
-    def __init__(self, projects, validation, variants, filesystem=None) -> None:
+    def __init__(self, projects, variants, filesystem=None) -> None:
+        # No validation service is held: save, generate and preview are not
+        # gated. Input constructors still reject impossible values.
         self._projects = projects
-        self._validation = validation
         self._variants = variants
         # An ``output.FileView`` (read-only) for planning; ``None`` means
         # the real filesystem — exactly ``plan``'s own default.
@@ -104,22 +104,14 @@ class GenerationService:
         state changes. Returns ``(text, None)`` on success or
         ``(None, message)`` when nothing can be shown.
 
-        The base is gated by the *same* validation the export runs, so the
-        preview can never show a document that generation would refuse. An
-        ungated preview happily printed ``"sequences": []`` for a job with
-        no entities — syntactically valid JSON that standalone AF3 rejects
-        (BUG-003).
+        There is no readiness gate here: if the configuration can be
+        serialized, the preview shows it. Model constructors still reject
+        impossible values.
         """
         project = self._projects._require_project()
         if project is None:
             return None, "no project is open"
         if key is None:
-            base_validation = self._validation.validate_base()
-            if not base_validation.ok:
-                return None, (
-                    "the job is not ready to be written yet; "
-                    "see Review configuration for what is missing"
-                )
             selection = (("base", project.configuration),)
         else:
             previewed = self._variants.preview(key)
@@ -262,17 +254,8 @@ class GenerationService:
                 message="no project is open",
             )
 
-        # Step 1: validate the base. Stop on ERROR.
-        base_validation = self._validation.validate_base()
-        if not base_validation.ok:
-            return GenerationPlan(
-                ok=False,
-                failure_reason=FailureReason.VALIDATION_BLOCKED,
-                message="the base configuration has blocking findings; generate cannot start",
-                findings=tuple(base_validation.report.findings),
-            )
-
-        # Step 2: expand variants (the base is not implicitly included; §12.2).
+        # Step 1: expand variants (the base is not implicitly included; §12.2).
+        # No validation gate: a serializable configuration is generated.
         expansion = self._variants.expand(only=only)
         if not expansion.ok:
             return GenerationPlan(
@@ -288,36 +271,7 @@ class GenerationService:
                 message="there are no variants to generate; add a variant first",
             )
 
-        # Step 3: validate every selected variant, including the drift check.
-        # Runs on the semantic documents; the §13.2/§13.5 rewrites happen
-        # afterwards, so the comparison data never contains them (attribution
-        # by design).
-        variant_validation = self._validation.validate_all(only=only)
-        if variant_validation.base_report.blocking():
-            return GenerationPlan(
-                ok=False,
-                failure_reason=FailureReason.VALIDATION_BLOCKED,
-                message="the base configuration has blocking findings; generate cannot start",
-                findings=tuple(variant_validation.base_report.findings),
-            )
-        combined = Report()
-        combined.add_all(base_validation.report.findings)
-        blocking_variants = sorted(
-            key
-            for key, report in variant_validation.variant_reports.items()
-            if report.blocking()
-        )
-        for key in sorted(variant_validation.variant_reports):
-            combined.add_all(variant_validation.variant_reports[key].findings)
-        if blocking_variants:
-            return GenerationPlan(
-                ok=False,
-                failure_reason=FailureReason.VALIDATION_BLOCKED,
-                message="variant %s has blocking findings; nothing will be written"
-                % ", ".join(blocking_variants),
-            )
-
-        # Step 4: transform each variant, applying the §13.2 name agreement.
+        # Step 3: transform each variant, applying the §13.2 name agreement.
         settings = project.settings or OutputSettings()
         overwrite = (
             OverwritePolicy(settings.overwrite_policy)
@@ -419,7 +373,7 @@ class GenerationService:
             format_version=max(format_versions.values()),
             variants=variant_records,
             seed_set=list(project.configuration.seeds.values),
-            validation_report=combined,
+            validation_report=None,
             path_policy=path_choice,
             overwrite_policy=overwrite,
             format_target=project.configuration.format_target,
@@ -495,11 +449,12 @@ class GenerationService:
         The base job is a complete job: the file is named after the
         project — ``<project>/<project>.json``, with the wire ``name``
         matching the project name (slug form) — through the same
-        validation gate, transform, encode, overwrite/asset discipline,
-        and the same planner's decision helpers as a variant run. No
-        variant is expanded and none is required: base generation is
-        independent of variant creation, and no manifest is written
-        (the manifest summarises a variant run; there is no variant).
+        transform, encode, overwrite/asset discipline, and the same
+        planner's decision helpers as a variant run. No variant is
+        expanded and none is required: base generation is independent
+        of variant creation, and no manifest is written (the manifest
+        summarises a variant run; there is no variant). There is no
+        readiness gate here.
         """
         project = self._projects._require_project()
         if project is None:
@@ -507,16 +462,6 @@ class GenerationService:
                 ok=False,
                 failure_reason=FailureReason.NOT_OPEN,
                 message="no project is open",
-            )
-
-        # Step 1: validate the base. Stop on ERROR.
-        base_validation = self._validation.validate_base()
-        if not base_validation.ok:
-            return GenerationPlan(
-                ok=False,
-                failure_reason=FailureReason.VALIDATION_BLOCKED,
-                message="the base configuration has blocking findings; generate cannot start",
-                findings=tuple(base_validation.report.findings),
             )
 
         settings = project.settings or OutputSettings()
@@ -633,10 +578,10 @@ class GenerationService:
 
         The workflow's save action writes wherever the user asks, not into
         the ``<output>/<slug>/<slug>.json`` layout the bulk generate route
-        uses. The *content* discipline is unchanged: the same validation
-        gate, the same ``to_wire`` → ``encode`` path, the same §13.5
-        resource resolution and §13.3 action table, and the same
-        ``execute`` writes exactly the reviewed bytes.
+        uses. The *content* discipline is unchanged: the same ``to_wire``
+        → ``encode`` path, the same §13.5 resource resolution and §13.3
+        action table, and the same ``execute`` writes exactly the reviewed
+        bytes. There is no readiness gate here.
 
         ``name`` overrides the wire ``name`` (the slug of it is what lands
         inside the file) — the variant save uses it so the file carries the
@@ -650,16 +595,6 @@ class GenerationService:
                 ok=False,
                 failure_reason=FailureReason.NOT_OPEN,
                 message="no project is open",
-            )
-
-        # Step 1: validate the base. Stop on ERROR.
-        base_validation = self._validation.validate_base()
-        if not base_validation.ok:
-            return GenerationPlan(
-                ok=False,
-                failure_reason=FailureReason.VALIDATION_BLOCKED,
-                message="the configuration has blocking findings; save cannot start",
-                findings=tuple(base_validation.report.findings),
             )
 
         settings = project.settings or OutputSettings()

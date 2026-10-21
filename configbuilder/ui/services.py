@@ -1,9 +1,10 @@
 """The service bundle (plan §5.3 rule 6: ``ui`` imports ``app``).
 
-The render layer receives the five services as one read-only bundle;
-nothing in ``ui`` constructs pipeline stages itself. The *wiring* is
-here so a front end (or a test) builds exactly one object and passes it
-around.
+The render layer receives the application services as one read-only
+bundle; nothing in ``ui`` constructs pipeline stages itself. The *wiring*
+is here so a front end (or a test) builds exactly one object and passes it
+around. Validation is deliberately not wired: save, generate and variant
+creation are not gated.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from configbuilder.app import (
     ConfigurationService,
     GenerationService,
     ProjectService,
-    ValidationService,
     VariantService,
 )
 
@@ -20,15 +20,14 @@ __all__ = ["Services", "build_services"]
 
 
 class Services:
-    """The five application services, wired as a front end wires them."""
+    """The application services, wired as a front end wires them."""
 
-    __slots__ = ("projects", "configuration", "variants", "validation", "generation")
+    __slots__ = ("projects", "configuration", "variants", "generation")
 
-    def __init__(self, projects, configuration, variants, validation, generation) -> None:
+    def __init__(self, projects, configuration, variants, generation) -> None:
         self.projects = projects
         self.configuration = configuration
         self.variants = variants
-        self.validation = validation
         self.generation = generation
 
     def __iter__(self):
@@ -39,7 +38,6 @@ class Services:
                 ("projects", self.projects),
                 ("configuration", self.configuration),
                 ("variants", self.variants),
-                ("validation", self.validation),
                 ("generation", self.generation),
             )
         )
@@ -50,6 +48,5 @@ def build_services():
     projects = ProjectService()
     configuration = ConfigurationService(projects)
     variants = VariantService(projects, configuration)
-    validation = ValidationService(projects)
-    generation = GenerationService(projects, validation, variants)
-    return Services(projects, configuration, variants, validation, generation)
+    generation = GenerationService(projects, variants)
+    return Services(projects, configuration, variants, generation)

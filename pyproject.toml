@@ -15,11 +15,6 @@ requires-python = ">=3.9"
 dependencies = []
 
 [project.optional-dependencies]
-# Development-only; not required to run the application (§4).
-dev = [
-    "pytest>=7",
-    "hypothesis>=6",
-]
 # The SOP §6 comparative-analysis stack for af3_analysis (the builder above
 # still needs nothing). numpy and pandas are hard requirements; the rest are
 # used when present and fall back to documented internal implementations when
@@ -58,7 +53,3 @@ af3-json-builder = "configbuilder.ui.render.qt.application:main"
 
 [tool.setuptools.packages.find]
 include = ["configbuilder*", "af3_analysis*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-q"
