@@ -195,18 +195,25 @@ def _collect_external_resources(configuration: Configuration):
 
             alignment = record.alignment
             if isinstance(alignment, (AlignmentUnpairedOnly, AlignmentPairedOnly, AlignmentBoth)):
-                source = alignment.source
-                if isinstance(source, External):
-                    # The requirement kind is the wire field that references
-                    # the file (MAP-1001/1002) — both for AlignmentBoth,
-                    # whose two sides share one file.
-                    if not isinstance(alignment, AlignmentPairedOnly):
+                # The requirement kind is the wire field that references the
+                # file (MAP-1001/1002). AlignmentBoth carries an independent
+                # source per side, so each side names its own file; a
+                # single-source both keeps the historical same-file result.
+                if not isinstance(alignment, AlignmentPairedOnly):
+                    source = alignment.source
+                    if isinstance(source, External):
                         requirements.append(
                             ExternalResourceRequirement("unpairedMsaPath", source.path.raw)
                         )
-                    if not isinstance(alignment, AlignmentUnpairedOnly):
+                if not isinstance(alignment, AlignmentUnpairedOnly):
+                    paired_source = (
+                        alignment.paired_source
+                        if isinstance(alignment, AlignmentBoth)
+                        else alignment.source
+                    )
+                    if isinstance(paired_source, External):
                         requirements.append(
-                            ExternalResourceRequirement("pairedMsaPath", source.path.raw)
+                            ExternalResourceRequirement("pairedMsaPath", paired_source.path.raw)
                         )
             from configbuilder.model import Explicit
 

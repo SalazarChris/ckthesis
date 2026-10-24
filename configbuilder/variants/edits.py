@@ -833,7 +833,10 @@ def _alignment(alignment):
         return {"form": "PairedOnly", "source": describe_edit._resource(source)}
 
     def on_both(source):
-        return {"form": "Both", "source": describe_edit._resource(source)}
+        data = {"form": "Both", "source": describe_edit._resource(source)}
+        if alignment.paired_source != source:
+            data["paired_source"] = describe_edit._resource(alignment.paired_source)
+        return data
 
     # fold_alignment's parameter order is (automatic, free, unpaired,
     # paired, both) — matching the fold, not the case list above.

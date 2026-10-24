@@ -123,11 +123,11 @@ def _protein_msa_fields(record: FamilyARecord):
         }
 
     def on_both(source):
-        # Both sides non-empty (MAP-605) from the shared source — the
-        # observed usage pattern carries the same query A3M on both sides.
+        # Both sides non-empty (MAP-605). Each side keeps its own resource;
+        # a single-source AlignmentBoth reports the same source for both.
         return {
             **_msa_side_fields(source, "unpaired"),
-            **_msa_side_fields(source, "paired"),
+            **_msa_side_fields(record.alignment.paired_source, "paired"),
         }
 
     return fold_alignment(

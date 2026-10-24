@@ -28,6 +28,8 @@ from configbuilder.model.records import (
 )
 
 from configbuilder.app.configuration_service import ReferenceInput
+from configbuilder.app.reference_validation import file_issue, parse_pair_text
+from configbuilder.app.results import FailureReason
 from configbuilder.app.status import FieldState
 from configbuilder.ui.present.sequence import residue_at
 from configbuilder.ui.present.strings import text as _text
@@ -362,8 +364,11 @@ class MenuApp:
     def _say(self, line: str = "") -> None:
         self._console.write_line(line)
 
-    def _ask(self, prompt_key: str) -> str:
-        return self._console.prompt(_text(prompt_key)).strip()
+    def _ask(self, prompt_key: str, *prompt_args) -> str:
+        prompt = _text(prompt_key)
+        if prompt_args:
+            prompt = prompt % prompt_args
+        return self._console.prompt(prompt).strip()
 
     def _ask_whole_number(self, prompt_key: str):
         """A positive whole number, asked in the user's own terms.
@@ -407,12 +412,13 @@ class MenuApp:
             return None
         return [".."] + [n for n in names if not n.startswith(".")]
 
-    def _pick_path(self, prompt_key: str, default: str = "") -> str:
+    def _pick_path(self, prompt_key: str, default: str = "", *prompt_args) -> str:
         """Choose an existing file with the keyboard alone: the current
         directory is listed, numbers open directories or select files,
         ``..`` goes up, and anything else typed is taken as a literal path.
         Cancellation is ``0`` or ``q``; an empty answer accepts the
-        *default*, when one is offered."""
+        *default*, when one is offered. Extra ``prompt_args`` format the
+        registered prompt."""
         directory = os.getcwd()
         while True:
             listing = self._picker_listing(directory)
@@ -429,7 +435,7 @@ class MenuApp:
                 )
                 self._say("  %2d) %s%s" % (number, name, "/" if is_dir else ""))
             self._say(_text("menu.pick_hint"))
-            raw = self._ask(prompt_key)
+            raw = self._ask(prompt_key, *prompt_args)
             if raw in ("0", "q", "quit", "exit"):
                 return ""
             if raw == "":
@@ -877,37 +883,65 @@ class MenuApp:
         )
 
     def _chain_msa(self, family: str, record_key: str = None) -> None:
-        """The record's MSA question: y -> collect, N/blank -> skip."""
-        skip = "menu.msa_skip_edit" if record_key is not None else "menu.msa_skip"
-        answer = self._ask("menu.ask_msa_yn").lower()
-        if answer not in ("y", "yes"):
-            self._say(_text(skip))
-            return
+        """The record's MSA choice: keep the default, provide files, or none."""
+        editing = record_key is not None
         if record_key is None:
             records = self._records(family)
             if not records:
                 return
             record_key = records[-1].ids.primary.value
-        mode = self._collect_msa_mode(family)
-        if mode is None:
+        choice = self._collect_msa_choice()
+        if choice is None:
             return
-        if mode in ("automatic", "free"):
-            self._report(self._services.configuration.set_alignment(record_key, mode))
+        if choice == "keep":
+            self._say(
+                _text("menu.msa_keep_edit" if editing else "menu.msa_keep_new")
+            )
             return
-        source = self._msa_source_payload()
-        if source is None:
+        if choice == "none":
+            self._say(_text("menu.msa_none_explained"))
+            self._report(self._services.configuration.set_alignment(record_key, "free"))
             return
-        kind, content = source
-        if kind == "inline":
+        self._say(_text("menu.msa_files_explained"))
+        if family == "rna":
+            path = self._ask_msa_file("menu.ask_rna_msa_file", allow_blank=False)
+            if path is None:
+                return
             self._report(
                 self._services.configuration.set_alignment(
-                    record_key, mode, inline_text=content
+                    record_key, "provided", external_path=path
+                )
+            )
+            return
+        while True:
+            paired = self._ask_msa_file("menu.ask_paired_msa_file", allow_blank=True)
+            if paired is None:
+                return
+            unpaired = self._ask_msa_file("menu.ask_unpaired_msa_file", allow_blank=True)
+            if unpaired is None:
+                return
+            if paired or unpaired:
+                break
+            self._say(_text("menu.msa_files_need_one"))
+        if paired and unpaired:
+            self._report(
+                self._services.configuration.set_alignment(
+                    record_key,
+                    "both",
+                    external_path=unpaired,
+                    paired_external_path=paired,
+                )
+            )
+        elif unpaired:
+            self._report(
+                self._services.configuration.set_alignment(
+                    record_key, "unpaired", external_path=unpaired
                 )
             )
         else:
             self._report(
                 self._services.configuration.set_alignment(
-                    record_key, mode, external_path=content
+                    record_key, "paired", external_path=paired
                 )
             )
 
@@ -929,46 +963,57 @@ class MenuApp:
             record_key = records[-1].ids.primary.value
         self._collect_references_for(record_key)
 
-    def _collect_msa_mode(self, family: str):
-        """The numbered MSA-mode menu, filtered to the family's legal
-        modes. Returns the service's mode word, or ``None`` to cancel."""
-        if family == "protein":
-            entries = [
-                (_text("menu.msa_mode_auto"), "automatic"),
-                (_text("menu.msa_mode_unpaired"), "unpaired"),
-                (_text("menu.msa_mode_paired"), "paired"),
-                (_text("menu.msa_mode_both"), "both"),
-                (_text("menu.msa_mode_free"), "free"),
-            ]
-        else:
-            entries = [
-                (_text("menu.msa_mode_auto"), "automatic"),
-                (_text("menu.msa_mode_free"), "free"),
-                (_text("menu.msa_mode_provided"), "provided"),
-            ]
-        return self._numbered_choice(_text("menu.msa_mode_menu"), entries)
-
-    def _msa_source_payload(self):
-        """Inline paste or file, as an app-layer ``('inline'|'file', text)``
-        payload — ``None`` on cancel."""
+    def _collect_msa_choice(self):
+        """The three explicit MSA choices; ``None`` on back/cancel."""
         entries = [
-            (_text("menu.msa_paste_inline"), "inline"),
-            (_text("menu.msa_use_file"), "file"),
+            (_text("menu.msa_choice_default"), "keep"),
+            (_text("menu.msa_choice_files"), "files"),
+            (_text("menu.msa_choice_none"), "none"),
         ]
-        route = self._numbered_choice(_text("menu.msa_source_menu"), entries)
-        if route is None:
-            return None
-        if route == "inline":
-            content = self._console.read_multiline(
-                _text("menu.msa_inline_header") + "\n"
-            ).decode("utf-8", "replace")
-            return ("inline", content) if content.strip() else None
-        path = self._pick_path("menu.ask_msa_path")
-        return ("file", path) if path else None
+        return self._numbered_choice(_text("menu.msa_choice_title"), entries)
+
+    def _ask_msa_file(self, prompt_key: str, allow_blank: bool):
+        """One readable, non-empty MSA file; blank is an explicit empty side.
+
+        Returns the path, ``""`` for a deliberate empty side, or ``None``
+        when the user cancels. A bad path is reported and asked again, never
+        committed as a broken alignment.
+        """
+        while True:
+            raw = self._ask(prompt_key)
+            if raw in ("0", "q", "back"):
+                return None
+            if not raw:
+                if allow_blank:
+                    return ""
+                self._say(_text("menu.msa_file_required"))
+                continue
+            path = os.path.expanduser(raw)
+            problem = self._msa_file_problem(path)
+            if problem is None:
+                return path
+            self._say(_text("menu.msa_file_invalid") % (path, problem))
+
+    @staticmethod
+    def _msa_file_problem(path: str):
+        """Why ``path`` is not a usable MSA file, or ``None`` when it is."""
+        if not os.path.exists(path):
+            return _text("menu.msa_file_missing")
+        if not os.path.isfile(path):
+            return _text("menu.msa_file_not_regular")
+        try:
+            with open(path, "rb") as handle:
+                first = handle.read(1)
+        except OSError:
+            return _text("menu.msa_file_unreadable")
+        if not first:
+            return _text("menu.msa_file_empty")
+        return None
 
     def _collect_references_for(self, record_key: str) -> None:
         """The numbered templates menu and dispatch (shared with the edit
-        flow); collects the path and index pairs for the explicit-list route."""
+        flow). The explicit route collects one file-and-pairs definition per
+        template, keeping each mapping attached to its own mmCIF."""
         entries = [
             (_text("menu.templates_search"), "search"),
             (_text("menu.templates_none"), "none"),
@@ -983,21 +1028,65 @@ class MenuApp:
         if route == "none":
             self._report(self._services.configuration.set_references(record_key, references=()))
             return
-        external_path = self._pick_path("menu.ask_ref_path") or None
-        raw_pairs = self._ask("menu.ask_ref_pairs").strip()
-        pairs = []
-        if raw_pairs:
-            for token in raw_pairs.split(","):
-                left, _, right = token.strip().partition(":")
-                pairs.append((left.strip(), right.strip()))
+        self._collect_template_list(record_key)
+
+    def _collect_template_list(self, record_key: str) -> None:
+        """Collect several complete template definitions, then commit them.
+
+        Each template is one mmCIF path plus its own query:template pairs; a
+        failed or cancelled collection writes nothing, so a half-entered
+        template can never be committed. The builder deliberately has no
+        mmCIF parser, so template indices can only be checked as non-negative
+        here; query indices are checked against the target sequence length.
+        """
+        record = self._record(record_key)
+        if record is None:
+            return
+        sequence_length = len(record.sequence)
+        self._say(_text("menu.ref_templates_explained"))
+        collected = []
+        number = 1
+        while True:
+            path = self._ask_template_file(number)
+            if path is None:
+                self._say(_text("menu.ref_templates_cancelled"))
+                return
+            pairs = self._ask_template_pairs(number, sequence_length)
+            if pairs is None:
+                self._say(_text("menu.ref_templates_cancelled"))
+                return
+            collected.append(ReferenceInput(external_path=path, pairs=pairs))
+            if self._ask("menu.ask_ref_another").lower() not in ("y", "yes"):
+                break
+            number += 1
         self._report(
             self._services.configuration.set_references(
-                record_key,
-                references=(
-                    ReferenceInput(external_path=external_path, pairs=pairs),
-                ),
+                record_key, references=tuple(collected)
             )
         )
+
+    def _ask_template_file(self, number: int):
+        """One readable CIF file, re-asked until usable; ``None`` on cancel."""
+        while True:
+            raw = self._pick_path("menu.ask_ref_path", "", number)
+            if not raw:
+                return None
+            path = os.path.expanduser(raw)
+            issue = file_issue(path)
+            if issue is None:
+                return path
+            self._say(issue.message)
+
+    def _ask_template_pairs(self, number: int, sequence_length: int):
+        """One template's pairs, re-asked on the service rule's refusal."""
+        while True:
+            raw = self._ask("menu.ask_ref_pairs", number)
+            if raw in ("0", "q", "back"):
+                return None
+            pairs, issue = parse_pair_text(raw, sequence_length)
+            if issue is None:
+                return pairs
+            self._say(issue.message)
 
     # -- edit entity -------------------------------------------------------
 
@@ -1452,13 +1541,20 @@ class MenuApp:
     def _write_json(self, destination: str, name, overwrite: bool) -> bool:
         """Serialize and write the current configuration through the
         generation service. Nothing is written before the plan succeeds; a
-        failed write keeps the in-memory job intact. There is no readiness
-        gate: a serializable configuration is written."""
+        failed write keeps the in-memory job intact. The generation gate
+        runs the configuration-only tiers first, so an incomplete job is
+        refused here with its findings named."""
         plan = self._services.generation.plan_save(
             destination, name=name, overwrite=overwrite
         )
         if not plan.ok:
-            self._say(_text("menu.not_applied") % (plan.message or ""))
+            if plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
+                self._say(_text("menu.save_job_blocked"))
+                status = self._services.validation.status()
+                if status is not None:
+                    self._say_status(status)
+            else:
+                self._say(_text("menu.not_applied") % (plan.message or ""))
             for conflict in plan.conflicts:
                 self._say(_text("menu.export_conflict") % conflict)
             return False

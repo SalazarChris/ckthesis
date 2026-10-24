@@ -91,8 +91,57 @@ class AlignmentPairedOnly(_OneSided):
     this an expert case)."""
 
 
-class AlignmentBoth(_OneSided):
-    """Both non-empty (MAP-605)."""
+class AlignmentBoth(_AlignmentBase):
+    """Both sides non-empty (MAP-605), each with its own source.
+
+    ``source`` is the unpaired side and ``paired_source`` the paired side.
+    A single-source construction keeps the historical behaviour: the same
+    resource feeds both sides. Supplying ``paired_source`` lets a paired
+    A3M and an unpaired A3M name different files (or different inline text)
+    instead of silently treating the two as interchangeable.
+    """
+
+    __slots__ = ("_source", "_paired_source")
+
+    def __init__(self, source, paired_source=None) -> None:
+        paired = source if paired_source is None else paired_source
+        for label, value in (("unpaired", source), ("paired", paired)):
+            if not isinstance(value, (Inline, External)):
+                raise AlignmentError(
+                    "AlignmentBoth requires an Inline or External %s source" % label
+                )
+        object.__setattr__(self, "_source", source)
+        object.__setattr__(self, "_paired_source", paired)
+
+    @property
+    def source(self):
+        """The unpaired side (historical name for the first source)."""
+        return self._source
+
+    @property
+    def unpaired_source(self):
+        return self._source
+
+    @property
+    def paired_source(self):
+        return self._paired_source
+
+    def __eq__(self, other: object) -> bool:
+        if type(other) is type(self):
+            return (
+                self._source == other._source
+                and self._paired_source == other._paired_source
+            )
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash((type(self).__name__, self._source, self._paired_source))
+
+    def __repr__(self) -> str:
+        return "AlignmentBoth(unpaired=%r, paired=%r)" % (
+            self._source,
+            self._paired_source,
+        )
 
 
 AlignmentPairing = (

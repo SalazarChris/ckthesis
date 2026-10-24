@@ -132,7 +132,14 @@ def _alignment(data, location):
     if form == "paired-only":
         return AlignmentPairedOnly(_resource(_require(data, "source", location), location))
     if form == "both":
-        return AlignmentBoth(_resource(_require(data, "source", location), location))
+        unpaired = _resource(_require(data, "source", location), location)
+        paired_data = data.get("paired_source")
+        paired = (
+            unpaired
+            if paired_data is None
+            else _resource(paired_data, location + ".paired_source")
+        )
+        return AlignmentBoth(unpaired, paired)
     raise _fail(location, "unknown alignment form %r" % (form,))
 
 

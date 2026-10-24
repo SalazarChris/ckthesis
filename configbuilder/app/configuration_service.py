@@ -9,6 +9,7 @@ configuration's registry — never list position (plan §8.1.1, §12.1).
 
 from __future__ import annotations
 
+from configbuilder.app.reference_validation import validate_reference
 from configbuilder.app.results import FailureReason, MutationOutput
 from configbuilder.identity import (
     EntityId,
@@ -34,7 +35,6 @@ from configbuilder.model import (
     FamilyBRecord,
     FamilyCRecord,
     FormatTarget,
-    IndexPair,
     Inline,
     LinkEndpoint,
     Linkage,
@@ -71,14 +71,17 @@ _FAMILY_WORD = {
 class ReferenceInput:
     """One structural-template reference, as a front end supplies it:
     a source (inline text or an external path) and 0-based query/template
-    index pairs."""
+    index pairs (or the raw comma-separated pair text a console collected).
+
+    Pair text stays text until the application's reference rules parse it,
+    so the console never owns the format rule."""
 
     __slots__ = ("inline_text", "external_path", "pairs")
 
     def __init__(self, inline_text=None, external_path=None, pairs=()) -> None:
         self.inline_text = inline_text
         self.external_path = external_path
-        self.pairs = tuple(pairs)
+        self.pairs = pairs if isinstance(pairs, str) else tuple(pairs)
 
 
 class ConfigurationService:
@@ -653,13 +656,26 @@ class ConfigurationService:
 
     # -- alignments and references (§15 set_alignment / set_references) ---------------
 
-    def set_alignment(self, record_key: str, mode: str, inline_text=None, external_path=None) -> MutationOutput:
+    def set_alignment(
+        self,
+        record_key: str,
+        mode: str,
+        inline_text=None,
+        external_path=None,
+        paired_inline_text=None,
+        paired_external_path=None,
+    ) -> MutationOutput:
         """Set a polymer record's alignment mode.
 
         Protein records accept ``automatic`` / ``free`` / ``unpaired`` /
         ``paired`` / ``both``; RNA records accept ``automatic`` / ``free`` /
         ``provided``. Source-carrying modes need exactly one of
         ``inline_text`` / ``external_path``.
+
+        ``both`` accepts an independent paired source through
+        ``paired_inline_text`` / ``paired_external_path``. When it is not
+        supplied, the unpaired source feeds both sides (the historical
+        one-file behaviour).
         """
         configuration = self._configuration()
         if configuration is None:
@@ -670,21 +686,37 @@ class ConfigurationService:
         record = self._record_for(configuration, primary)
         if record is None or not isinstance(record, (FamilyARecord, FamilyBRecord)):
             return self._unknown_record(record_key)
+        paired_supplied = any(
+            value not in (None, "")
+            for value in (paired_inline_text, paired_external_path)
+        )
         # automatic/free leave alignment to the deployment or to sequence
         # search: they carry no source, and demanding one would refuse
         # exactly the modes users most commonly want. Source-carrying
         # modes validate theirs below.
         if mode in ("automatic", "free"):
-            if inline_text or external_path:
+            if inline_text or external_path or paired_supplied:
                 return self._refused("alignment mode %r takes no source" % mode)
             source = None
+            paired_source = None
         else:
             source, failure = self._source(inline_text, external_path)
             if failure is not None:
                 return failure
+            paired_source = source
+            if paired_supplied and mode != "both":
+                return self._refused(
+                    "a paired-side source is only accepted by the 'both' mode"
+                )
+            if paired_supplied:
+                paired_source, failure = self._source(
+                    paired_inline_text, paired_external_path
+                )
+                if failure is not None:
+                    return failure
         try:
             if isinstance(record, FamilyARecord):
-                alignment = self._protein_alignment(mode, source)
+                alignment = self._protein_alignment(mode, source, paired_source)
             else:
                 alignment = self._rna_alignment(mode, source)
         except ValueError as error:
@@ -698,7 +730,7 @@ class ConfigurationService:
         records = tuple(updated if existing is record else existing for existing in configuration.records)
         return self._commit(configuration.with_records(records))
 
-    def _protein_alignment(self, mode: str, source):
+    def _protein_alignment(self, mode: str, source, paired_source=None):
         if mode == "automatic":
             return AlignmentAutomatic()
         if mode == "free":
@@ -708,7 +740,10 @@ class ConfigurationService:
         if mode in ("paired", "paired_only"):
             return AlignmentPairedOnly(self._need(source, mode))
         if mode == "both":
-            return AlignmentBoth(self._need(source, mode))
+            return AlignmentBoth(
+                self._need(source, mode),
+                paired_source=paired_source,
+            )
         return None
 
     def _rna_alignment(self, mode: str, source):
@@ -756,6 +791,7 @@ class ConfigurationService:
         if references is None:
             reference_set = SearchAllowed()
         else:
+            sequence_length = len(record.sequence)
             built = []
             for entry in references:
                 source, failure = self._source(
@@ -763,8 +799,10 @@ class ConfigurationService:
                 )
                 if failure is not None:
                     return failure
+                pairs, issue = validate_reference(entry, sequence_length)
+                if issue is not None:
+                    return self._refused(issue.message)
                 try:
-                    pairs = tuple(IndexPair(int(q), int(t)) for q, t in entry.pairs)
                     built.append(ReferenceRecord(source, pairs))
                 except (ModelError, ValueError, TypeError) as error:
                     return self._refused(str(error))

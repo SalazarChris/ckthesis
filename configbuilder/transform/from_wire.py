@@ -216,10 +216,8 @@ def _import_alignment(entity, where: str, notes):
     - all four fields absent/empty-of-content → no alignment (automatic);
     - ``unpairedMsa: ""`` + ``pairedMsa: ""`` → AlignmentFree;
     - one side populated, the other inline "" → one-sided case;
-    - both sides populated → AlignmentBoth (one shared source). A file
-      with *different* per-side sources cannot be represented (the model
-      holds one source for both sides); the unpaired side is kept and the
-      paired content becomes an ImportNote — never a silent drop.
+    - both sides populated → AlignmentBoth with independent per-side
+      sources, so different paired and unpaired files survive the import.
     """
     unpaired = _inline_field(entity.get("unpairedMsa"), "%s unpairedMsa" % where)
     if unpaired is None:
@@ -229,16 +227,7 @@ def _import_alignment(entity, where: str, notes):
         paired = _resource(entity.get("pairedMsaPath"), "%s pairedMsaPath" % where)
     free_marked = entity.get("unpairedMsa", None) == "" and entity.get("pairedMsa", None) == ""
     if unpaired is not None and paired is not None:
-        if unpaired == paired:
-            return AlignmentBoth(source=unpaired)
-        notes.append(
-            ImportNote(
-                "%s.pairedMsa" % where,
-                "the protein has different unpaired and paired MSA content; this builder "
-                "models both-sides MSA as one shared source, so the paired MSA was not imported",
-            )
-        )
-        return AlignmentUnpairedOnly(source=unpaired)
+        return AlignmentBoth(source=unpaired, paired_source=paired)
     if unpaired is not None:
         return AlignmentUnpairedOnly(source=unpaired)
     if paired is not None:

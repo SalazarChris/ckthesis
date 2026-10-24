@@ -19,7 +19,6 @@ from configbuilder.model import (
     FamilyARecord,
     FamilyBRecord,
     Inline,
-    fold_alignment,
 )
 from configbuilder.validation.catalogue import Rule
 from configbuilder.validation.report import FieldPath, Finding, Report
@@ -93,13 +92,25 @@ def _first_sequence(content: str) -> str:
     return ""
 
 
+def _custom_sources(alignment):
+    """Every user-supplied MSA resource in one alignment state."""
+    if isinstance(alignment, AlignmentBoth):
+        return (alignment.source, alignment.paired_source)
+    if isinstance(alignment, (AlignmentUnpairedOnly, AlignmentPairedOnly)):
+        return (alignment.source,)
+    return ()
+
+
 def check_r_msa_003(configuration: Configuration, report: Report, rule: Rule, context=None) -> None:
     """Custom MSA content is required to be A3M — shallow check: every line
     is either a FASTA header or an ACGU-/gap-containing sequence line.
     Advisory (WARNING by evidence DOCUMENTED); the external system owns
     deep interpretation (plan §9.2). File-backed sources are checked
     shallowly through the FilesystemPort (exists/readable/non-empty); with
-    the null port they report "not checked" rather than a false error."""
+    the null port they report "not checked" rather than a false error.
+    Both sides of an AlignmentBoth are checked: they may name different
+    files.
+    """
     from configbuilder.validation.ports import NullFilesystemPort
 
     filesystem = None
@@ -142,8 +153,8 @@ def check_r_msa_003(configuration: Configuration, report: Report, rule: Rule, co
                         suggestion="Check the path and that the file exists on this machine.",
                     )
 
-        if isinstance(record.alignment, (AlignmentUnpairedOnly, AlignmentPairedOnly, AlignmentBoth)):
-            fold_alignment(record.alignment, lambda: None, lambda: None, visit, visit, visit)
+        for source in _custom_sources(record.alignment):
+            visit(source)
 
 
 def check_r_msa_004(configuration: Configuration, report: Report, rule: Rule) -> None:
@@ -153,11 +164,10 @@ def check_r_msa_004(configuration: Configuration, report: Report, rule: Rule) ->
     files) so this check stays filesystem-free."""
     for record in _protein_records(configuration) + _rna_records(configuration):
         key = _record_key(configuration, record)
-        if isinstance(record.alignment, (AlignmentUnpairedOnly, AlignmentPairedOnly, AlignmentBoth)):
-            source = record.alignment.source
+        query = record.sequence.text
+        for source in _custom_sources(record.alignment):
             if isinstance(source, Inline):
                 first = _first_sequence(source.text)
-                query = record.sequence.text
                 if first and first.replace("-", "") != query:
                     _add(
                         report,
@@ -174,8 +184,7 @@ def check_r_msa_005(configuration: Configuration, report: Report, rule: Rule) ->
     rectangular alignment — shallow, advisory, inline sources only."""
     for record in _protein_records(configuration) + _rna_records(configuration):
         key = _record_key(configuration, record)
-        if isinstance(record.alignment, (AlignmentUnpairedOnly, AlignmentPairedOnly, AlignmentBoth)):
-            source = record.alignment.source
+        for source in _custom_sources(record.alignment):
             if isinstance(source, Inline):
                 widths = set()
                 for line in source.text.splitlines():

@@ -88,7 +88,10 @@ def _alignment(value):
         return {"form": "paired-only", "source": _resource(source)}
 
     def on_both(source):
-        return {"form": "both", "source": _resource(source)}
+        data = {"form": "both", "source": _resource(source)}
+        if value.paired_source != source:
+            data["paired_source"] = _resource(value.paired_source)
+        return data
 
     return fold_alignment(value, on_automatic, on_free, on_unpaired_only, on_paired_only, on_both)
 
