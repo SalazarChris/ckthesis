@@ -24,13 +24,13 @@ The sequence is the one a reviewer needs, labelled as four steps on the page:
 
 A plan is invalidated whenever the job changes (``project_changed``) or a
 control changes, so an executed plan is always the one the user just
-reviewed. A refused plan shows the service's own message. Validation is not
-run on this page and cannot block generation.
+reviewed. A refused plan shows the service's message and its findings; the
+findings can be followed to the entity they name or back to Overview.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QTableView,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -55,9 +56,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from configbuilder.app.results import FailureReason
 from configbuilder.ui.present.strings import text as _text
 from configbuilder.ui.render.qt.dialogs import confirm_generation
-from configbuilder.ui.render.qt.models import fixed_font
+from configbuilder.ui.render.qt.models import FindingsTableModel, fixed_font
 from configbuilder.ui.render.qt.style import (
     heading_label,
     hint_label,
@@ -110,6 +112,9 @@ _SCOPE_BASE = "base"
 
 class GeneratePage(QWidget):
     """Plan, review and execute the existing output pipeline."""
+
+    record_activated = Signal(str)
+    review_requested = Signal()
 
     def __init__(self, state, notify=None, problems=None, parent=None) -> None:
         super().__init__(parent)
@@ -362,13 +367,12 @@ class GeneratePage(QWidget):
         return table
 
     def _build_messages(self):
-        """Conflicts and warnings, never inside Advanced.
+        """Conflicts, warnings and blocking findings, never inside Advanced.
 
         Conflicts are labelled *blocking* and carry a warning colour in
         addition to the word; warnings say they are non-blocking. Neither
         list hides itself behind the advanced disclosure, because both demand
-        a decision before Step 4. Validation findings are not shown here:
-        validation does not run and cannot block a plan.
+        a decision before Step 4.
         """
         group = QWidget()
         layout = QVBoxLayout(group)
@@ -390,6 +394,25 @@ class GeneratePage(QWidget):
         self.warnings_list.setSelectionMode(QAbstractItemView.NoSelection)
         self.conflicts_list.setMaximumHeight(120)
         self.warnings_list.setMaximumHeight(120)
+        self.findings_note = QLabel()
+        self.findings_note.setWordWrap(True)
+        self.findings_model = FindingsTableModel(self)
+        self.findings_view = QTableView()
+        self.findings_view.setModel(self.findings_model)
+        self.findings_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.findings_view.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.findings_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.findings_view.verticalHeader().setVisible(False)
+        self.findings_view.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.Stretch
+        )
+        self.findings_view.setMinimumHeight(90)
+        self.findings_view.selectionModel().selectionChanged.connect(
+            self._on_finding_selected
+        )
+        self.review_button = QPushButton(_text("gui.output_review"))
+        self.review_button.clicked.connect(self.review_requested.emit)
+        self.review_button.setVisible(False)
         for widget in (
             self.conflicts_label,
             self.conflicts_note,
@@ -405,6 +428,9 @@ class GeneratePage(QWidget):
         layout.addWidget(self.warnings_label)
         layout.addWidget(self.warnings_note)
         layout.addWidget(self.warnings_list)
+        layout.addWidget(self.findings_note)
+        layout.addWidget(self.findings_view)
+        layout.addWidget(self.review_button)
         return group
 
     # -- destination and choices ------------------------------------------
@@ -582,6 +608,9 @@ class GeneratePage(QWidget):
         if clear:
             self.entries_table.setRowCount(0)
             self.resources_table.setRowCount(0)
+            self.findings_model.set_findings(())
+            self.findings_note.setText("")
+            self.review_button.setVisible(False)
             self.conflicts_list.clear()
             self.warnings_list.clear()
             for widget in (
@@ -642,6 +671,9 @@ class GeneratePage(QWidget):
         self.resources_table.setRowCount(0)
         self.conflicts_list.clear()
         self.warnings_list.clear()
+        self.findings_model.set_findings(())
+        self.findings_note.setText("")
+        self.review_button.setVisible(False)
 
         for conflict in plan.conflicts:
             self.conflicts_list.addItem(conflict)
@@ -670,6 +702,7 @@ class GeneratePage(QWidget):
                 _text("gui.output_plan_refused") % (plan.message or "")
             )
             self.generate_button.setEnabled(False)
+            self._fill_refusal_findings(plan)
             self._update_copy_button()
             return
 
@@ -724,6 +757,39 @@ class GeneratePage(QWidget):
                 if column in (1, 2) and value:
                     item.setData(Qt.UserRole, value)
                 self.resources_table.setItem(row, column, item)
+
+    def _fill_refusal_findings(self, plan) -> None:
+        findings = tuple(plan.findings)
+        note = (
+            "gui.output_findings_variants"
+            if plan.refused_scope == "variant"
+            else "gui.output_findings_note"
+        )
+        if not findings and plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
+            validation = self._state.validate_all()
+            collected = []
+            for key in sorted(validation.variant_reports):
+                report = validation.variant_reports[key]
+                if report.blocking():
+                    collected.extend(report.findings)
+            findings = tuple(collected)
+            note = "gui.output_findings_variants"
+        self.findings_model.set_findings(findings)
+        self.findings_note.setText(_text(note) if findings else "")
+        self.review_button.setVisible(bool(findings))
+
+    # -- finding navigation ------------------------------------------------
+
+    def _on_finding_selected(self, *_args) -> None:
+        rows = self.findings_view.selectionModel().selectedRows()
+        if not rows:
+            return
+        key = self.findings_model.record_key_at(rows[0].row())
+        if key:
+            self.record_activated.emit(key)
+
+    def review_configuration(self) -> None:
+        self.review_requested.emit()
 
     # -- path copying ------------------------------------------------------
 

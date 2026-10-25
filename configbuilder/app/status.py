@@ -33,6 +33,7 @@ wording): rows carry a key, a state, and plain values.
 from __future__ import annotations
 
 from configbuilder.model import (
+    DEFAULT_INPUT_VERSION,
     AlignmentAutomatic,
     AlignmentFree,
     ComponentRecord,
@@ -74,18 +75,20 @@ input, and the deployment's wider comparison policy (ten seeds) is a
 project choice the user can opt into — never a requirement to get started.
 """
 
-DEFAULT_VERSION = 3
-"""The format version a new job pins, so an export never needs a
-version/evidence ritual first (spec §18: the pin is an explicit choice, and
-this is the builder's documented starting choice).
+DEFAULT_VERSION = DEFAULT_INPUT_VERSION
+"""The format version a new job pins: the model's ``DEFAULT_INPUT_VERSION``.
+
+A new job therefore starts on an explicit, supported choice and an export
+never needs a version/evidence ritual first (spec §18).
 
 Deliberately AlphaFold 3 input version 3: the reference implementation
-carries ``JSON_VERSIONS = (1, 2, 3, 4)``. Version 3 is the minimum version
-that covers the builder's core fields — v2 added the external MSA and
-template file fields, v3 the external user-CCD field — while version 4 adds
-only the per-chain textual ``description`` fields. A job that uses a
-description must raise the pin to 4 in the job-configuration menu; the
-transform engine names that requirement rather than silently upgrading.
+carries ``JSON_VERSIONS = (1, 2, 3, 4)`` — the same set as
+``SUPPORTED_INPUT_VERSIONS``. Version 3 is the minimum version that covers
+the builder's core fields — v2 added the external MSA and template file
+fields, v3 the external user-CCD field — while version 4 adds only the
+per-chain textual ``description`` fields. A job that uses a description must
+raise the pin to 4 in the job-configuration menu; the transform engine names
+that requirement rather than silently upgrading.
 """
 
 
@@ -152,9 +155,11 @@ class ConfigurationStatus:
     """The configuration as the user needs to see it: field rows plus the
     catalogue's verdict.
 
-    ``blocking`` is the base report's blocking findings — the same
-    collection generation gates on, so ``ready`` and "generation is
-    allowed" can never disagree.
+    ``blocking`` is the base report's blocking findings from
+    ``ValidationService.GATE_TIERS`` — the same rule set save, preview and
+    generation gate on, so ``ready`` and "this job can be written" can never
+    disagree. Variant-tier and full-catalogue reviews stay on the Variants
+    page, which has its own verdict.
     """
 
     __slots__ = ("fields", "blocking")

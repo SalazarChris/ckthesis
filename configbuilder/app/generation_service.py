@@ -8,8 +8,16 @@ The generation sequence is fixed in exactly one place, in this order:
 4. Build the output plan, including collision detection and the manifest
    payload.
 
-There is no readiness gate: a configuration that the serializer can
-represent is generated. Model constructors still reject impossible values.
+The gate runs ``ValidationService.GATE_TIERS`` — structural, relational,
+contract and preflight — over the base before anything is expanded, and the
+full catalogue (including the variant drift/identity comparison) over every
+selected variant before anything is written. Every one of those checks is
+decidable in-process: validation does not run AF3 and never consults a
+prediction, result directory or completion marker, so a valid configuration
+is saved and generated without ever having been executed.
+
+Save, preview and generation run the same gate, and readiness on the Overview
+reads it too, so no surface can say "ready" while another refuses.
 
 Everything before ``execute`` is pure planning (plan §13.3): nothing is
 written without a plan, and ``execute`` performs writes only — it does
@@ -28,7 +36,9 @@ Two wire-level agreements happen between steps 2 and 3, both through
 
 The manifest joins the plan as an ordinary planned file (§13.1): same
 overwrite policy, atomic write, part of the reviewed layout. Its
-``validation_summary`` is empty because validation is not run.
+``validation_summary`` records the combined base-plus-variant report the
+gate produced for exactly the configurations written — and stays empty
+when no validator is wired, never inventing a clean run.
 """
 
 from __future__ import annotations
@@ -66,6 +76,7 @@ from configbuilder.output.plan import (
     resolve_resources_into,
 )
 from configbuilder.persistence import OutputSettings
+from configbuilder.validation import Report
 from configbuilder.serialize import encode
 from configbuilder.transform import (
     TransformError,
@@ -84,14 +95,125 @@ class GenerationService:
     """Runs the fixed generation sequence; hands the reviewed plan to
     ``output`` for execution."""
 
-    def __init__(self, projects, variants, filesystem=None) -> None:
-        # No validation service is held: save, generate and preview are not
-        # gated. Input constructors still reject impossible values.
+    def __init__(self, projects, variants, filesystem=None, validation=None) -> None:
         self._projects = projects
         self._variants = variants
         # An ``output.FileView`` (read-only) for planning; ``None`` means
         # the real filesystem — exactly ``plan``'s own default.
         self._filesystem = filesystem
+        # Optional so tests and scripts can build a deliberately ungated
+        # service. The application wiring supplies it; save, preview and
+        # generation consult it.
+        self._validation = validation
+
+    # -- the gate ---------------------------------------------------------------
+
+    def _gate_base(self):
+        if self._validation is None:
+            return None
+        from configbuilder.app.validation_service import GATE_TIERS
+
+        return self._gate_outcome(
+            self._validation.validate_base(tiers=GATE_TIERS),
+            "base configuration",
+            "base",
+        )
+
+    @staticmethod
+    def _gate_outcome(outcome, label, scope):
+        if outcome.ok:
+            return None
+        findings = outcome.report.blocking() if outcome.report is not None else ()
+        detail = "; ".join(finding.user_message for finding in findings[:2])
+        if not detail:
+            detail = outcome.message or "validation did not pass"
+        return GenerationPlan(
+            ok=False,
+            failure_reason=FailureReason.VALIDATION_BLOCKED,
+            message="%s is not ready — blocking findings: %s" % (label, detail),
+            findings=findings,
+            refused_scope=scope,
+        )
+
+    def _variant_validation(self, only=None):
+        """``validate_all`` when a validator is wired, else ``None``.
+
+        The full catalogue with the drift/identity join populated — the same
+        call the Variants page makes, so its verdict and generation's cannot
+        disagree.
+        """
+        if self._validation is None:
+            return None
+        return self._validation.validate_all(only=only)
+
+    @staticmethod
+    def _refuse_validation(blocking, message, scope):
+        return GenerationPlan(
+            ok=False,
+            failure_reason=FailureReason.VALIDATION_BLOCKED,
+            message=message,
+            findings=tuple(blocking),
+            refused_scope=scope,
+        )
+
+    def _variant_gate(self, detail):
+        """Refuse a variant run whose authoritative validation is blocking.
+
+        The base half is checked first (every variant derives from it), then
+        each selected variant's own report: drift (R-VAR-001) and identity
+        stability (R-VAR-002) are ERROR findings there, and a variant the
+        Variants page marks blocked can no longer be generated anyway. The
+        comparison uses wire documents built in memory; no AF3 run exists on
+        this path.
+        """
+        if detail is None:
+            return None
+        if detail.failure_reason is not None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=detail.failure_reason,
+                message=detail.message or "the variant could not be validated",
+            )
+        base_blocking = (
+            detail.base_report.blocking() if detail.base_report is not None else ()
+        )
+        if base_blocking:
+            return self._refuse_validation(
+                base_blocking,
+                "the base configuration has blocking findings; generate cannot start",
+                "base",
+            )
+        blocking_keys = sorted(
+            key for key, report in detail.variant_reports.items() if report.blocking()
+        )
+        if blocking_keys:
+            findings = tuple(
+                finding
+                for key in blocking_keys
+                for finding in detail.variant_reports[key].blocking()
+            )
+            return self._refuse_validation(
+                findings,
+                "variant %s has blocking findings; nothing will be written"
+                % ", ".join(blocking_keys),
+                "variant",
+            )
+        return None
+
+    @staticmethod
+    def _combined_report(detail):
+        """What the manifest records: the base report then each variant's.
+
+        ``None`` when validation did not run (an unwired service), so the
+        manifest's summary stays empty rather than claiming a clean run.
+        """
+        if detail is None or detail.base_report is None:
+            return None
+        combined = Report()
+        combined.add_all(detail.base_report.findings)
+        for key in sorted(detail.variant_reports):
+            combined.add_all(detail.variant_reports[key].findings)
+        return combined
 
     # -- the fixed sequence (§15) ------------------------------------------------
 
@@ -104,15 +226,19 @@ class GenerationService:
         state changes. Returns ``(text, None)`` on success or
         ``(None, message)`` when nothing can be shown.
 
-        There is no readiness gate here: if the configuration can be
-        serialized, the preview shows it. Model constructors still reject
-        impossible values.
+        The same gate as save and generation runs first: the preview never
+        shows a document that save would refuse, and a variant preview runs
+        the full variant comparison too. It needs no JSON run and no output
+        environment.
         """
         project = self._projects._require_project()
         if project is None:
             return None, "no project is open"
         if key is None:
             selection = (("base", project.configuration),)
+            refused = self._gate_base()
+            if refused is not None:
+                return None, refused.message
         else:
             previewed = self._variants.preview(key)
             if not previewed.ok:
@@ -121,6 +247,9 @@ class GenerationService:
                 (variant.key, variant.configuration)
                 for variant in previewed.variants
             )
+            refused = self._variant_gate(self._variant_validation(only=(key,)))
+            if refused is not None:
+                return None, refused.message
         try:
             for _name, configuration in selection:
                 document = to_wire(configuration).document
@@ -254,8 +383,13 @@ class GenerationService:
                 message="no project is open",
             )
 
+        # Gate before expansion: a configuration that fails the core tiers
+        # should not produce variant documents or a plan.
+        refused = self._gate_base()
+        if refused is not None:
+            return refused
+
         # Step 1: expand variants (the base is not implicitly included; §12.2).
-        # No validation gate: a serializable configuration is generated.
         expansion = self._variants.expand(only=only)
         if not expansion.ok:
             return GenerationPlan(
@@ -270,6 +404,17 @@ class GenerationService:
                 failure_reason=FailureReason.EMPTY_EXPANSION,
                 message="there are no variants to generate; add a variant first",
             )
+
+        # The variant run's authoritative validation: one full-catalogue
+        # pass over the base and each selected variant, including the
+        # R-VAR-001 drift and R-VAR-002 identity comparison the Variants
+        # page shows. A blocking variant refuses the whole run before any
+        # document is transformed or written, so no partial batch escapes,
+        # and the same pass feeds the manifest's validation summary.
+        detail = self._variant_validation(only=only)
+        refused = self._variant_gate(detail)
+        if refused is not None:
+            return refused
 
         # Step 3: transform each variant, applying the §13.2 name agreement.
         settings = project.settings or OutputSettings()
@@ -373,7 +518,7 @@ class GenerationService:
             format_version=max(format_versions.values()),
             variants=variant_records,
             seed_set=list(project.configuration.seeds.values),
-            validation_report=None,
+            validation_report=self._combined_report(detail),
             path_policy=path_choice,
             overwrite_policy=overwrite,
             format_target=project.configuration.format_target,
@@ -453,8 +598,8 @@ class GenerationService:
         planner's decision helpers as a variant run. No variant is
         expanded and none is required: base generation is independent
         of variant creation, and no manifest is written (the manifest
-        summarises a variant run; there is no variant). There is no
-        readiness gate here.
+        summarises a variant run; there is no variant). The core tiers
+        gate the base before anything is transformed.
         """
         project = self._projects._require_project()
         if project is None:
@@ -463,6 +608,10 @@ class GenerationService:
                 failure_reason=FailureReason.NOT_OPEN,
                 message="no project is open",
             )
+
+        refused = self._gate_base()
+        if refused is not None:
+            return refused
 
         settings = project.settings or OutputSettings()
         overwrite = (
@@ -581,7 +730,8 @@ class GenerationService:
         uses. The *content* discipline is unchanged: the same ``to_wire``
         → ``encode`` path, the same §13.5 resource resolution and §13.3
         action table, and the same ``execute`` writes exactly the reviewed
-        bytes. There is no readiness gate here.
+        bytes. The configuration-only gate runs first; it needs no JSON run
+        and no output environment.
 
         ``name`` overrides the wire ``name`` (the slug of it is what lands
         inside the file) — the variant save uses it so the file carries the
@@ -596,6 +746,12 @@ class GenerationService:
                 failure_reason=FailureReason.NOT_OPEN,
                 message="no project is open",
             )
+
+        # Saving is an export like any other: the same core tiers apply. No
+        # JSON run or output environment is needed for them.
+        refused = self._gate_base()
+        if refused is not None:
+            return refused
 
         settings = project.settings or OutputSettings()
         chosen_policy = (

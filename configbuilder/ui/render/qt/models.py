@@ -347,17 +347,18 @@ class EntityTableModel(QAbstractTableModel):
 class VariantRow(object):
     """One variant, projected to display strings plus the service's key.
 
-    ``changes`` are built by the page from service data
-    (``spec_change_descriptions``); this model only arranges them, exactly
-    like the entity projection.
+    ``changes`` and ``status`` are built by the page from service data
+    (``spec_change_descriptions`` and ``validate_all``); this model only
+    arranges them, exactly like the entity and findings projections.
     """
 
-    __slots__ = ("key", "label", "changes")
+    __slots__ = ("key", "label", "changes", "status")
 
-    def __init__(self, key, label, changes) -> None:
+    def __init__(self, key, label, changes, status) -> None:
         self.key = key
         self.label = label
         self.changes = changes
+        self.status = status
 
     def __repr__(self) -> str:
         return "VariantRow(%r)" % (self.key,)
@@ -370,6 +371,7 @@ class VariantTableModel(QAbstractTableModel):
         "gui.variants_col_label",
         "gui.variants_col_key",
         "gui.variants_col_changes",
+        "gui.variants_col_status",
     )
 
     def __init__(self, parent=None) -> None:
@@ -412,7 +414,7 @@ class VariantTableModel(QAbstractTableModel):
         row = self._rows[index.row()]
         column = index.column()
         if role == Qt.DisplayRole:
-            return (row.label, row.key, row.changes)[column]
+            return (row.label, row.key, row.changes, row.status)[column]
         if role == Qt.UserRole:
             return row.key
         return None

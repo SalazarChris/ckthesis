@@ -266,6 +266,7 @@ class GenerationPlan:
         "output_root",
         "findings",
         "reviewed",
+        "refused_scope",
     )
 
     def __init__(
@@ -282,6 +283,7 @@ class GenerationPlan:
         message="",
         findings=(),
         reviewed=None,
+        refused_scope="",
     ) -> None:
         self.ok = bool(ok)
         self.entries = tuple(entries)
@@ -302,6 +304,9 @@ class GenerationPlan:
         # rather than whatever was planned last — a service-held "last plan"
         # made two plans in a row ambiguous (BUG-011).
         self.reviewed = reviewed
+        # Which half a VALIDATION_BLOCKED refusal came from: "base" or
+        # "variant". The page labels its findings accordingly.
+        self.refused_scope = refused_scope
 
     def __repr__(self) -> str:
         return "GenerationPlan(ok=%r, entries=%d, conflicts=%d)" % (

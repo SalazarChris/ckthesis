@@ -1,4 +1,4 @@
-"""The Overview page: job settings and entities at a glance.
+"""The Overview page: job settings, entities at a glance, and readiness.
 
 The job's name, model seeds and JSON version are **editable here**, and this is
 the only place they are edited: the separate Job Settings destination was
@@ -9,14 +9,24 @@ What remains on the page is deliberately small:
 
 1. **Job details** — the job-wide settings with their Apply semantics and
    default/changed markers;
-2. **Entities** — the record count, the per-family breakdown and one
-   :class:`Entities` action that opens the Entities workspace.
+2. **Entities** — the record count, the service's own per-family breakdown and
+   one :class:`Entities` action that opens the Entities workspace;
+3. **Readiness** — the validation service's verdict as one short line, with a
+   quiet *Validate job* action that re-reads it and says so.
 
-The readiness card and its *Validate job* action are gone: save and generate
-are not gated. The counts are read directly from ``configuration.records``.
+There is no persistent findings table and no readiness row-table here. The
+service still validates exactly as before; Save and Generate explain a
+blocking refusal through their own focused message when the user attempts
+them. Removing the list changed nothing about the gate.
 
 No JSON preview action is on this page either: the document is written through
 **Save JSON** in the FILE footer, which is the one visible save route.
+
+Everything shown here comes from a service call:
+
+- the counts are the status service's own ``components`` row;
+- the readiness verdict is ``ValidationService.status()`` — this page displays
+  it and never recomputes it.
 """
 
 from __future__ import annotations
@@ -32,12 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from configbuilder.model import (
-    ComponentRecord,
-    FamilyARecord,
-    FamilyBRecord,
-    FamilyCRecord,
-)
+from configbuilder.ui.present.strings import blocking_verdict
 from configbuilder.ui.present.strings import text as _text
 from configbuilder.ui.render.qt.pages.settings import JobSettingsPanel
 from configbuilder.ui.render.qt.style import (
@@ -52,7 +57,7 @@ __all__ = ["OverviewPage"]
 
 
 class OverviewPage(QWidget):
-    """Job settings and an entity summary."""
+    """Job settings, an entity summary and one compact readiness line."""
 
     #: The summary action the window answers by changing destination.
     entities_requested = Signal()
@@ -60,9 +65,13 @@ class OverviewPage(QWidget):
     def __init__(self, state, notify=None, problems=None, parent=None) -> None:
         super().__init__(parent)
         self._state = state
+        self._notify = notify if notify is not None else (lambda message: None)
         self.job_settings = JobSettingsPanel(
             state, notify=notify, problems=problems, parent=self
         )
+        # The last service answer, kept so the validate action reports the same
+        # verdict the line shows rather than re-deriving one.
+        self._last_status = None
         self._build()
 
     # -- construction ------------------------------------------------------
@@ -85,6 +94,8 @@ class OverviewPage(QWidget):
         layout.addWidget(self._no_job_note)
         self._summary_card = self._build_entity_summary()
         layout.addWidget(self._summary_card)
+        self._readiness_card = self._build_readiness()
+        layout.addWidget(self._readiness_card)
         layout.addStretch(1)
 
         scroll = QScrollArea()
@@ -126,10 +137,29 @@ class OverviewPage(QWidget):
         layout.addLayout(row)
         return card
 
+    def _build_readiness(self):
+        """One compact line: the service's verdict and a quiet re-read."""
+        card = QFrame()
+        card.setObjectName("statCard")
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(12)
+        layout.addWidget(field_label(_text("gui.stat_readiness")))
+        self._readiness_state = QLabel()
+        self._readiness_state.setProperty("role", "statState")
+        layout.addWidget(self._readiness_state)
+        self._verdict = caption_label(wrap=True)
+        layout.addWidget(self._verdict, 1)
+        self.validate_button = QPushButton(_text("gui.overview_validate"))
+        self.validate_button.setProperty("role", "quiet")
+        self.validate_button.clicked.connect(self.validate_job)
+        layout.addWidget(self.validate_button)
+        return card
+
     # -- refresh -----------------------------------------------------------
 
     def refresh(self) -> None:
-        """Re-read the model. Never writes anything."""
+        """Re-read the model and the readiness service. Never writes anything."""
         configuration = self._state.configuration
         project = self._state.project
         if configuration is None or project is None:
@@ -139,29 +169,68 @@ class OverviewPage(QWidget):
         self.job_settings.setVisible(True)
         self._no_job_note.setVisible(False)
         self._summary_card.setVisible(True)
+        self._readiness_card.setVisible(True)
 
+        status = self._state.status()
+        self._last_status = status
         total = len(configuration.records)
         self._entities_value.setText(str(total))
         self._entities_detail.setText(
-            _family_summary(_components_counts(configuration))
+            _family_summary(_components_counts(status))
             if total
             else _text("gui.stat_entities_none")
         )
         self._dialect_label.setText(
             _text("gui.dialect_caption") % configuration.format_target.dialect.value
         )
+        if status is None:
+            self._readiness_state.setText(_text("gui.stat_no_job"))
+            self._verdict.setText("")
+        elif status.ready:
+            self._readiness_state.setText(_text("gui.readiness_ready"))
+            self._verdict.setText(_text("gui.readiness_ok"))
+        else:
+            self._readiness_state.setText(_text("gui.readiness_attention"))
+            self._verdict.setText(blocking_verdict(len(status.blocking)))
 
     def _clear(self) -> None:
         """No job: keep the page neutral and leave New/Open to the footer."""
         self.job_settings.refresh()
         self.job_settings.setVisible(False)
+        self._last_status = None
         self._entities_value.setText("0")
         self._entities_detail.setText("")
         self._dialect_label.setText("")
+        self._readiness_state.setText(_text("gui.stat_no_job"))
+        self._verdict.setText("")
         self._summary_card.setVisible(False)
+        self._readiness_card.setVisible(False)
         self._no_job_note.setVisible(True)
 
+    def validate_job(self) -> bool:
+        """Re-read readiness from the service, then report the same answer."""
+        self.refresh()
+        status = self._last_status
+        if status is None:
+            self._notify(_text("menu.no_project"))
+            return False
+        if status.ready:
+            self._notify(_text("gui.validate_ok"))
+        else:
+            self._notify(
+                _text("gui.validate_findings") % len(status.blocking)
+            )
+        return True
+
     # -- reading the page back (used by the window's tests) ----------------
+
+    def verdict_text(self) -> str:
+        """The readiness detail as displayed, straight from the service."""
+        return self._verdict.text()
+
+    def readiness_state_text(self) -> str:
+        """The short readiness state (\"Ready\"/\"Needs attention\")."""
+        return self._readiness_state.text()
 
     def entities_value_text(self) -> str:
         """The entity count the summary card shows."""
@@ -204,16 +273,9 @@ def _family_summary(counts) -> str:
     return " · ".join(parts)
 
 
-def _components_counts(configuration):
-    """The per-family record counts, read from the model's own records."""
-    counts = {"protein": 0, "rna": 0, "dna": 0, "ligand": 0}
-    for record in configuration.records:
-        if isinstance(record, FamilyARecord):
-            counts["protein"] += 1
-        elif isinstance(record, FamilyBRecord):
-            counts["rna"] += 1
-        elif isinstance(record, FamilyCRecord):
-            counts["dna"] += 1
-        elif isinstance(record, ComponentRecord):
-            counts["ligand"] += 1
-    return counts
+def _components_counts(status):
+    """The per-family record counts, from the status service's own row."""
+    if status is None:
+        return None
+    field = status.field("components")
+    return field.value if field is not None else None

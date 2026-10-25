@@ -21,6 +21,8 @@ from configbuilder.model.alignment import (
     fold_single_alignment,
 )
 from configbuilder.model.configuration import (
+    DEFAULT_INPUT_VERSION,
+    SUPPORTED_INPUT_VERSIONS,
     Auto,
     Configuration,
     ConfigurationError,
@@ -114,6 +116,7 @@ __all__ = [
     "Configuration", "ConfigurationMetadata", "SeedSet", "FormatTarget",
     "Dialect", "Unverified", "Pinned", "Auto", "VersionSelection",
     "ConfigurationError", "fold_version_selection",
+    "SUPPORTED_INPUT_VERSIONS", "DEFAULT_INPUT_VERSION",
     # errors
     "ModelError",
     # traceability

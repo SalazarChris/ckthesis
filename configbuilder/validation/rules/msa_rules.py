@@ -19,16 +19,25 @@ from configbuilder.model import (
     FamilyARecord,
     FamilyBRecord,
     Inline,
+    SingleProvided,
 )
-from configbuilder.validation.catalogue import Rule
+from configbuilder.validation.catalogue import Rule, Severity
 from configbuilder.validation.report import FieldPath, Finding, Report
 
 
-def _add(report: Report, rule: Rule, user_message: str, diagnostic: str, paths=(), suggestion: str = "") -> None:
+def _add(
+    report: Report,
+    rule: Rule,
+    user_message: str,
+    diagnostic: str,
+    paths=(),
+    suggestion: str = "",
+    severity=None,
+) -> None:
     report.add(
         Finding(
             rule_id=rule.rule_id,
-            severity=rule.severity,
+            severity=severity if severity is not None else rule.severity,
             user_message=user_message,
             diagnostic=diagnostic,
             paths=paths,
@@ -93,29 +102,32 @@ def _first_sequence(content: str) -> str:
 
 
 def _custom_sources(alignment):
-    """Every user-supplied MSA resource in one alignment state."""
+    """Every user-supplied MSA resource in one alignment state.
+
+    Protein one-sided and both-sided states carry their sources directly;
+    an RNA ``provided`` state carries one the same way, so the resource
+    rules below see every explicitly configured file regardless of family.
+    """
     if isinstance(alignment, AlignmentBoth):
         return (alignment.source, alignment.paired_source)
     if isinstance(alignment, (AlignmentUnpairedOnly, AlignmentPairedOnly)):
+        return (alignment.source,)
+    if isinstance(alignment, SingleProvided):
         return (alignment.source,)
     return ()
 
 
 def check_r_msa_003(configuration: Configuration, report: Report, rule: Rule, context=None) -> None:
-    """Custom MSA content is required to be A3M — shallow check: every line
-    is either a FASTA header or an ACGU-/gap-containing sequence line.
-    Advisory (WARNING by evidence DOCUMENTED); the external system owns
-    deep interpretation (plan §9.2). File-backed sources are checked
-    shallowly through the FilesystemPort (exists/readable/non-empty); with
-    the null port they report "not checked" rather than a false error.
-    Both sides of an AlignmentBoth are checked: they may name different
-    files.
-    """
-    from configbuilder.validation.ports import NullFilesystemPort
+    """Custom MSA *content* is required to be A3M — shallow check: every line
+    is either a FASTA header or an A3M-alphabet sequence line. Advisory
+    (WARNING by evidence DOCUMENTED); the external system owns deep
+    interpretation (plan §9.2).
 
-    filesystem = None
-    if context is not None and hasattr(context, "filesystem"):
-        filesystem = context.filesystem
+    Inline text is the only content this rule can see: a file-backed source
+    carries no text in the model and the filesystem port answers existence
+    questions only, so R-MSA-006 owns configured files. Both sides of an
+    AlignmentBoth are checked: they may carry different inline text.
+    """
     for record in _protein_records(configuration) + _rna_records(configuration):
         key = _record_key(configuration, record)
 
@@ -134,24 +146,6 @@ def check_r_msa_003(configuration: Configuration, report: Report, rule: Rule, co
                             "line %d: %r" % (line_no, stripped[:40]),
                             (FieldPath("Inline", key, "unpairedMsa"),),
                         )
-            elif isinstance(source, External):
-                if filesystem is None or isinstance(filesystem, NullFilesystemPort):
-                    _add(
-                        report,
-                        rule,
-                        "The MSA file of record %r could not be checked here (no filesystem access)." % key,
-                        "path %r; filesystem port unavailable" % source.path.raw,
-                        (FieldPath("External", key, "unpairedMsa"),),
-                    )
-                elif not filesystem.is_readable_file(source.path.raw):
-                    _add(
-                        report,
-                        rule,
-                        "The MSA file of record %r is missing or unreadable." % key,
-                        "path %r is not a readable file" % source.path.raw,
-                        (FieldPath("External", key, "unpairedMsa"),),
-                        suggestion="Check the path and that the file exists on this machine.",
-                    )
 
         for source in _custom_sources(record.alignment):
             visit(source)
@@ -202,3 +196,58 @@ def check_r_msa_005(configuration: Configuration, report: Report, rule: Rule) ->
                         (FieldPath("Inline", key, "unpairedMsa"),),
                         suggestion="Pad all aligned sequences to the same length with gap characters.",
                     )
+
+
+def check_r_msa_006(configuration: Configuration, report: Report, rule: Rule, context=None) -> None:
+    """Every configured external MSA file is a usable local file.
+
+    ``Automatic`` and ``Free`` configure no file, so they are never reported
+    here: the deployment searches for an MSA, and demanding a path would
+    refuse the most common configuration. A source-carrying state
+    (``unpaired`` / ``paired`` / ``both`` / RNA ``provided``) does name a
+    file, and the input is not ready while that file cannot be read — the
+    export points at it, and the copy step would fail later anyway.
+
+    Shallow by design (plan §9.2/§9.5): the filesystem port answers
+    exists / regular file / readable / non-empty and nothing is parsed. With
+    no port the rule reports "not checked" as a WARNING instead of inventing
+    an error (plan §9.6).
+    """
+    from configbuilder.validation.ports import NullFilesystemPort
+
+    filesystem = getattr(context, "filesystem", None) if context is not None else None
+    unavailable = filesystem is None or isinstance(filesystem, NullFilesystemPort)
+    for record in _protein_records(configuration) + _rna_records(configuration):
+        key = _record_key(configuration, record)
+        seen = set()
+        for source in _custom_sources(record.alignment):
+            if not isinstance(source, External):
+                continue
+            raw_path = source.path.raw
+            if raw_path in seen:
+                # One file feeding both sides of ``both`` is one resource.
+                continue
+            seen.add(raw_path)
+            if unavailable:
+                _add(
+                    report,
+                    rule,
+                    "The MSA file of record %r could not be checked here (no filesystem access)." % key,
+                    "path %r; filesystem port unavailable" % raw_path,
+                    (FieldPath("External", key, "unpairedMsa"),),
+                    severity=Severity.WARNING,
+                )
+            elif not filesystem.is_readable_file(raw_path):
+                _add(
+                    report,
+                    rule,
+                    "The MSA file of record %r is not usable: %r is missing, empty, "
+                    "unreadable, or not a regular file." % (key, raw_path),
+                    "path %r failed the readable non-empty regular-file check" % raw_path,
+                    (FieldPath("External", key, "unpairedMsa"),),
+                    suggestion=(
+                        "Correct the path in the record's alignment settings, or write "
+                        "the file before saving; automatic search and no-MSA states "
+                        "need no file."
+                    ),
+                )

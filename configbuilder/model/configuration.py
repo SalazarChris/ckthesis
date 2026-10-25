@@ -28,14 +28,26 @@ __all__ = [
     "Configuration",
     "ConfigurationError",
     "ConfigurationMetadata",
+    "DEFAULT_INPUT_VERSION",
     "Dialect",
     "FormatTarget",
+    "SUPPORTED_INPUT_VERSIONS",
     "SeedSet",
     "VersionSelection",
     "fold_version_selection",
 ]
 
 UINT32_MAX = 2 ** 32 - 1
+
+# The input-format versions this builder knows how to emit (spec §18). The
+# set is the single authority: the console's version prompt, the GUI's version
+# picker and the R-ROOT-002 availability rule all read it from here, so a
+# version can never be offered by one surface and refused by another.
+SUPPORTED_INPUT_VERSIONS = (1, 2, 3, 4)
+
+#: The version a new job starts on — an explicit, supported choice, never
+#: inferred from the environment.
+DEFAULT_INPUT_VERSION = 3
 
 
 class ConfigurationError(ModelError):
@@ -201,8 +213,9 @@ class Pinned(_FrozenBase):
     The evidence reference records *why* this version was chosen — a
     deployment observation's ``PIN-nnn`` identifier is the usual one, but
     it is a string the operator supplies; no runtime code ever reads a
-    document to construct it. The empty string means the operator has not
-    yet cited an observation — R-VER-002 reports it (plan §10.3); no
+    document to construct it, and an empty string is accepted: citing an
+    observation is provenance, not a condition for generating output. The
+    version itself is one of ``SUPPORTED_INPUT_VERSIONS`` (R-ROOT-002); no
     version is ever inferred.
     """
 

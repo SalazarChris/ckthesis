@@ -399,6 +399,10 @@ class GuiState(QObject):
         """The variant's JSON text through the generation pipeline."""
         return self._services.generation.show_json(key)
 
+    def validate_all(self, only=None):
+        """Base and variant validation, from the validation service."""
+        return self._services.validation.validate_all(only=only)
+
     def quantity_series_plan(self, keys, start, factor, levels):
         """The planned series as reviewable data; nothing is created."""
         return self._services.variants.quantity_series_plan(keys, start, factor, levels)
@@ -497,6 +501,14 @@ class GuiState(QObject):
         return outcome
 
     # -- services the read-only pages read --------------------------------
+
+    def status(self):
+        """``ConfigurationStatus`` for the open job, or ``None``."""
+        return self._services.validation.status()
+
+    def validate_base(self):
+        """``ConfigurationOutput``: the catalogue's own verdict + report."""
+        return self._services.validation.validate_base()
 
     def preview_json(self, key=None):
         """``(text, None)`` or ``(None, reason)`` from ``show_json``.

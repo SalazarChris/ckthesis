@@ -24,6 +24,7 @@ from configbuilder.validation.ports import (
     FilesystemPort,
     NullChemistryProbe,
     NullFilesystemPort,
+    OsFilesystemPort,
 )
 from configbuilder.validation.report import FieldPath, Finding, Report
 
@@ -46,6 +47,7 @@ __all__ = [
     "FilesystemPort",
     "NullChemistryProbe",
     "NullFilesystemPort",
+    "OsFilesystemPort",
     # report
     "FieldPath",
     "Finding",

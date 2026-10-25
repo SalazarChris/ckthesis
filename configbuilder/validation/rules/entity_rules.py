@@ -217,38 +217,63 @@ def check_r_ent_009(configuration: Configuration, report: Report, rule: Rule) ->
 
 
 def check_r_ent_010(configuration: Configuration, report: Report, rule: Rule, context=None) -> None:
-    """SMILES parses — with a probe: ERROR when it does not; without one:
-    WARNING 'not checked' (plan §9.6)."""
+    """SMILES parses — with a probe: ERROR when it cannot; without one:
+    WARNING 'not checked' (plan §9.6).
+
+    A real checker may raise on malformed notation (a parser's normal way of
+    saying "no"); that is reported as this rule's blocking finding naming the
+    failure, never allowed to escape into the CLI or GUI. An input the
+    checker could not parse is not vouched for, so the severity is the same
+    as an explicit parse refusal.
+
+    The probe decides only chemical *syntax*: a parseable SMILES string is
+    not a promise that the ligand is accepted by the deployment (plan §9.2).
+    """
     from configbuilder.validation.catalogue import Severity
     from configbuilder.validation.engine import ValidationContext
     from configbuilder.validation.ports import NullChemistryProbe
 
     probe = context.chemistry if isinstance(context, ValidationContext) else None
+    available = probe is not None and not isinstance(probe, NullChemistryProbe)
     for record in configuration.records:
         if isinstance(record, ComponentRecord) and isinstance(record.representation, ByNotation):
             key = _record_key(configuration, record)
-            if probe is None or not probe.parses_smiles(record.representation.text):
-                if probe is None or isinstance(probe, NullChemistryProbe):
-                    # Probe-less runs report "not checked" as a WARNING —
-                    # never as an ERROR (plan §9.6).
-                    report.add(
-                        Finding(
-                            rule_id=rule.rule_id,
-                            severity=Severity.WARNING,
-                            user_message=(
-                                "The SMILES notation of ligand %r was not checked: no chemistry checker is available."
-                                % key
-                            ),
-                            diagnostic="SMILES text %r; probe unavailable" % record.representation.text,
-                            paths=(FieldPath("ByNotation", key, "smiles"),),
-                            suggestion="Install a chemistry checker to have SMILES validated.",
-                        )
+            smiles = record.representation.text
+            if not available:
+                # Probe-less runs report "not checked" as a WARNING — never
+                # as an ERROR (plan §9.6).
+                report.add(
+                    Finding(
+                        rule_id=rule.rule_id,
+                        severity=Severity.WARNING,
+                        user_message=(
+                            "The SMILES notation of ligand %r was not checked: no chemistry checker is available."
+                            % key
+                        ),
+                        diagnostic="SMILES text %r; probe unavailable" % smiles,
+                        paths=(FieldPath("ByNotation", key, "smiles"),),
+                        suggestion="Install a chemistry checker to have SMILES validated.",
                     )
-                else:
-                    _add(
-                        report,
-                        rule,
-                        "The SMILES notation of ligand %r could not be parsed." % key,
-                        "SMILES text %r failed to parse" % record.representation.text,
-                        (FieldPath("ByNotation", key, "smiles"),),
-                    )
+                )
+                continue
+            try:
+                parsed = probe.parses_smiles(smiles)
+            except Exception as error:  # the checker is external code
+                _add(
+                    report,
+                    rule,
+                    "The SMILES notation of ligand %r could not be checked: the chemistry checker failed on it." % key,
+                    "SMILES text %r raised %s: %s" % (smiles, type(error).__name__, error),
+                    (FieldPath("ByNotation", key, "smiles"),),
+                    suggestion="Correct the SMILES notation; the checker could not parse it.",
+                )
+                continue
+            if not parsed:
+                _add(
+                    report,
+                    rule,
+                    "The SMILES notation of ligand %r could not be parsed." % key,
+                    "SMILES text %r failed to parse" % smiles,
+                    (FieldPath("ByNotation", key, "smiles"),),
+                    suggestion="Correct the SMILES notation, or use a component code instead.",
+                )

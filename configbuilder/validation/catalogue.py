@@ -96,9 +96,9 @@ ROOT_RULES = (
         spec_ref="19. Validation Matrix",
         evidence=Evidence.CONFIRMED,
         summary=(
-            "JSON version is within the accepted values; the deployed-accepted "
-            "value is supplied explicitly in the configuration with its evidence "
-            "reference, never inferred."
+            "The selected JSON version is one of the supported input versions "
+            "(1-4); availability only, never inferred and never a deployment "
+            "observation."
         ),
         mapping_ids=("MAP-108",),
     ),
@@ -311,6 +311,20 @@ MSA_RULES = (
         ),
         mapping_ids=("MAP-602", "MAP-604", "MAP-605"),
     ),
+    Rule(
+        rule_id="R-MSA-006",
+        tier=Tier.PREFLIGHT,
+        severity=Severity.ERROR,
+        spec_ref="11. MSA Contract",
+        evidence=Evidence.CONFIRMED,
+        summary=(
+            "A configured external MSA file is an existing, readable, non-empty "
+            "regular file; automatic search and no-MSA states configure none and "
+            "are never reported here. A missing filesystem port reports 'not "
+            "checked' rather than a false error (plan §9.6)."
+        ),
+        mapping_ids=("MAP-602", "MAP-603", "MAP-604", "MAP-605", "MAP-606"),
+    ),
 )
 
 # ---------------------------------------------------------------------------
@@ -438,9 +452,8 @@ VERSION_RULES = (
         spec_ref="18. Versioning",
         evidence=Evidence.CONFIRMED,
         summary=(
-            "Generation is blocked until a format version has been verified against "
-            "the deployment and the configuration carries that verification's "
-            "evidence reference."
+            "Save and generation need an explicit JSON format version; Unverified "
+            "is the blocking state. No deployment evidence or prior run is required."
         ),
         mapping_ids=("MAP-108",),
     ),

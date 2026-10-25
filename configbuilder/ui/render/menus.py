@@ -902,7 +902,13 @@ class MenuApp:
             self._say(_text("menu.msa_none_explained"))
             self._report(self._services.configuration.set_alignment(record_key, "free"))
             return
-        self._say(_text("menu.msa_files_explained"))
+        self._say(
+            _text(
+                "menu.msa_files_explained_rna"
+                if family == "rna"
+                else "menu.msa_files_explained"
+            )
+        )
         if family == "rna":
             path = self._ask_msa_file("menu.ask_rna_msa_file", allow_blank=False)
             if path is None:
@@ -950,7 +956,7 @@ class MenuApp:
         skip = (
             "menu.templates_skip_edit"
             if record_key is not None
-            else "menu.msa_skip"
+            else "menu.templates_skip_new"
         )
         answer = self._ask("menu.ask_templates_yn").lower()
         if answer not in ("y", "yes"):

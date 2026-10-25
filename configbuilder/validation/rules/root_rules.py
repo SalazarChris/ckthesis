@@ -44,22 +44,39 @@ def check_r_root_001(configuration: Configuration, report: Report, rule: Rule) -
 
 
 def check_r_root_002(configuration: Configuration, report: Report, rule: Rule) -> None:
-    """Version selection must be explicit and verified: Unverified blocks."""
-    from configbuilder.model import Unverified
+    """The selected JSON version is one of the supported input versions.
+
+    This is the availability half of the version contract, and the half this
+    rule's summary always described but never checked. The *explicitness*
+    half — ``Unverified`` — belongs to R-VER-001 alone, so one missing
+    selection produces one finding (plan §10.3, spec §18).
+    """
+    from configbuilder.model import Auto, SUPPORTED_INPUT_VERSIONS, Unverified
 
     selection = configuration.format_target.version_selection
     if isinstance(selection, Unverified):
-        _add(
-            report,
-            rule,
-            "No format version has been observed to be accepted by the deployment yet.",
-            "version selection is Unverified (no explicit verified target supplied)",
-            (FieldPath("Unverified", None, "version_selection"),),
-            suggestion=(
-                "Pin a version verified against the deployment, citing the "
-                "record that observed it."
-            ),
-        )
+        # R-VER-001 reports the missing explicit selection; nothing is
+        # selected here to check for availability.
+        return
+    if isinstance(selection, Auto):
+        selected = min(selection.evidenced)
+        reason = "the automatic selection resolves to version %d" % selected
+    else:
+        selected = selection.version
+        reason = "version %d was selected explicitly" % selected
+    if selected in SUPPORTED_INPUT_VERSIONS:
+        return
+    supported = ", ".join(str(version) for version in SUPPORTED_INPUT_VERSIONS)
+    _add(
+        report,
+        rule,
+        "JSON version %d is not a supported input version; this builder emits %s."
+        % (selected, supported),
+        "%s, outside SUPPORTED_INPUT_VERSIONS %s" % (reason, (SUPPORTED_INPUT_VERSIONS,)),
+        (FieldPath("FormatTarget", None, "version_selection"),),
+        suggestion="Choose one of the supported versions (%s) in the job settings."
+        % (supported,),
+    )
 
 
 def check_r_root_003(configuration: Configuration, report: Report, rule: Rule) -> None:

@@ -11,10 +11,23 @@ from __future__ import annotations
 
 from configbuilder.app.results import FailureReason, ConfigurationOutput, VariantValidationOutput
 from configbuilder.transform import to_wire, used_version_features
-from configbuilder.validation import ValidationContext
+from configbuilder.validation import Tier, ValidationContext
 from configbuilder.variants import EditError, VariantSpecError, expand, declared_changes
 
-__all__ = ["ValidationService"]
+__all__ = ["GATE_TIERS", "ValidationService"]
+
+# The gate is the configuration-only half of the catalogue: shape, cross-record
+# consistency, the target contract, and the preflight checks that ask the local
+# world a shallow question (does the configured MSA file exist and is it
+# readable; does the configured chemistry checker accept this SMILES). All four
+# are decidable without an AF3 run, a prediction, or an output environment, so
+# save, preview, generation and the Overview's readiness line can share them.
+#
+# VARIANT is deliberately absent: its rules compare a variant against its base
+# and need the joined wire documents. GenerationService runs them through
+# ``validate_all`` before a variant plan is built, and the Variants page shows
+# them; they are never a reason for the base save path to refuse.
+GATE_TIERS = (Tier.STRUCTURAL, Tier.RELATIONAL, Tier.CONTRACT, Tier.PREFLIGHT)
 
 
 class ValidationService:
@@ -63,7 +76,26 @@ class ValidationService:
             }
         return context
 
-    def validate_base(self) -> ConfigurationOutput:
+    def validate_configuration(self, configuration, tiers=None) -> ConfigurationOutput:
+        """Validate one configuration, optionally restricted to ``tiers``.
+
+        Save, preview, generation and the status view all pass
+        :data:`GATE_TIERS`; the Variants page's review keeps the full
+        catalogue (``validate_all``). This is the same engine and the same
+        context join either way, so a rule can never block one surface and
+        pass another.
+        """
+        from configbuilder.validation import validate
+
+        kwargs = {"tiers": tuple(tiers)} if tiers is not None else {}
+        report = validate(
+            configuration,
+            self._context(configuration=configuration),
+            **kwargs,
+        )
+        return ConfigurationOutput(ok=not report.blocking(), report=report)
+
+    def validate_base(self, tiers=None) -> ConfigurationOutput:
         configuration = self._configuration()
         if configuration is None:
             return ConfigurationOutput(
@@ -71,29 +103,30 @@ class ValidationService:
                 failure_reason=FailureReason.NOT_OPEN,
                 message="no project is open",
             )
-        from configbuilder.validation import validate
-
-        report = validate(
-            configuration, self._context(configuration=configuration)
-        )
-        return ConfigurationOutput(ok=not report.blocking(), report=report)
+        return self.validate_configuration(configuration, tiers=tiers)
 
     def status(self):
         """The one configuration-status view over the open project.
 
-        Menu display, the review screen, save, and JSON generation all read
+        Menu display, the Overview page, save, and JSON generation all read
         this (``app.status.build_status``): the field rows a user sees and
-        the catalogue's verdict travel together, so a front end cannot show
-        "ready" while generation refuses, nor refuse without saying which
-        information is missing. ``None`` when no project is open — there is
-        nothing to describe.
+        the gate's verdict travel together, so a front end cannot show
+        "ready" while save refuses, nor refuse without saying which
+        information is missing.
+
+        Runs exactly :data:`GATE_TIERS` — the same rule set save, preview
+        and generation use — so "ready" and "this job can be written" are
+        the same question. Variant-tier findings are not part of a base
+        readiness verdict; the Variants page validates variants with the
+        full catalogue. ``None`` when no project is open — there is nothing
+        to describe.
         """
         from configbuilder.app.status import build_status
 
         configuration = self._configuration()
         if configuration is None:
             return None
-        outcome = self.validate_base()
+        outcome = self.validate_base(tiers=GATE_TIERS)
         if outcome.report is None:
             return None
         return build_status(configuration, outcome.report.blocking())
@@ -103,7 +136,10 @@ class ValidationService:
 
         ``only`` (an iterable of keys) restricts the variant half to that
         subset — the subset-export route shares it. The base is always
-        validated: every variant derives from it.
+        validated: every variant derives from it. The full catalogue runs
+        here (gate tiers plus the variant comparison), which is why this is
+        the variant path's authoritative validation rather than a display
+        convenience.
 
         The variant checks need wire documents; building them here costs
         one transform per variant, which ``GenerationService.plan``

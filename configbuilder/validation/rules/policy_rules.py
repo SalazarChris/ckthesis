@@ -52,17 +52,26 @@ def _add(
 
 
 def check_r_ver_001(configuration: Configuration, report: Report, rule: Rule) -> None:
-    """Generation is blocked until an explicit format version has been
-    supplied (Unverified is the blocking state); the version is never
-    inferred from documentation, examples, releases, or defaults."""
+    """Save and generation need an explicit format version: ``Unverified`` is
+    the blocking state, and the version is never inferred from documentation,
+    examples, releases, or defaults.
+
+    This is the single blocking check for "no version selected"; whether the
+    selected version is supported is R-ROOT-002. No deployment evidence, run
+    or observation is consulted — an explicit ``Pinned``/``Auto`` selection
+    is the whole requirement (plan §10.3, spec §18).
+    """
+    from configbuilder.model import SUPPORTED_INPUT_VERSIONS
+
     if isinstance(configuration.format_target.version_selection, Unverified):
+        supported = ", ".join(str(version) for version in SUPPORTED_INPUT_VERSIONS)
         _add(
             report,
             rule,
-            "Generation is blocked: no format version has been verified against the deployment.",
-            "version selection is Unverified (no explicit verified target supplied)",
+            "No JSON format version is selected for this job.",
+            "version selection is Unverified (no explicit target supplied)",
             (FieldPath("Unverified", None, "version_selection"),),
-            suggestion="Pin a version verified against the deployment, citing its evidence record.",
+            suggestion="Choose a JSON version (%s) in the job settings." % (supported,),
         )
 
 

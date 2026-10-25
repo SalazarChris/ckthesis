@@ -14,16 +14,16 @@ actions and one sentence each:
 
 Choosing one replaces the chooser with only that path's form and a *Back to
 choices* action; nothing from the other two paths is on screen. Below, the
-existing variants, the selected variant's declared changes / JSON, and the
-secondary actions (add a change, rename, duplicate, remove) that act on the
-selection. No wording here names an internal type: the page talks about
-variants, entities and changes.
+existing variants, the selected variant's declared changes / validation state
+/ JSON, and the secondary actions (add a change, rename, duplicate, remove,
+validate) that act on the selection. No wording here names an internal type:
+the page talks about variants, entities and changes.
 
 The base job is only ever read here. Nothing in this module builds a variant,
 an edit, a record, a wire document or a JSON string: every mutation is a
-pass-through on ``GuiState`` to an existing service method. A refusal is
-shown with the service's own message and changes nothing. Validation is not
-run here; variant creation and generation are not gated.
+pass-through on ``GuiState`` to an existing service method, and every status
+comes from ``ValidationService.validate_all``. A refusal is shown with the
+service's own message and changes nothing.
 """
 
 from __future__ import annotations
@@ -73,6 +73,7 @@ from configbuilder.ui.render.qt.dialogs import (
     confirm_variant_removal,
 )
 from configbuilder.ui.render.qt.models import (
+    FindingsTableModel,
     VariantRow,
     VariantTableModel,
     family_label,
@@ -108,6 +109,7 @@ class VariantsPage(QWidget):
         self._notify = notify if notify is not None else (lambda message: None)
         self._problems = problems if problems is not None else (lambda message: None)
         self._selected_key = ""
+        self._validation = None
         self._series_plan = None
         self._series_signature = None
         self._batch_signature = None
@@ -287,17 +289,20 @@ class VariantsPage(QWidget):
         self.rename_button = QPushButton(_text("gui.variants_rename"))
         self.duplicate_button = QPushButton(_text("gui.variants_duplicate"))
         self.remove_button = QPushButton(_text("gui.variants_remove"))
+        self.validate_button = QPushButton(_text("gui.variants_validate"))
         self.add_change_button.clicked.connect(self.add_change)
         self.rename_button.clicked.connect(self.rename_variant)
         self.duplicate_button.clicked.connect(self.duplicate_variant)
         self.remove_button.clicked.connect(self.remove_variant)
-        # Two short rows rather than one long strip: four actions in a single
+        self.validate_button.clicked.connect(self.validate_now)
+        # Two short rows rather than one long strip: five actions in a single
         # line forced the whole page wider than the window at 940 px.
         for column, button in enumerate(
             (self.add_change_button, self.rename_button, self.duplicate_button)
         ):
             layout.addWidget(button, 0, column)
         layout.addWidget(self.remove_button, 1, 0)
+        layout.addWidget(self.validate_button, 1, 1)
         layout.setColumnStretch(3, 1)
         return row
 
@@ -326,16 +331,35 @@ class VariantsPage(QWidget):
         return group
 
     def _build_details(self):
-        """The selected variant's declared changes and resulting JSON."""
+        """The fourth tab: what the selected variant declares and validates to."""
         page = QWidget()
         layout = QVBoxLayout(page)
         self.detail_title = QLabel(_text("gui.variants_no_selection"))
         self.detail_title.setWordWrap(True)
+        self.detail_status = QLabel()
+        self.detail_status.setWordWrap(True)
         layout.addWidget(self.detail_title)
+        layout.addWidget(self.detail_status)
         self.detail_tabs = QTabWidget()
         self.changes_list = QListWidget()
         self.changes_list.setSelectionMode(QAbstractItemView.NoSelection)
         self.detail_tabs.addTab(self.changes_list, _text("gui.variants_tab_changes"))
+        findings_page = QWidget()
+        findings_layout = QVBoxLayout(findings_page)
+        self.findings_note = QLabel()
+        self.findings_note.setWordWrap(True)
+        self.findings_model = FindingsTableModel(self)
+        self.findings_view = QTableView()
+        self.findings_view.setModel(self.findings_model)
+        self.findings_view.setSelectionMode(QAbstractItemView.NoSelection)
+        self.findings_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.findings_view.verticalHeader().setVisible(False)
+        self.findings_view.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.Stretch
+        )
+        findings_layout.addWidget(self.findings_note)
+        findings_layout.addWidget(self.findings_view, 1)
+        self.detail_tabs.addTab(findings_page, _text("gui.variants_tab_findings"))
         json_page = QWidget()
         json_layout = QVBoxLayout(json_page)
         self.json_note = QLabel()
@@ -514,12 +538,20 @@ class VariantsPage(QWidget):
                 return spec
         return None
 
+    def row_status_text(self, key) -> str:
+        """The validation word displayed for one variant row."""
+        for row in self.variant_model.rows:
+            if row.key == key:
+                return row.status
+        return ""
+
     # -- refresh -----------------------------------------------------------
 
     def refresh(self) -> None:
-        """Re-read specs, details and the two creation forms."""
+        """Re-read specs, validation, details and the two creation forms."""
         configuration = self._state.configuration
         if configuration is None:
+            self._validation = None
             self.variant_model.set_rows(())
             self._base_label.setText(_text("menu.no_project"))
             self._empty_label.setVisible(False)
@@ -530,6 +562,7 @@ class VariantsPage(QWidget):
             return
 
         specs = self._state.specs
+        self._validation = self._state.validate_all() if specs else None
         self._base_label.setText(
             _text("gui.variants_base") % configuration.metadata.name
             + "  ·  "
@@ -541,6 +574,7 @@ class VariantsPage(QWidget):
                 spec.key,
                 spec.label,
                 self._changes_text(spec.key),
+                self._status_text(spec.key),
             )
             for spec in specs
         ]
@@ -592,6 +626,27 @@ class VariantsPage(QWidget):
             self.remove_button,
         ):
             button.setEnabled(has_project and selected)
+        self.validate_button.setEnabled(has_project and bool(self._state.specs))
+
+    def _status_text(self, key: str) -> str:
+        validation = self._validation
+        if validation is None:
+            return ""
+        if validation.failure_reason is not None:
+            return _text("gui.variants_status_unavailable")
+        base_report = validation.base_report
+        if base_report is not None and base_report.blocking():
+            return _text("gui.variants_status_base_blocked")
+        report = validation.variant_reports.get(key)
+        if report is None:
+            return _text("gui.variants_status_unavailable")
+        blocking = report.blocking()
+        if blocking:
+            return _text("gui.variants_status_blocked") % len(blocking)
+        warnings = report.warnings()
+        if warnings:
+            return _text("gui.variants_status_warnings") % len(warnings)
+        return _text("gui.variants_status_ready")
 
     # -- details -----------------------------------------------------------
 
@@ -606,7 +661,10 @@ class VariantsPage(QWidget):
 
     def _clear_details(self) -> None:
         self.detail_title.setText(_text("gui.variants_no_selection"))
+        self.detail_status.setText("")
         self.changes_list.clear()
+        self.findings_model.set_findings(())
+        self.findings_note.setText("")
         self.json_view.setPlainText("")
         self.json_note.setText("")
 
@@ -616,6 +674,9 @@ class VariantsPage(QWidget):
             self._clear_details()
             return
         self.detail_title.setText("%s  ·  %s" % (spec.label, spec.key))
+        self.detail_status.setText(
+            _text("gui.variants_status_header") % self._status_text(spec.key)
+        )
         self.changes_list.clear()
         for text_value in self._change_lines(spec.key):
             self.changes_list.addItem(QListWidgetItem(text_value))
@@ -623,7 +684,33 @@ class VariantsPage(QWidget):
             item = QListWidgetItem(_text("gui.variants_changes_none"))
             item.setFlags(Qt.NoItemFlags)
             self.changes_list.addItem(item)
+        self._refresh_findings(spec.key)
         self._refresh_json(spec.key)
+
+    def _refresh_findings(self, key: str) -> None:
+        validation = self._validation
+        if validation is None:
+            self.findings_model.set_findings(())
+            self.findings_note.setText(_text("gui.variants_findings_none"))
+            return
+        if validation.failure_reason is not None:
+            self.findings_model.set_findings(())
+            self.findings_note.setText(
+                _text("gui.variants_findings_unavailable") % (validation.message or "")
+            )
+            return
+        base_report = validation.base_report
+        if base_report is not None and base_report.blocking():
+            findings = base_report.findings
+            self.findings_model.set_findings(findings)
+            self.findings_note.setText(_text("gui.variants_findings_base"))
+            return
+        report = validation.variant_reports.get(key)
+        findings = report.findings if report is not None else ()
+        self.findings_model.set_findings(findings)
+        self.findings_note.setText(
+            "" if findings else _text("gui.variants_findings_none")
+        )
 
     def _refresh_json(self, key: str) -> None:
         text, reason = self._state.preview_variant_json(key)
@@ -1014,6 +1101,14 @@ class VariantsPage(QWidget):
         self._selected_key = ""
         self._notify(_text("gui.variants_removed"))
         self.refresh()
+        return True
+
+    def validate_now(self) -> bool:
+        if self._state.configuration is None:
+            self._problems(_text("menu.no_project"))
+            return False
+        self.refresh()
+        self._notify(_text("gui.variants_validated"))
         return True
 
     # -- quantity series ---------------------------------------------------

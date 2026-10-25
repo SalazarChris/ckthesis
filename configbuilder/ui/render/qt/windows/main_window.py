@@ -10,8 +10,8 @@ Stage 2 adds the job lifecycle:
 - **New Job** starts a fresh job through ``ProjectService.new`` — the
   service's own default policy supplies the name, seeds and version pin.
 - **Save JSON…** asks for a destination, then runs the *generation service's*
-  two-step workflow: ``plan_save`` (transform, encode, decide the overwrite
-  action) and then ``execute`` (write exactly the reviewed bytes).
+  two-step workflow: ``plan_save`` (validate, transform, encode, decide the
+  overwrite action) and then ``execute`` (write exactly the reviewed bytes).
   This window never assembles a wire document, never serializes JSON, never
   allocates an identifier and never writes a file itself.
 - **Overview** hosts the one job-wide settings editor; it sends the job
@@ -55,6 +55,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from configbuilder.app.results import FailureReason
 from configbuilder.ui.present.strings import text as _text
 from configbuilder.ui.render.qt.dialogs import (
     ImportPreviewDialog,
@@ -211,6 +212,8 @@ class MainWindow(QMainWindow):
             lambda: self.show_page(self._entities)
         )
 
+        self._output.record_activated.connect(self._show_entity)
+        self._output.review_requested.connect(self._show_overview)
         # The Advanced tab always speaks about the entity selected on the
         # Entities tab: one selection, two views of it.
         self._entities.selection_changed.connect(self._advanced.show_record)
@@ -422,9 +425,9 @@ class MainWindow(QMainWindow):
 
         The sequence mirrors the console's own save: choose a destination,
         confirm an existing file, plan, then execute. A refusal is reported
-        with the service's reason and nothing is marked saved; success updates
-        the current path and the saved state only after ``execute`` reports it
-        wrote the plan. There is no readiness gate.
+        with the service's reason (and its findings when validation blocked
+        it) and nothing is marked saved; success updates the current path and
+        the saved state only after ``execute`` reports it wrote the plan.
         """
         if not self._state.has_project():
             self.report_problem(_text("menu.no_project"))
@@ -457,14 +460,46 @@ class MainWindow(QMainWindow):
         return True
 
     def _report_save_refusal(self, plan) -> bool:
-        """Show why nothing was written. Save has no readiness gate."""
-        message = plan.message or ""
+        """Show why nothing was written, including the blocking findings.
+
+        Readiness is a compact line now, so the reasons come to the user here,
+        on the save attempt, instead of living in a permanent list on Overview.
+        """
+        if plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
+            message = self._blocking_message(plan)
+        else:
+            message = plan.message or ""
         for conflict in plan.conflicts:
             line = _text("menu.export_conflict") % conflict
             message = "%s\n\n%s" % (message, line) if message else line
         self.report_problem(message)
         self._show_status_for_problem(message)
         return False
+
+    @staticmethod
+    def _blocking_message(plan) -> str:
+        """The blocking findings as a short, actionable explanation."""
+        findings = tuple(getattr(plan, "findings", ()) or ())
+        blocking = tuple(
+            finding
+            for finding in findings
+            if getattr(getattr(finding, "severity", None), "name", "") == "ERROR"
+        ) or findings
+        if not blocking:
+            return plan.message or ""
+        header = (
+            _text("gui.blocked_header_one")
+            if len(blocking) == 1
+            else _text("gui.blocked_header") % len(blocking)
+        )
+        lines = [header]
+        for finding in blocking[:4]:
+            lines.append(_text("gui.blocked_line") % finding.user_message)
+            if finding.suggestion:
+                lines.append(_text("gui.blocked_fix") % finding.suggestion)
+        if len(blocking) > 4:
+            lines.append(_text("gui.blocked_more") % (len(blocking) - 4))
+        return "\n".join(lines)
 
     # -- the import path: preview, confirm, then commit --------------------
 
@@ -595,6 +630,16 @@ class MainWindow(QMainWindow):
             self._source.setText(_text("gui.source_file") % self._state.source_path)
         else:
             self._source.setText(_text("gui.source_none"))
+
+    def _show_entity(self, record_key: str) -> None:
+        """Follow a finding to the entity it names."""
+        if self._entities.select_record(record_key):
+            self.show_page(self._entities)
+
+    def _show_overview(self) -> None:
+        """Follow a generation refusal to the readiness view."""
+        self._overview.refresh()
+        self.show_page(self._overview)
 
     def show_page(self, page) -> None:
         """Bring one destination forward (the sidebar follows the workspace)."""
