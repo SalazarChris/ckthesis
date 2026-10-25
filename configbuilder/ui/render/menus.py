@@ -31,6 +31,7 @@ from configbuilder.app.configuration_service import ReferenceInput
 from configbuilder.app.reference_validation import file_issue, parse_pair_text
 from configbuilder.app.results import FailureReason
 from configbuilder.app.status import FieldState
+from configbuilder.ui.present.labels import change_text
 from configbuilder.ui.present.sequence import residue_at
 from configbuilder.ui.present.strings import text as _text
 
@@ -1626,16 +1627,20 @@ class MenuApp:
                 if choice in ("0", "q", "back"):
                     return
                 if choice == "1":
-                    self._set_variant_name()
+                    self._vary_entities_menu()
                 elif choice == "2":
-                    self._add_entity_menu()
+                    self._set_variant_name()
                 elif choice == "3":
-                    self._edit_entity_menu()
+                    self._add_entity_menu()
                 elif choice == "4":
-                    self._save_variant_and_reset()
+                    self._edit_entity_menu()
                 elif choice == "5":
-                    self._batch_generate_from_file()
+                    self._save_variant_and_reset()
                 elif choice == "6":
+                    self._batch_generate_from_file()
+                elif choice == "7":
+                    self._generate_variants_to_folder()
+                elif choice == "8":
                     self._list_variants()
                 elif choice:
                     self._say(_text("menu.invalid") % choice)
@@ -1644,6 +1649,155 @@ class MenuApp:
             # active variant entirely — the base job is never modified.
             self._reset_variant()
             self._variant_base = None
+
+    def _vary_entities_menu(self) -> None:
+        """Vary the open job's own entities — the multi-ligand workflow.
+
+        The console's primary variant path, and the same service calls the
+        desktop page makes: ``entity_table`` answers "what do I have?",
+        ``target_strategy_choices`` answers "what can I change?",
+        ``plan_target_variants`` shows the variants before anything exists,
+        and ``create_target_variants`` commits them all-or-nothing. Nothing
+        here builds an edit or a spec itself.
+        """
+        project = self._project()
+        if project is None:
+            return
+        rows = self._services.variants.entity_table()
+        if not rows:
+            self._say(_text("menu.no_entities"))
+            return
+        self._say(_banner(_text("menu.variant_targets_title"), self._width))
+        self._say()
+        for index, row in enumerate(rows, start=1):
+            can = (
+                _text("menu.variant_targets_can") % len(row.kinds)
+                if row.kinds
+                else _text("menu.variant_targets_cannot")
+            )
+            self._say(
+                _text("menu.variant_targets_row")
+                % (index, row.key, row.family, row.summary, row.copies, can)
+            )
+            if row.note:
+                self._say("      %s" % row.note)
+        self._say()
+        self._say(_text("menu.variant_targets_intro"))
+        keys = self._ask_target_keys(rows)
+        if not keys:
+            return
+        choices = self._services.variants.target_strategy_choices()
+        entries = [(choice.label, choice.kind) for choice in choices]
+        kind = self._numbered_choice(
+            _text("menu.variant_targets_strategy_title"), entries
+        )
+        if kind is None:
+            return
+        value = ""
+        if kind != "remove_entity":
+            value = self._ask("menu.variant_targets_value")
+            if not value:
+                self._say(_text("menu.variant_targets_cancelled"))
+                return
+        plan = self._services.variants.plan_target_variants(keys, kind, value)
+        self._say()
+        self._say(_banner(_text("menu.variant_targets_plan_title"), self._width))
+        if not plan.ok:
+            self._say(_text("menu.not_applied") % (plan.message or "refused"))
+            return
+        self._say(_text("menu.variant_targets_count") % plan.count)
+        for row in plan.rows:
+            self._say(_text("menu.variant_targets_row_plan") % (row.label, row.key))
+            for described in row.described:
+                self._say(
+                    _text("menu.variant_targets_change")
+                    % change_text(described.get("kind", ""), described)
+                )
+        self._say(
+            _text("menu.variant_targets_unchanged")
+            % (", ".join(plan.unchanged_keys) or "-")
+        )
+        if self._ask("menu.variant_targets_confirm").lower() not in ("y", "yes"):
+            self._say(_text("menu.variant_targets_cancelled"))
+            return
+        outcome = self._services.variants.create_target_variants(keys, kind, value)
+        if not self._report(outcome):
+            return
+        self._say(_text("menu.variant_targets_created") % plan.count)
+
+    def _ask_target_keys(self, rows):
+        """The entity numbers the user typed, as record keys (empty = cancel)."""
+        raw = self._ask("menu.variant_targets_select_prompt").strip().lower()
+        if raw in ("", "0", "q", "back"):
+            return ()
+        if raw in ("all", "*"):
+            return tuple(row.key for row in rows)
+        keys = []
+        for part in raw.replace(";", ",").split(","):
+            part = part.strip()
+            if not part.isdigit() or not 1 <= int(part) <= len(rows):
+                self._say(_text("menu.invalid") % part)
+                return ()
+            key = rows[int(part) - 1].key
+            if key not in keys:
+                keys.append(key)
+        if not keys:
+            self._say(_text("menu.variant_targets_select_none"))
+        return tuple(keys)
+
+    def _generate_variants_to_folder(self) -> None:
+        """Write the variant run through the shared generation pipeline.
+
+        The same call the desktop's Generate page makes
+        (``plan_selection(scope="variants")`` then ``execute``): validation,
+        the manifest and every asset decision come from one place, so the two
+        entry points cannot write different files for the same variants.
+        """
+        project = self._project()
+        if project is None:
+            return
+        count = self._services.variants.spec_count()
+        if not count:
+            self._say(_text("menu.variant_generate_none"))
+            return
+        self._say(_banner(_text("menu.variant_generate_title"), self._width))
+        self._say(_text("menu.variant_generate_intro"))
+        default = os.path.join(os.getcwd(), "variants")
+        root = self._ask_destination("menu.variant_generate_root", default)
+        if not root:
+            self._say(_text("menu.save_cancelled"))
+            return
+        # The project's own policies, passed explicitly: a plan made without
+        # them would fall back to overwriting, while the desktop preselects
+        # these same defaults. One run therefore behaves the same way in both.
+        defaults = self._services.generation.output_defaults()
+        plan = self._services.generation.plan_selection(
+            root,
+            scope="variants",
+            overwrite_policy=defaults["overwrite"],
+            path_policy=defaults["path"],
+        )
+        self._say(_text("menu.variant_generate_count") % (count, root))
+        if not plan.ok:
+            if plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
+                findings = tuple(plan.findings)
+                self._say(_text("menu.variant_generate_blocked") % len(findings))
+                for finding in findings:
+                    self._say("  - %s" % finding.user_message)
+            else:
+                self._say(_text("menu.variant_generate_failed") % (plan.message or ""))
+                for conflict in plan.conflicts:
+                    self._say(_text("menu.variant_generate_conflicts") % conflict)
+            return
+        for entry in plan.entries:
+            self._say("  %s -> %s" % (entry.variant_key or "manifest", entry.path))
+        result = self._services.generation.execute(plan)
+        if not result.ok:
+            message = "; ".join(str(error) for error in result.errors) or result.message
+            self._say(_text("menu.variant_generate_failed") % message)
+            return
+        for path in result.written:
+            self._say(_text("menu.variant_generate_written") % path)
 
     def _batch_generate_from_file(self) -> None:
         """Generate multiple variants from a file (protein, DNA, or ligand SMILES)."""
@@ -1697,8 +1851,11 @@ class MenuApp:
                     self._say(_text("menu.variant_preview_title") % spec.label)
                     self._say(_text("menu.variant_preview_key") % spec.key)
                     self._say(_text("menu.variant_preview_edits"))
-                    for edit in self._services.variants.describe_spec_edits(spec.key):
-                        self._say("  - %s" % edit.get("description", "unknown"))
+                    for described in self._services.variants.describe_spec_edits(spec.key):
+                        self._say(
+                            "  - %s"
+                            % change_text(described.get("kind", ""), described)
+                        )
                     self._say()
                 else:
                     self._say(_text("menu.invalid") % choice)

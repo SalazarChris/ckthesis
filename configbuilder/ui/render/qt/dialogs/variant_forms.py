@@ -71,6 +71,7 @@ _KIND_LABEL_KEYS = dict(
         ("job_description", "gui.variant_kind_job_description"),
         ("seeds", "gui.variant_kind_seeds"),
         ("component_count", "gui.variant_kind_component_count"),
+        ("component_representation", "gui.variant_kind_component_representation"),
         ("add_entity", "gui.variant_kind_add_entity"),
         ("remove_entity", "gui.variant_kind_remove_entity"),
     )
@@ -436,6 +437,21 @@ class VariantChangeEditor(QWidget):
             self.count_spin.setRange(1, MAX_POSITION)
             form.addRow(_text("gui.variant_field_entity"), self.count_component)
             form.addRow(_text("gui.variant_field_count"), self.count_spin)
+        elif kind == "component_representation":
+            # The same change the "vary the entities" page makes, offered here
+            # for one ligand at a time (and for adding it to an existing
+            # variant): a SMILES string replacing the ligand's representation.
+            self.representation_component = self._combo(component_options)
+            self.representation_edit = QLineEdit()
+            self.representation_edit.setPlaceholderText(
+                _text("gui.variant_field_smiles_placeholder")
+            )
+            form.addRow(
+                _text("gui.variant_field_entity"), self.representation_component
+            )
+            form.addRow(
+                _text("gui.variant_field_representation"), self.representation_edit
+            )
         elif kind == "add_entity":
             self.add_family = QComboBox()
             for label_key, family in _FAMILY_OPTIONS:
@@ -719,6 +735,14 @@ class VariantChangeEditor(QWidget):
             if not entity:
                 return None, _text("gui.variant_choose_entity")
             return ChangeRequest(kind, int(self.count_spin.value()), entity), None
+        if kind == "component_representation":
+            entity = self.representation_component.currentData() or ""
+            if not entity:
+                return None, _text("gui.variant_choose_entity")
+            text = self.representation_edit.text().strip()
+            if not text:
+                return None, _text("gui.variant_choose_value")
+            return ChangeRequest(kind, text, entity), None
         if kind == "add_entity":
             family = self.add_family.currentData() or ""
             if not family:

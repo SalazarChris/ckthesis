@@ -407,6 +407,25 @@ class GuiState(QObject):
         """The planned series as reviewable data; nothing is created."""
         return self._services.variants.quantity_series_plan(keys, start, factor, levels)
 
+    def entity_table(self):
+        """The base's entities, copies and supported strategies."""
+        return self._services.variants.entity_table()
+
+    def target_strategy_choices(self):
+        """The per-entity strategies this base can actually use."""
+        return self._services.variants.target_strategy_choices()
+
+    def plan_target_variants(self, keys, kind, value):
+        """What varying ``keys`` would create, without committing."""
+        return self._services.variants.plan_target_variants(keys, kind, value)
+
+    def create_target_variants(self, keys, kind, value):
+        """Commit one independent variant per selected entity."""
+        outcome = self._services.variants.create_target_variants(keys, kind, value)
+        if outcome.ok:
+            self.project_changed.emit()
+        return outcome
+
     def create_quantity_series(self, keys, start, factor, levels):
         """Commit the series the user reviewed (one spec per level)."""
         outcome = self._services.variants.create_quantity_series(

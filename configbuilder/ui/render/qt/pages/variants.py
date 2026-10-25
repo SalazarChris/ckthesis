@@ -28,7 +28,7 @@ service's own message and changes nothing.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -63,6 +63,7 @@ from configbuilder.model import (
     FamilyBRecord,
     FamilyCRecord,
 )
+from configbuilder.ui.present.labels import alignment_text, change_text
 from configbuilder.ui.present.strings import text as _text
 from configbuilder.ui.render.qt.dialogs import (
     DuplicateVariantDialog,
@@ -159,6 +160,7 @@ class VariantsPage(QWidget):
         # sits underneath rather than dominating the first screen.
         self.splitter = QSplitter(Qt.Vertical)
         self.chooser_page = self._build_chooser()
+        self.targets_page = self._build_targets_tab()
         self.one_page = self._build_one_tab()
         self.series_page = self._build_series_tab()
         self.batch_page = self._build_batch_tab()
@@ -167,6 +169,7 @@ class VariantsPage(QWidget):
         self.workspace.setObjectName("variantsWorkspace")
         for page in (
             self.chooser_page,
+            self.targets_page,
             self.one_page,
             self.series_page,
             self.batch_page,
@@ -203,13 +206,16 @@ class VariantsPage(QWidget):
         layout.addWidget(heading_label(_text("gui.variants_choose_title")))
         layout.addWidget(hint_label(_text("gui.variants_choose_intro")))
         layout.addSpacing(4)
+        self.targets_choice_button = QPushButton(_text("gui.variants_targets_title"))
         self.one_choice_button = QPushButton(_text("gui.variants_one_title"))
         self.series_choice_button = QPushButton(_text("gui.variants_series_title"))
         self.batch_choice_button = QPushButton(_text("gui.variants_batch_title"))
+        self.targets_choice_button.clicked.connect(self.open_targets_path)
         self.one_choice_button.clicked.connect(self.open_one_path)
         self.series_choice_button.clicked.connect(self.open_series_path)
         self.batch_choice_button.clicked.connect(self.open_batch_path)
         for button, hint_key in (
+            (self.targets_choice_button, "gui.variants_targets_hint"),
             (self.one_choice_button, "gui.variants_one_hint"),
             (self.series_choice_button, "gui.variants_series_hint"),
             (self.batch_choice_button, "gui.variants_batch_hint"),
@@ -236,6 +242,11 @@ class VariantsPage(QWidget):
         return row, back
 
     # -- path navigation ---------------------------------------------------
+
+    def open_targets_path(self) -> None:
+        """Show only the vary-entities workflow (the multi-ligand path)."""
+        self._refresh_targets()
+        self.workspace.setCurrentWidget(self.targets_page)
 
     def open_one_path(self) -> None:
         """Show only the one-variant workflow."""
@@ -265,6 +276,7 @@ class VariantsPage(QWidget):
         current = self.workspace.currentWidget()
         for name, page in (
             ("choose", self.chooser_page),
+            ("targets", self.targets_page),
             ("one", self.one_page),
             ("series", self.series_page),
             ("batch", self.batch_page),
@@ -518,6 +530,249 @@ class VariantsPage(QWidget):
         layout.addWidget(hint_label(_text("gui.variants_batch_no_normalization")))
         return page
 
+    def _build_targets_tab(self):
+        """The everyday path: the entities you opened, each varied once.
+
+        The table is the base job itself — one row per entity definition, with
+        its copies and the strategies that entity can take — so the first
+        decision ("which of these do I want to change?") is answered from the
+        file the user opened rather than from a list of internal change kinds.
+        """
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        header, self.targets_back = self._path_header("gui.variants_targets_title")
+        layout.addWidget(header)
+        layout.addWidget(hint_label(_text("gui.variants_targets_hint")))
+        layout.addWidget(hint_label(_text("gui.variants_targets_independent")))
+        self.targets_table = QTableWidget(0, 5)
+        self.targets_table.setObjectName("targetsTable")
+        self.targets_table.setHorizontalHeaderLabels(
+            [
+                _text("gui.variants_targets_col_entity"),
+                _text("gui.variants_targets_col_type"),
+                _text("gui.variants_targets_col_content"),
+                _text("gui.variants_targets_col_copies"),
+                _text("gui.variants_targets_col_can"),
+            ]
+        )
+        self.targets_table.verticalHeader().setVisible(False)
+        self.targets_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.targets_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.targets_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.targets_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.Stretch
+        )
+        self.targets_table.setMinimumHeight(120)
+        self.targets_table.itemSelectionChanged.connect(self._invalidate_targets)
+        layout.addWidget(self.targets_table, 1)
+        select_row = QHBoxLayout()
+        self.targets_all_button = QPushButton(_text("gui.variants_targets_select_all"))
+        self.targets_none_button = QPushButton(_text("gui.variants_targets_select_none"))
+        self.targets_all_button.setProperty("role", "quiet")
+        self.targets_none_button.setProperty("role", "quiet")
+        self.targets_all_button.clicked.connect(self.select_all_targets)
+        self.targets_none_button.clicked.connect(self.select_no_targets)
+        select_row.addWidget(self.targets_all_button)
+        select_row.addWidget(self.targets_none_button)
+        select_row.addStretch(1)
+        layout.addWidget(self._layout_widget(select_row))
+        form = QFormLayout()
+        self.targets_strategy = QComboBox()
+        self.targets_strategy.setObjectName("targetsStrategy")
+        self.targets_strategy.currentIndexChanged.connect(self._invalidate_targets)
+        self.targets_value = QLineEdit()
+        self.targets_value.setObjectName("targetsValue")
+        self.targets_value.textChanged.connect(self._invalidate_targets)
+        self.targets_value_label = QLabel(_text("gui.variants_targets_value"))
+        form.addRow(_text("gui.variants_targets_strategy"), self.targets_strategy)
+        form.addRow(self.targets_value_label, self.targets_value)
+        layout.addLayout(form)
+        buttons = QHBoxLayout()
+        self.targets_plan_button = QPushButton(_text("gui.variants_targets_plan"))
+        self.targets_create_button = QPushButton(_text("gui.variants_targets_create"))
+        self.targets_plan_button.clicked.connect(self.plan_targets)
+        self.targets_create_button.clicked.connect(self.create_targets)
+        self.targets_create_button.setEnabled(False)
+        buttons.addWidget(self.targets_plan_button)
+        buttons.addWidget(self.targets_create_button)
+        buttons.addStretch(1)
+        layout.addWidget(self._layout_widget(buttons))
+        self.targets_note = QLabel(_text("gui.variants_targets_plan_empty"))
+        self.targets_note.setWordWrap(True)
+        layout.addWidget(self.targets_note)
+        self.targets_plan_table = QTableWidget(0, 3)
+        self.targets_plan_table.setObjectName("targetsPlanTable")
+        self.targets_plan_table.setHorizontalHeaderLabels(
+            [
+                _text("gui.variants_targets_col_variant"),
+                _text("gui.variants_targets_col_target"),
+                _text("gui.variants_targets_col_change"),
+            ]
+        )
+        self.targets_plan_table.verticalHeader().setVisible(False)
+        self.targets_plan_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.targets_plan_table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.Stretch
+        )
+        self.targets_plan_table.setMinimumHeight(100)
+        layout.addWidget(self.targets_plan_table, 1)
+        self._targets_plan = None
+        return page
+
+    # -- vary entities -----------------------------------------------------
+
+    def target_rows(self):
+        """The entity table as ``(key, type, content, copies, can vary)``."""
+        rows = []
+        for row in range(self.targets_table.rowCount()):
+            rows.append(
+                tuple(
+                    self.targets_table.item(row, column).text()
+                    for column in range(self.targets_table.columnCount())
+                )
+            )
+        return tuple(rows)
+
+    def selected_target_keys(self):
+        """The entity keys selected in the table, in table order."""
+        return tuple(
+            self.targets_table.item(index.row(), 0).text()
+            for index in self.targets_table.selectionModel().selectedRows()
+        )
+
+    def select_target(self, key, selected=True) -> bool:
+        """Add one entity row to (or remove it from) the selection, by key."""
+        for row in range(self.targets_table.rowCount()):
+            item = self.targets_table.item(row, 0)
+            if item is None or item.text() != key:
+                continue
+            index = self.targets_table.model().index(row, 0)
+            flag = QItemSelectionModel.Select if selected else QItemSelectionModel.Deselect
+            self.targets_table.selectionModel().select(
+                index, flag | QItemSelectionModel.Rows
+            )
+            if selected:
+                self.targets_table.scrollToItem(item)
+            return True
+        return False
+
+    def select_all_targets(self) -> None:
+        self.targets_table.selectAll()
+
+    def select_no_targets(self) -> None:
+        self.targets_table.clearSelection()
+
+    def choose_target_strategy(self, kind: str) -> bool:
+        """Check one strategy in the combo, exactly as a click does."""
+        for index in range(self.targets_strategy.count()):
+            if self.targets_strategy.itemData(index) == kind:
+                self.targets_strategy.setCurrentIndex(index)
+                return True
+        return False
+
+    def target_strategy_kind(self) -> str:
+        return self.targets_strategy.currentData() or ""
+
+    def set_target_value(self, value: str) -> None:
+        self.targets_value.setText(value)
+
+    def target_value_text(self) -> str:
+        return self.targets_value.text()
+
+    def _refresh_targets(self) -> None:
+        """Re-read the entity table and the strategies this base supports."""
+        rows = self._state.entity_table() if self._state.configuration else ()
+        self.targets_table.setRowCount(0)
+        for row, entity in enumerate(rows):
+            self.targets_table.insertRow(row)
+            values = (
+                entity.key,
+                _text("menu.family_%s" % entity.family),
+                entity.summary,
+                str(entity.copies),
+                _text("gui.variants_targets_can") % len(entity.kinds)
+                if entity.kinds
+                else _text("gui.variants_targets_cannot"),
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(entity.note or "")
+                self.targets_table.setItem(row, column, item)
+        current = self.target_strategy_kind()
+        self.targets_strategy.blockSignals(True)
+        self.targets_strategy.clear()
+        for choice in self._state.target_strategy_choices():
+            self.targets_strategy.addItem(choice.label, choice.kind)
+        self.targets_strategy.blockSignals(False)
+        if current and not self.choose_target_strategy(current):
+            self.targets_strategy.setCurrentIndex(0)
+        elif current:
+            self.choose_target_strategy(current)
+        self._invalidate_targets()
+
+    def _invalidate_targets(self, *_args) -> None:
+        """Any control change makes the reviewed plan stale, so it is dropped."""
+        self._targets_plan = None
+        self.targets_plan_table.setRowCount(0)
+        self.targets_note.setText(_text("gui.variants_targets_plan_empty"))
+        self.targets_create_button.setEnabled(False)
+
+    def plan_targets(self) -> bool:
+        """Ask the service what the current selection would create."""
+        if self._state.configuration is None:
+            self._problems(_text("menu.no_project"))
+            return False
+        keys = self.selected_target_keys()
+        if not keys:
+            self._problems(_text("gui.variants_targets_select_first"))
+            return False
+        kind = self.target_strategy_kind()
+        plan = self._state.plan_target_variants(keys, kind, self.target_value_text())
+        self._targets_plan = plan
+        self.targets_plan_table.setRowCount(0)
+        for row, planned in enumerate(plan.rows):
+            self.targets_plan_table.insertRow(row)
+            changes = "; ".join(
+                change_text(described.get("kind", ""), described)
+                for described in planned.described
+            )
+            for column, value in enumerate(
+                (planned.spec_key, planned.key, changes)
+            ):
+                self.targets_plan_table.setItem(row, column, QTableWidgetItem(value))
+        if plan.ok:
+            self.targets_note.setText(
+                _text("gui.variants_targets_plan_ready")
+                % (plan.count, ", ".join(plan.unchanged_keys) or _text("gui.variants_targets_none_unaffected"))
+            )
+        else:
+            self.targets_note.setText(plan.message or _text("gui.variants_targets_plan_empty"))
+        self.targets_create_button.setEnabled(bool(plan.ok and plan.count))
+        return plan.ok
+
+    def create_targets(self) -> bool:
+        """Commit the reviewed plan; nothing is written until generation."""
+        if self._targets_plan is None and not self.plan_targets():
+            return False
+        if self._targets_plan is None or not self._targets_plan.ok:
+            return False
+        plan = self._targets_plan
+        outcome = self._state.create_target_variants(
+            tuple(row.key for row in plan.rows),
+            self.target_strategy_kind(),
+            self.target_value_text(),
+        )
+        if not outcome.ok:
+            self._problems(outcome.message or _text("menu.not_applied") % "")
+            return False
+        self._notify(_text("gui.variants_targets_created") % plan.count)
+        self._invalidate_targets()
+        if plan.spec_keys:
+            self._selected_key = plan.spec_keys[0]
+            self.refresh()
+        return True
+
     # -- reading the page back --------------------------------------------
 
     @property
@@ -558,6 +813,7 @@ class VariantsPage(QWidget):
             self.list_group.setVisible(False)
             self._clear_details()
             self._refresh_series_components()
+            self._refresh_targets()
             self._update_actions()
             return
 
@@ -592,6 +848,7 @@ class VariantsPage(QWidget):
         self._restore_selection()
         self._refresh_details()
         self._refresh_series_components()
+        self._refresh_targets()
         self._update_actions()
 
     def _restore_selection(self) -> None:
@@ -734,109 +991,17 @@ class VariantsPage(QWidget):
         return lines
 
     def _change_text(self, kind, described) -> str:
-        record = described.get("record_key", "") or _text("gui.variants_no_changes")
-        if kind == "SetSequence":
-            return _text("gui.variant_change_sequence") % (
-                record,
-                described.get("text", ""),
-            )
-        if kind == "SetName":
-            return _text("gui.variant_change_job_name") % described.get("job_name", "")
-        if kind in ("SetJobDescription", "SetDescription"):
-            presence = described.get("presence", {})
-            if presence.get("form") == "Present":
-                value = presence.get("value", "")
-            elif presence.get("form") == "ExplicitEmpty":
-                value = _text("gui.variant_value_empty")
-            else:
-                value = _text("gui.variant_value_unset")
-            key = (
-                "gui.variant_change_description"
-                if kind == "SetDescription"
-                else "gui.variant_change_job_description"
-            )
-            if kind == "SetDescription":
-                return _text(key) % (record, value)
-            return _text(key) % value
-        if kind == "SetSeeds":
-            return _text("gui.variant_change_seeds") % ", ".join(
-                str(value) for value in described.get("seeds", ())
-            )
-        if kind == "AddModification":
-            return _text("gui.variant_change_add_mod") % (
-                described.get("code", ""),
-                described.get("position", 0),
-                record,
-            )
-        if kind == "RemoveModification":
-            return _text("gui.variant_change_remove_mod") % (
-                described.get("index", 0),
-                record,
-            )
-        if kind in ("SetAlignment", "SetSingleAlignment"):
-            return _text("gui.variant_change_alignment") % (
-                record,
-                self._alignment_text(described.get("alignment", {})),
-            )
-        if kind == "SetReferences":
-            references = described.get("references", {})
-            form = references.get("form", "")
-            if form == "SearchAllowed":
-                value = _text("gui.variant_route_search")
-            else:
-                value = _text("gui.variant_reference_count") % len(
-                    references.get("items", ())
-                )
-            return _text("gui.variant_change_references") % (record, value)
-        if kind == "SetComponentCount":
-            return _text("gui.variant_change_count") % (
-                record,
-                described.get("count", 0),
-            )
-        if kind == "SetComponentRepresentation":
-            representation = described.get("representation", {})
-            if representation.get("form") == "ByCode":
-                value = ", ".join(representation.get("codes", ()))
-            else:
-                value = representation.get("text", "")
-            return _text("gui.variant_change_representation") % (record, value)
-        if kind == "AddRecord":
-            family = {
-                "FamilyARecord": _text("menu.family_protein"),
-                "FamilyBRecord": _text("menu.family_rna"),
-                "FamilyCRecord": _text("menu.family_dna"),
-                "ComponentRecord": _text("menu.family_ligand"),
-            }.get(described.get("family", ""), described.get("family", ""))
-            return _text("gui.variant_change_add_record") % (
-                family,
-                ", ".join(described.get("ids", ())),
-            )
-        if kind == "RemoveRecord":
-            return _text("gui.variant_change_remove_record") % described.get(
-                "record_key", ""
-            )
-        if kind in ("AddLinkage", "RemoveLinkage"):
-            return _text("gui.variant_change_bond")
-        if kind == "SetComponentDefinition":
-            return _text("gui.variant_change_definition")
-        if kind == "SetFormatTarget":
-            return _text("gui.variant_change_version")
-        return _text("gui.variant_change_unknown")
+        """One edit, worded by the shared renderer.
+
+        The wording lives in ``ui.present.labels.change_text`` so the
+        console shows the same sentence for the same edit; this page
+        keeps the method because its callers and tests already use it.
+        """
+        return change_text(kind, described)
 
     def _alignment_text(self, alignment) -> str:
-        form = alignment.get("form", "")
-        if form == "Automatic":
-            return _text("menu.msa_mode_auto")
-        if form == "Free":
-            return _text("menu.msa_mode_free")
-        if form == "Provided":
-            return _text("menu.msa_mode_provided")
-        source = alignment.get("source", {})
-        if source.get("form") == "inline":
-            value = _text("gui.alignment_source_inline")
-        else:
-            value = _text("gui.alignment_source_file")
-        return "%s (%s)" % (form, value)
+        """The alignment phrase, from the same shared renderer."""
+        return alignment_text(alignment)
 
     # -- manual variants ---------------------------------------------------
 

@@ -167,11 +167,11 @@ STRINGS = {
     "menu.msa_skip": "No MSA will be used - edit the entity to change this later.",
     "menu.templates_skip_new": "No templates will be used - edit the entity to change this later.",
     "menu.templates_skip_edit": "No change - the template setting is unchanged.",
-    "menu.msa_choice_title": "MSA configuration:",
-    "menu.msa_choice_default": "Use the current/default MSA behavior",
+    "menu.msa_choice_title": "MSA (multiple sequence alignment) configuration:",
+    "menu.msa_choice_default": "Keep the current MSA setting",
     "menu.msa_choice_files": "Provide existing MSA file(s)",
     "menu.msa_choice_none": "No MSA - run without alignment data",
-    "menu.msa_keep_new": "Default MSA behavior: AlphaFold will search for the MSA at inference time; this builder writes no MSA fields.",
+    "menu.msa_keep_new": "Automatic MSA: AlphaFold searches for the MSA at inference time; this builder writes no MSA fields.",
     "menu.msa_keep_edit": "The current MSA setting is kept unchanged.",
     "menu.msa_none_explained": "No MSA: AlphaFold will run MSA-free; the MSA fields will be explicit empty strings.",
     "menu.msa_files_explained": "Paired and unpaired are separate files; leave one blank only when that side must be the empty string.",
@@ -203,6 +203,8 @@ STRINGS = {
     "menu.ask_ref_pairs": "Template %d residue index pairs (query:template, 0-based, comma-separated; e.g. 0:5,1:6,2:7): ",
     "menu.ask_ref_another": "Add another template? [y/N]: ",
     "menu.ref_templates_cancelled": "Template collection cancelled - the template setting is unchanged.",
+
+    "menu.no_entities": "This job has no entities, so there is nothing to vary.",
 
     # -- edit entity -----------------------------------------------------
     "menu.entity_editor_title": "EDIT ENTITY",
@@ -336,13 +338,56 @@ STRINGS = {
     "menu.variant_base_info": "Each variant starts from this base and can be edited independently.",
     "menu.variant_current": "Current variant: %s",
     "menu.variant_actions": (
-        "1. Set variant job name\n"
-        "2. Add entity\n"
-        "3. Edit entity\n"
-        "4. Save variant and reset to base\n"
-        "5. Generate variants from file\n"
-        "6. View all variants"
+        "1. Vary the entities in this job\n"
+        "2. Set variant job name\n"
+        "3. Add entity\n"
+        "4. Edit entity\n"
+        "5. Save variant and reset to base\n"
+        "6. Generate variants from file\n"
+        "7. Generate the variants to a folder\n"
+        "8. View all variants"
     ),
+    "menu.variant_targets_title": "VARY SELECTED ENTITIES",
+    "menu.variant_targets_intro": (
+        "Each selected entity becomes its own variant, built from the unchanged "
+        "base; the entities you leave out are untouched."
+    ),
+    "menu.variant_targets_col_entity": "Entity",
+    "menu.variant_targets_col_type": "Type",
+    "menu.variant_targets_col_content": "Sequence or molecule",
+    "menu.variant_targets_col_copies": "Copies",
+    "menu.variant_targets_col_can": "Can vary",
+    "menu.variant_targets_row": "  %2d) %-3s %-8s %-28s copies %d  %s",
+    "menu.variant_targets_can": "%d ways",
+    "menu.variant_targets_cannot": "no change available",
+    "menu.variant_targets_select_prompt": (
+        "Entities to vary (numbers separated by commas, or 'all'; 0 cancels): "
+    ),
+    "menu.variant_targets_select_none": "Select at least one entity.",
+    "menu.variant_targets_strategy_title": "What should change?",
+    "menu.variant_targets_value": "New value for every selected entity: ",
+    "menu.variant_targets_plan_title": "PLANNED VARIANTS",
+    "menu.variant_targets_count": "%d variant(s) will be created from the same base.",
+    "menu.variant_targets_row_plan": "  %s  (%s)",
+    "menu.variant_targets_change": "    %s",
+    "menu.variant_targets_unchanged": "Unchanged entities: %s",
+    "menu.variant_targets_confirm": "Create these variants? [y/N]: ",
+    "menu.variant_targets_created": "%d variants created. Option 8 lists them.",
+    "menu.variant_targets_cancelled": "Nothing was created.",
+    "menu.variant_generate_title": "GENERATE VARIANTS",
+    "menu.variant_generate_intro": (
+        "Writes every variant and the manifest through the same pipeline as the "
+        "desktop app: one folder, validation first, nothing written on a refusal."
+    ),
+    "menu.variant_generate_root": "Output folder for the variants [%s]: ",
+    "menu.variant_generate_count": "%d variant(s) to write into %s",
+    "menu.variant_generate_blocked": (
+        "Generation is blocked by %d finding(s); nothing was written:"
+    ),
+    "menu.variant_generate_written": "Wrote %s",
+    "menu.variant_generate_failed": "Nothing was written: %s",
+    "menu.variant_generate_conflicts": "Refused before writing: %s",
+    "menu.variant_generate_none": "Create at least one variant first.",
     "menu.variant_file_menu": "Choose file type for batch generation:",
     "menu.variant_file_protein": "Protein sequences (one sequence per line, .txt file)",
     "menu.variant_file_dna": "DNA sequences (.txt file)",
@@ -407,7 +452,9 @@ STRINGS = {
     "gui.source_none": "No file open.",
     "gui.demo_notice": "Sample data (demo mode) — no file is open and nothing is written.",
     "gui.open_dialog_title": "Open an AF3 JSON file",
-    "gui.file_filter": "AF3 JSON files (*.json);;All files (*)",
+    "gui.file_filter": (
+        "AF3 JSON files (*.json *.txt);;All files (*)"
+    ),
     "gui.import_title": "Review the file before opening it",
     "gui.import_summary_title": "What this file contains",
     "gui.import_ids": "Entity IDs: %s",
@@ -568,9 +615,11 @@ STRINGS = {
     "gui.alignment_path": "Alignment file",
     "gui.alignment_browse": "Choose file…",
     "gui.alignment_file_dialog": "Choose an alignment file",
-    "gui.alignment_hint": "Choose how this chain's alignment is supplied.",
+    "gui.alignment_hint": (
+        "Choose how this entity's multiple sequence alignment (MSA) is supplied."
+    ),
     "gui.alignment_hint_automatic": "AlphaFold searches for the alignment itself; the job stores none.",
-    "gui.alignment_hint_free": "No alignment data: this chain is folded without one.",
+    "gui.alignment_hint_free": "No alignment data: prediction runs without an MSA.",
     "gui.alignment_hint_source": "The alignment comes from what you provide here — paste text or choose a file, not both.",
     "gui.alignment_path_version": "An external alignment file is written as a path field, which needs input version %d or later.",
     "gui.alignment_state_automatic": "automatic (AlphaFold searches)",
@@ -651,12 +700,12 @@ STRINGS = {
     "gui.variants_base": "Base job: %s",
     "gui.variants_base_detail": "%d entities  ·  %d variants",
     "gui.variants_none": (
-        "No variants yet. Use one of the three options above to create the first "
+        "No variants yet. Use one of the four options above to create the first "
         "one."
     ),
     "gui.variants_intro": (
         "A variant is an alternative version of the base job. Choose one of the "
-        "three ways to create variants below; the base job is never changed by a "
+        "four ways to create variants below; the base job is never changed by a "
         "variant."
     ),
     "gui.variants_session_note": (
@@ -739,19 +788,25 @@ STRINGS = {
     "gui.variant_kind_job_description": "Job description",
     "gui.variant_kind_seeds": "Model seeds",
     "gui.variant_kind_component_count": "Component copy count",
+    "gui.variant_kind_component_representation": "Ligand representation (SMILES)",
+    "gui.variant_hint_component_representation": (
+        "Replaces the ligand's representation with this SMILES string. A CCD "
+        "code cannot be typed here; use Add a new entity for a different code."
+    ),
+    "gui.variant_field_smiles_placeholder": "e.g. CCO",
     "gui.variant_kind_add_entity": "Add a new entity",
     "gui.variant_kind_remove_entity": "Remove an entity",
     "gui.variant_hint_sequence": (
-        "Replace one chain's sequence in this variant only."
+        "Replace one entity's sequence in this variant only."
     ),
     "gui.variant_hint_add_modification": (
         "Add a modification at a 1-based residue position on a polymer chain."
     ),
     "gui.variant_hint_remove_modification": (
-        "Remove an existing modification from this variant's expanded chain."
+        "Remove an existing modification from this variant only."
     ),
     "gui.variant_hint_alignment": (
-        "Change how one protein or RNA chain's alignment is supplied."
+        "Change how one protein or RNA entity's alignment is supplied."
     ),
     "gui.variant_hint_references": (
         "Change a protein's template references in this variant only."
@@ -903,6 +958,45 @@ STRINGS = {
         "File contents are used exactly as read; no headers or line breaks are "
         "stripped or added."
     ),
+    # -- vary the entities of the open job (the multi-ligand path) ----------
+    "gui.variants_targets_title": "Vary the entities in this job",
+    "gui.variants_targets_hint": (
+        "Select one or more of the entities you opened, choose what should change, "
+        "review the variants and create them. Each selected entity becomes its own "
+        "variant, built from the unchanged base job."
+    ),
+    "gui.variants_targets_independent": (
+        "Independent, not combined: selecting three ligands makes three variants, "
+        "each changing one ligand. To change two entities in one variant, add a "
+        "second change to it afterwards."
+    ),
+    "gui.variants_targets_col_entity": "Entity",
+    "gui.variants_targets_col_type": "Type",
+    "gui.variants_targets_col_content": "Sequence or molecule",
+    "gui.variants_targets_col_copies": "Copies",
+    "gui.variants_targets_col_can": "Can vary",
+    "gui.variants_targets_can": "%d ways",
+    "gui.variants_targets_cannot": "no change available",
+    "gui.variants_targets_select_all": "Select all",
+    "gui.variants_targets_select_none": "Clear selection",
+    "gui.variants_targets_strategy": "What to change",
+    "gui.variants_targets_value": "New sequence or SMILES",
+    "gui.variants_targets_plan": "Preview variants",
+    "gui.variants_targets_create": "Create variants",
+    "gui.variants_targets_select_first": "Select at least one entity in the table.",
+    "gui.variants_targets_plan_empty": (
+        "Select entities, choose a change and preview the variants first."
+    ),
+    "gui.variants_targets_plan_ready": (
+        "%d variant(s) will be created, all from the same base. Unchanged: %s."
+    ),
+    "gui.variants_targets_none_unaffected": "nothing else",
+    "gui.variants_targets_created": (
+        "%d variants created. Review them below, then generate on the Generate page."
+    ),
+    "gui.variants_targets_col_variant": "Variant",
+    "gui.variants_targets_col_target": "Entity changed",
+    "gui.variants_targets_col_change": "Change",
     "gui.variants_batch_created": "%d variants created from the file.",
     "gui.variants_batch_stale": (
         "The file or input type changed since the preview. Preview it again "

@@ -16,7 +16,7 @@ from configbuilder.app.results import (
     MutationOutput,
 )
 from configbuilder.identity import EntityId
-from configbuilder.model import ModelError, SequenceText
+from configbuilder.model import ByCode, ByNotation, ModelError, SequenceText
 from configbuilder.model.records import (
     ComponentRecord,
     FamilyARecord,
@@ -31,7 +31,15 @@ from configbuilder.variants import (
     expand,
 )
 
-__all__ = ["ChoiceError", "VariantChoice", "VariantService"]
+__all__ = [
+    "ChoiceError",
+    "EntityRow",
+    "TargetPlan",
+    "TargetPlanRow",
+    "TARGET_STRATEGIES",
+    "VariantChoice",
+    "VariantService",
+]
 
 
 class ChoiceError(Exception):
@@ -52,6 +60,118 @@ class VariantChoice:
         self.kind = kind
         self.value = value
         self.detail = detail
+
+
+#: The strategies that vary *one entity at a time*, and the families each can
+#: act on — the multi-ligand / small-protein workflow's whole vocabulary.
+#:
+#: This table is the single authority for two things: the "can vary" column the
+#: target picker shows (``entity_table``) and the early refusal a wrong-family
+#: target gets (``_family_target_failure``). A strategy therefore cannot be
+#: offered for a family that expansion would reject, and a front end never has
+#: to keep its own copy of the rule.
+TARGET_STRATEGIES = (
+    ("sequence", "Sequence change", ("protein", "rna", "dna")),
+    ("component_representation", "Ligand representation (SMILES)", ("ligand",)),
+    ("component_count", "Component copy count", ("ligand",)),
+    ("add_modification", "Add a modification", ("protein", "rna", "dna")),
+    ("remove_modification", "Remove a modification", ("protein", "rna", "dna")),
+    ("alignment", "MSA (alignment)", ("protein", "rna")),
+    ("references", "Structural templates", ("protein",)),
+    ("remove_entity", "Remove the entity", ("protein", "rna", "dna", "ligand")),
+)
+
+_STRATEGY_BY_KIND = {
+    kind: (label, families) for kind, label, families in TARGET_STRATEGIES
+}
+
+#: What a reader needs to know about a family *before* choosing a strategy.
+#: Empty for the protein case: nothing about it limits the vocabulary.
+_FAMILY_NOTES = {
+    "protein": "",
+    "rna": "RNA carries one MSA field; it has no paired side.",
+    "dna": "A DNA record has no MSA field in the input format.",
+    "ligand": "A ligand has no sequence or MSA; vary its representation or copies.",
+}
+
+
+class EntityRow:
+    """One base entity as the target picker shows it (`plan §15`).
+
+    One row per *record*: ``copies`` is the record's multiplicity, so a ligand
+    present twice is one entity with two copies — an entity definition, not a
+    chain instance. ``kinds`` is the target strategies this family supports,
+    from :data:`TARGET_STRATEGIES`.
+    """
+
+    __slots__ = ("key", "family", "copies", "summary", "kinds", "note")
+
+    def __init__(self, key, family, copies, summary, kinds, note="") -> None:
+        self.key = key
+        self.family = family
+        self.copies = copies
+        self.summary = summary
+        self.kinds = tuple(kinds)
+        self.note = note
+
+    def can(self, kind: str) -> bool:
+        """Whether this entity supports ``kind``."""
+        return kind in self.kinds
+
+    def __repr__(self) -> str:
+        return "EntityRow(%r, %s, copies=%d)" % (self.key, self.family, self.copies)
+
+
+class TargetPlanRow:
+    """One planned variant: the entity, its key, and the edits to apply."""
+
+    __slots__ = ("key", "family", "label", "spec_key", "edits", "described")
+
+    def __init__(self, key, family, label, spec_key, edits, described) -> None:
+        self.key = key
+        self.family = family
+        self.label = label
+        self.spec_key = spec_key
+        self.edits = tuple(edits)
+        self.described = tuple(described)
+
+    def __repr__(self) -> str:
+        return "TargetPlanRow(%r -> %r)" % (self.key, self.spec_key)
+
+
+class TargetPlan:
+    """What selecting a set of entities and one strategy would create.
+
+    ``ok`` is False when *any* selected entity cannot take the change, because
+    the commit is all-or-nothing: a partial batch would leave the user with
+    variants they did not ask for. ``message`` then names every target and its
+    reason. ``count`` is the number of variants a commit would add — the
+    number a user must see before pressing the button.
+    """
+
+    __slots__ = ("ok", "rows", "failures", "message", "unchanged_keys")
+
+    def __init__(self, ok, rows=(), failures=(), message="", unchanged_keys=()) -> None:
+        self.ok = bool(ok)
+        self.rows = tuple(rows)
+        self.failures = tuple(failures)
+        self.message = message or ""
+        self.unchanged_keys = tuple(unchanged_keys)
+
+    @property
+    def count(self) -> int:
+        return len(self.rows)
+
+    @property
+    def spec_keys(self) -> tuple:
+        return tuple(row.spec_key for row in self.rows)
+
+    def __repr__(self) -> str:
+        return "TargetPlan(ok=%r, count=%d, failures=%d)" % (
+            self.ok,
+            self.count,
+            len(self.failures),
+        )
 
 
 class VariantService:
@@ -378,6 +498,7 @@ class VariantService:
             VariantChoice("Job description", "job_description"),
             VariantChoice("Model seeds", "seeds"),
             VariantChoice("Component copy count", "component_count"),
+            VariantChoice("Ligand representation (SMILES)", "component_representation"),
             VariantChoice("Add a new entity", "add_entity"),
             VariantChoice("Remove an entity", "remove_entity"),
         )
@@ -569,11 +690,35 @@ class VariantService:
                 return (), str(error)
             return edits, None
         if kind == "component_count":
+            failure = self._family_target_failure(project, kind, record_key)
+            if failure is not None:
+                return (), failure
+            try:
+                count = int(str(value).strip())
+            except (TypeError, ValueError):
+                # A front end's text field is not an integer; say so in the
+                # user's terms rather than letting int() word the refusal.
+                return (), "the copy count must be a whole number (got %r)" % (value,)
             try:
                 edit = self._edit_class("SetComponentCount")(
-                    EntityId(record_key), int(value)
+                    EntityId(record_key), count
                 )
             except (EditError, ValueError, TypeError) as error:
+                return (), str(error)
+            return (edit,), None
+        if kind == "component_representation":
+            # A ligand's representation is CCD codes or SMILES and nothing
+            # else; this kind writes the SMILES case, which is the one a user
+            # can type. Replacing a CCD representation with SMILES is the
+            # documented meaning of the change (spec §15).
+            failure = self._family_target_failure(project, kind, record_key)
+            if failure is not None:
+                return (), failure
+            try:
+                edit = self._edit_class("SetComponentRepresentation")(
+                    EntityId(record_key), ByNotation(str(value).strip())
+                )
+            except (EditError, ModelError, ValueError, TypeError) as error:
                 return (), str(error)
             return (edit,), None
         if kind == "remove_entity":
@@ -1055,6 +1200,217 @@ class VariantService:
                     "variant %r could not be created: %s" % (spec.key, outcome.message)
                 )
         return MutationOutput(ok=True, message="%d variants generated" % len(specs))
+
+    # -- the per-entity workflow (multi-ligand / small-protein inputs) ---------
+
+    def target_strategy_choices(self) -> "tuple[VariantChoice, ...]":
+        """The strategies that vary *one* entity, restricted to the families
+        this base actually contains, as choice rows.
+
+        ``label`` is wording-free data: a front end renders it through its
+        own templates. Offering only strategies some entity can carry is the
+        point of the table below — a picker that offers "Sequence change" to
+        a job of ligands is the problem this workflow removes.
+        """
+        families_present = {row.family for row in self.entity_table()}
+        return tuple(
+            VariantChoice(label, kind, detail=", ".join(families))
+            for kind, label, families in TARGET_STRATEGIES
+            if families_present.intersection(families)
+        )
+
+    def entity_table(self) -> "tuple[EntityRow, ...]":
+        """Every base entity as the target picker shows it (plan §15).
+
+        One row per *record* — an entity definition — never one per chain:
+        ``copies`` is the record's multiplicity, so a ligand present twice is
+        one entity with two copies, which is exactly what a variant targets.
+        ``kinds`` comes from ``TARGET_STRATEGIES``, the same table the service
+        refuses with, so the table cannot advertise a strategy expansion would
+        reject.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return ()
+        rows = []
+        for record in project.configuration.records:
+            family = self._family_of_record(record)
+            rows.append(
+                EntityRow(
+                    key=record.ids.primary.value,
+                    family=family,
+                    copies=record.ids.count,
+                    summary=self._record_summary(record),
+                    kinds=tuple(
+                        kind
+                        for kind, _label, families in TARGET_STRATEGIES
+                        if family in families
+                    ),
+                    note=_FAMILY_NOTES.get(family, ""),
+                )
+            )
+        return tuple(rows)
+
+    def plan_target_variants(self, keys, kind: str, value) -> "TargetPlan":
+        """What varying ``keys`` with one strategy *would* create; no commit.
+
+        One independent spec per target — ``variant 1 = base + edit(target A)``
+        and ``variant 2 = base + edit(target B)``, both from the same base, so
+        two selected ligands never become one variant holding both changes.
+        Combining changes is a different, explicit action (add the second
+        change to the variant), which is why the count here is simply the
+        number of eligible targets.
+
+        The edits are built by ``_edits_for_kind`` — the same call
+        ``add_spec_with_edit`` commits — so the preview cannot describe a
+        change the service would refuse.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return TargetPlan(ok=False, message="no project is open")
+        if kind not in _STRATEGY_BY_KIND:
+            return TargetPlan(
+                ok=False,
+                message="%r is not a per-entity strategy; choose one of %s"
+                % (kind, ", ".join(sorted(_STRATEGY_BY_KIND))),
+            )
+        ordered = tuple(dict.fromkeys(str(key) for key in keys))
+        if not ordered:
+            return TargetPlan(ok=False, message="select at least one entity to vary")
+        table = {row.key: row for row in self.entity_table()}
+        rows = []
+        failures = []
+        for key in ordered:
+            row = table.get(key)
+            if row is None:
+                failures.append((key, "no entity is identified by %r" % (key,)))
+                continue
+            edits, failure = self._edits_for_kind(project, kind, value, key)
+            if failure is not None:
+                failures.append((key, failure))
+                continue
+            rows.append(
+                TargetPlanRow(
+                    key=key,
+                    family=row.family,
+                    label="%s: %s" % (key, _STRATEGY_BY_KIND[kind][0]),
+                    spec_key="%s_%s" % (key, kind),
+                    edits=tuple(edits),
+                    described=tuple(describe_edit(edit) for edit in edits),
+                )
+            )
+        unchanged = tuple(
+            row.key for row in table.values() if row.key not in set(ordered)
+        )
+        plan = TargetPlan(
+            ok=not failures,
+            rows=tuple(rows),
+            failures=tuple(failures),
+            unchanged_keys=unchanged,
+        )
+        if failures:
+            plan.message = "%d of %d selected entities cannot take this change:\n  %s" % (
+                len(failures),
+                len(ordered),
+                "\n  ".join("%s: %s" % (key, reason) for key, reason in failures),
+            )
+        return plan
+
+    def create_target_variants(self, keys, kind: str, value) -> MutationOutput:
+        """Commit the plan: one independent variant spec per selected entity.
+
+        All-or-nothing: every edit is planned first and the spec list is
+        written once, so a refused target leaves no half-built variant behind
+        (the same rule ``add_spec_with_edit`` follows for one variant). A key
+        that already exists is refused rather than renamed — the user's list
+        stays theirs.
+        """
+        plan = self.plan_target_variants(keys, kind, value)
+        if not plan.ok:
+            return MutationOutput(
+                ok=False,
+                failure_reason=FailureReason.NO_PATH,
+                message=plan.message or "the selection cannot be varied",
+            )
+        existing = {spec.key for spec in self._specs()}
+        clashes = [row.spec_key for row in plan.rows if row.spec_key in existing]
+        if clashes:
+            return MutationOutput(
+                ok=False,
+                failure_reason=FailureReason.NO_PATH,
+                message=(
+                    "a variant is already named %s; rename or remove it first"
+                    % ", ".join(clashes)
+                ),
+            )
+        specs = tuple(
+            VariantSpec(key=row.spec_key, label=row.label, edits=row.edits)
+            for row in plan.rows
+        )
+        self._projects._with_specs(self._specs() + specs)
+        return MutationOutput(
+            ok=True,
+            message="%d variant%s created: %s"
+            % (
+                len(specs),
+                "" if len(specs) == 1 else "s",
+                ", ".join(spec.label for spec in specs),
+            ),
+        )
+
+    @staticmethod
+    def _record_of(project, key):
+        if not key:
+            return None
+        for record in project.configuration.records:
+            if record.ids.primary.value == key:
+                return record
+        return None
+
+    @staticmethod
+    def _family_of_record(record) -> str:
+        if isinstance(record, FamilyARecord):
+            return "protein"
+        if isinstance(record, FamilyBRecord):
+            return "rna"
+        if isinstance(record, FamilyCRecord):
+            return "dna"
+        return "ligand"
+
+    @staticmethod
+    def _record_summary(record) -> str:
+        """The entity's own content, short enough for a table cell."""
+        if isinstance(record, ComponentRecord):
+            representation = record.representation
+            if isinstance(representation, ByCode):
+                return "CCD %s" % ", ".join(
+                    code.value for code in representation.codes
+                )
+            return "SMILES %s" % representation.text
+        return record.sequence.text
+
+    def _family_target_failure(self, project, kind: str, record_key):
+        """Why ``record_key`` cannot carry ``kind``, or ``None``.
+
+        ``TARGET_STRATEGIES`` is the authority: the entity table's ``kinds``
+        and this refusal read the same row, so a strategy is never offered for
+        a family that expansion would reject.
+        """
+        families = _STRATEGY_BY_KIND.get(kind)
+        if families is None:
+            return None
+        if not record_key:
+            return "choose the entity this change applies to"
+        record = self._record_of(project, record_key)
+        if record is None:
+            return "no entity is identified by %r" % (record_key,)
+        family = self._family_of_record(record)
+        if family in families[1]:
+            return None
+        return (
+            "%s cannot be applied to %s entity %r; it supports %s"
+            % (families[0], family, record_key, ", ".join(families[1]))
+        )
 
     def _expand_specs(self, specs):
         project = self._projects._require_project()
