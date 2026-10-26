@@ -1,0 +1,42 @@
+{
+  "name": "test23-multiple-ligands",
+  "modelSeeds": [
+    1,
+    2,
+    3
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "ACDEFGHIKL"
+      }
+    },
+    {
+      "ligand": {
+        "id": "B",
+        "ccdCodes": [
+          "ATP"
+        ]
+      }
+    },
+    {
+      "ligand": {
+        "id": "C",
+        "ccdCodes": [
+          "GTP"
+        ]
+      }
+    },
+    {
+      "ligand": {
+        "id": "D",
+        "ccdCodes": [
+          "MG"
+        ]
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}

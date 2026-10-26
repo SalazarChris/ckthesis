@@ -32,7 +32,6 @@ __all__ = [
     "confirm_generation",
     "confirm_modification_removal",
     "confirm_overwrite",
-    "confirm_variant_removal",
     "show_problem",
 ]
 
@@ -111,11 +110,6 @@ def confirm_modification_removal(parent, message: str) -> bool:
 def confirm_bond_removal(parent, message: str) -> bool:
     """Ask before removing a covalent bond."""
     return _confirm_removal(parent, _text("gui.bond_delete_title"), message)
-
-
-def confirm_variant_removal(parent, message: str) -> bool:
-    """Ask before removing a variant spec (the base job is unaffected)."""
-    return _confirm_removal(parent, _text("gui.variants_remove_title"), message)
 
 
 def confirm_generation(parent, message: str) -> bool:

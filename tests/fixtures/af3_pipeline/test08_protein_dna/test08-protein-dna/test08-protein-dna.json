@@ -1,0 +1,30 @@
+{
+  "name": "test08-protein-dna",
+  "modelSeeds": [
+    1,
+    2,
+    3
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "ACDEFGHIKL"
+      }
+    },
+    {
+      "dna": {
+        "id": "B",
+        "sequence": "ATGCCGA"
+      }
+    },
+    {
+      "dna": {
+        "id": "C",
+        "sequence": "TCGGCAT"
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}

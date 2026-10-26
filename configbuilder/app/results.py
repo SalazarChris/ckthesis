@@ -19,6 +19,7 @@ __all__ = [
     "ExpandOutput",
     "FilePreview",
     "GenerationPlan",
+    "LigandBatchOutput",
     "LoadOutput",
     "MutationOutput",
     "PlanOutput",
@@ -313,6 +314,37 @@ class GenerationPlan:
             self.ok,
             len(self.entries),
             len(self.conflicts),
+        )
+
+
+class LigandBatchOutput:
+    """Outcome of the one-step ligand file workflow.
+
+    ``plan`` is the reviewed ``GenerationPlan`` (it carries the files, their
+    actions, conflicts and warnings); ``written`` / ``skipped`` / ``errors``
+    come from ``execute``, so a front end reports what actually landed on
+    disk rather than what was planned. ``ok`` is True only when planning
+    succeeded and nothing failed to write: the flow never claims success for
+    a batch it did not write in full.
+    """
+
+    __slots__ = ("ok", "plan", "written", "skipped", "errors", "message")
+
+    def __init__(
+        self, plan=None, written=(), skipped=(), errors=(), ok=False, message=""
+    ) -> None:
+        self.plan = plan
+        self.written = tuple(written)
+        self.skipped = tuple(skipped)
+        self.errors = tuple(errors)
+        self.ok = bool(ok)
+        self.message = message or ""
+
+    def __repr__(self) -> str:
+        return "LigandBatchOutput(ok=%r, written=%d, errors=%d)" % (
+            self.ok,
+            len(self.written),
+            len(self.errors),
         )
 
 

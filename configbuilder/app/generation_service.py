@@ -50,6 +50,7 @@ from configbuilder.app.results import (
     ConfigurationPlan,
     FailureReason,
     GenerationPlan,
+    LigandBatchOutput,
     PlanOutput,
 )
 from configbuilder.output import (
@@ -84,7 +85,12 @@ from configbuilder.transform import (
     with_emitted_resource_paths,
     with_wire_job_name,
 )
-from configbuilder.variants import describe_edit
+from configbuilder.variants import (
+    EditError,
+    VariantSpecError,
+    describe_edit,
+    expand,
+)
 
 __all__ = ["GenerationService"]
 
@@ -416,6 +422,30 @@ class GenerationService:
         if refused is not None:
             return refused
 
+        # Steps 3–6: transform, encode, plan, manifest. The sequence is
+        # shared with every other variant run (``plan_ligand_batch``).
+        return self._plan_variants(
+            variants, detail, output_root, overwrite_policy, path_policy
+        )
+
+    # -- the shared planning sequence (steps 3–6) -----------------------------
+
+    def _plan_variants(
+        self, variants, detail, output_root, overwrite_policy=None, path_policy=None
+    ) -> GenerationPlan:
+        """Steps 3–6 over an already-expanded, already-gated run.
+
+        Extracted unchanged from ``plan`` so every variant source — the
+        in-memory specs and the one-step ligand file flow — writes through
+        one sequence: one transform, one encode, one planner, one manifest.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.NOT_OPEN,
+                message="no project is open",
+            )
         # Step 3: transform each variant, applying the §13.2 name agreement.
         settings = project.settings or OutputSettings()
         overwrite = (
@@ -579,6 +609,130 @@ class GenerationService:
             project_name=project_name,
             output_root=output_root,
             reviewed=planned,
+        )
+
+    # -- the file-driven ligand workflow -----------------------------------------
+
+    def plan_ligand_batch(
+        self, path: str, output_root: str, overwrite_policy=None, path_policy=None
+    ) -> GenerationPlan:
+        """One ligand file → one planned file per entry. Nothing is written.
+
+        The whole planning half of the workflow: read the file through the
+        persistence reader, build one independent ``base + AddRecord`` spec
+        per entry (the entry's own name becoming the key, and so the file
+        name) against a throwaway registry clone, validate the base and every
+        variant through the full catalogue, then run the same
+        transform/plan/manifest sequence as any other variant run.
+
+        No spec is committed to the project. A second run of the same file
+        therefore does not refuse over keys that already exist; the only
+        collision left is the output files themselves, which the overwrite
+        policy reports (``Fail`` by default) rather than silently replacing.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.NOT_OPEN,
+                message="no project is open",
+            )
+        if not output_root:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.INVALID_CHOICE,
+                message="choose a folder for the generated files",
+            )
+
+        # The policies arrive as picker *names* from a front end or as
+        # resolved objects from a caller that already made the choice; both
+        # mean exactly one thing, and an unknown name is a refusal.
+        overwrite, problem = _policy_argument(
+            OVERWRITE_POLICIES, OverwritePolicy, overwrite_policy, "overwrite"
+        )
+        if problem is not None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.INVALID_CHOICE,
+                message=problem,
+            )
+        path_choice, problem = _policy_argument(
+            PATH_POLICIES, PathPolicy, path_policy, "path"
+        )
+        if problem is not None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.INVALID_CHOICE,
+                message=problem,
+            )
+
+        # The base must be a complete job before its variants mean anything.
+        refused = self._gate_base()
+        if refused is not None:
+            return refused
+
+        _entries, specs, problem = self._variants.ligand_file_specs(path)
+        if problem is not None:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.INVALID_CHOICE,
+                message=problem,
+            )
+        if not specs:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.EMPTY_EXPANSION,
+                message="the ligand file contains no usable entries",
+            )
+
+        try:
+            variants = expand(project.configuration, specs)
+        except (EditError, VariantSpecError) as error:
+            return GenerationPlan(
+                ok=False,
+                failure_reason=FailureReason.EXPANSION_FAILED,
+                message=str(error),
+            )
+
+        # The same authoritative validation an in-memory variant gets —
+        # base first, then each variant against its own comparison data.
+        detail = (
+            self._validation.validate_specs(specs)
+            if self._validation is not None
+            else None
+        )
+        refused = self._variant_gate(detail)
+        if refused is not None:
+            return refused
+
+        return self._plan_variants(
+            variants, detail, output_root, overwrite, path_choice
+        )
+
+    def generate_ligand_batch(
+        self, path: str, output_root: str, overwrite_policy=None, path_policy=None
+    ):
+        """Plan and write one ligand file in a single step.
+
+        Returns a ``LigandBatchOutput``: the reviewed plan, what was written,
+        what was skipped, and any write errors. ``ok`` is True only when the
+        plan succeeded **and** every file was written — a refusal writes
+        nothing at all (the plan is all-or-nothing), and an execution error
+        is reported per file rather than turned into a success message.
+        """
+        plan = self.plan_ligand_batch(
+            path, output_root, overwrite_policy, path_policy
+        )
+        if not plan.ok:
+            return LigandBatchOutput(plan=plan, message=plan.message)
+        result = self.execute(plan)
+        return LigandBatchOutput(
+            plan=plan,
+            written=result.written,
+            skipped=result.skipped,
+            errors=result.errors,
+            ok=result.ok and not result.errors,
+            message=result.message or "",
         )
 
     # -- execution (§15: writes only) --------------------------------------------
@@ -905,6 +1059,19 @@ def _named_policy(policies, policy_class, name, label):
         "%r is not a supported %s policy; choose one of: %s"
         % (name, label, ", ".join(policy.name for policy in policies))
     )
+
+
+def _policy_argument(policies, policy_class, value, label):
+    """A policy *object* or a picker *name* → ``(policy, None)``.
+
+    ``None`` means "use the project's own setting", the same default every
+    planning route applies. Front ends send names (``output_defaults``
+    returns names); a caller that already resolved one of the closed set may
+    pass the policy itself without round-tripping through its name.
+    """
+    if value is not None and isinstance(value, policy_class):
+        return value, None
+    return _named_policy(policies, policy_class, value, label)
 
 
 def _entry_by_file_name(planned, file_name: str):

@@ -1,0 +1,33 @@
+{
+  "name": "test04-protein-msa-template",
+  "modelSeeds": [
+    1,
+    2,
+    3
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "ACDEFGHIKL",
+        "unpairedMsa": ">Protein_A\nACDEFGHIKL\n",
+        "pairedMsa": ">Protein_A\nACDEFGHIKL\n",
+        "templates": [
+          {
+            "mmcif": ">template\nACDEFGHIKL",
+            "queryIndices": [
+              1,
+              2
+            ],
+            "templateIndices": [
+              1,
+              2
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 4
+}

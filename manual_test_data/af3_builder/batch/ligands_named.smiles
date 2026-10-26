@@ -1,0 +1,5 @@
+# Three independent ligands. Named entries become the output names;
+# a bare SMILES takes a positional name (ligand-3 here).
+ethanol CCO
+acetic-acid CC(=O)O
+c1ccccc1

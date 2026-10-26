@@ -1,0 +1,4 @@
+# Deliberately malformed SMILES. The builder stores SMILES as text and wires
+# no chemistry parser, so these are ACCEPTED (advisory warning only).
+broken-ring C1CC
+not-a-smiles this is not a smiles

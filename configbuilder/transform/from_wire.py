@@ -488,6 +488,76 @@ def _root_version(document, notes):
     return Pinned(version)
 
 
+def _looks_absolute(value: str) -> bool:
+    """Whether a wire path is already absolute (POSIX or a Windows drive/UNC)."""
+    if value.startswith(("/", "\\")):
+        return True
+    return len(value) > 2 and value[1] == ":" and value[2] in "/\\"
+
+
+def _absolute_resource_path(value, base_dir: str):
+    """``value`` as a path under ``base_dir`` unless it is already absolute.
+
+    String work only: this package imports no filesystem modules (the
+    architecture test enforces it), and a wire path is a string anyway. The
+    result uses ``/`` separators, which every platform — and AF3 — accepts.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return value
+    if _looks_absolute(value):
+        return value
+    return "%s/%s" % (base_dir.rstrip("/\\"), value.replace("\\", "/"))
+
+
+def rebase_resource_paths(document, base_dir: str):
+    """Resolve a document's **relative** resource paths against its own folder.
+
+    An AF3 file's relative paths mean "relative to this file": a job saved
+    with ``CopyIntoAssets`` points at ``assets/<template>.cif`` beside the
+    JSON, and reopening that JSON must still find the file. Importing the
+    document unchanged left the path relative to the *process's* working
+    directory, so a re-save of a self-contained job was refused with
+    "resource source 'assets/...' is missing".
+
+    ``from_wire`` stays a pure document-to-model mapping; this is the one
+    place that knows where the document lives. Absolute paths are returned
+    untouched, so a document that already names its files absolutely is
+    unaffected. Only the path-valued fields are touched (the mapping's own
+    closed set), and the same dictionary object is returned.
+    """
+    from configbuilder.transform.mappings import PATH_FEATURE_MIN_VERSIONS
+
+    if not isinstance(document, dict) or not isinstance(base_dir, str):
+        return document
+
+    def _rebase_entity(payload):
+        if not isinstance(payload, dict):
+            return
+        for field in PATH_FEATURE_MIN_VERSIONS:
+            if field in payload:
+                payload[field] = _absolute_resource_path(payload[field], base_dir)
+        templates = payload.get("templates")
+        if isinstance(templates, list):
+            for row in templates:
+                if isinstance(row, dict) and "mmcifPath" in row:
+                    row["mmcifPath"] = _absolute_resource_path(
+                        row["mmcifPath"], base_dir
+                    )
+
+    if "userCCDPath" in document:
+        document["userCCDPath"] = _absolute_resource_path(
+            document["userCCDPath"], base_dir
+        )
+    sequences = document.get("sequences")
+    if isinstance(sequences, list):
+        for wrapper in sequences:
+            if not isinstance(wrapper, dict):
+                continue
+            for payload in wrapper.values():
+                _rebase_entity(payload)
+    return document
+
+
 def from_wire(document):
     """Rebuild a canonical ``Configuration`` from an AF3 wire document.
 

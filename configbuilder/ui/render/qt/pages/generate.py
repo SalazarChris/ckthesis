@@ -1,17 +1,16 @@
 """The Generate & Output page: review the real plan, then write it.
 
 The page owns no output rule. Every plan comes from
-``GenerationService.plan_selection`` — which delegates to ``plan`` (all or
-selected variants, with the manifest) and ``plan_base`` (the base job's one
-file) — and every write comes from ``GenerationService.execute`` handed the
-reviewed plan object itself. Nothing here builds a path, a wire document, a
-manifest or a file: the paths shown in the tables are the plan's own strings,
-and the bytes written are the plan's own payloads.
+``GenerationService.plan_selection`` with the base scope — which delegates to
+``plan_base``, the open job's own single file — and every write comes from
+``GenerationService.execute`` handed the reviewed plan object itself. Nothing
+here builds a path, a wire document or a file: the paths shown in the tables
+are the plan's own strings, and the bytes written are the plan's own
+payloads.
 
 The sequence is the one a reviewer needs, labelled as four steps on the page:
 
-1. **What do you want to generate?** — the service's own scopes, with a
-   sentence saying what each writes;
+1. **What is written** — the open job's configuration, one file;
 2. **Where should the files go?** — the folder, and the two policies behind an
    *Advanced options* disclosure whose defaults are safe;
 3. **Review the plan** — **Preview plan** shows the plan's files, assets,
@@ -105,8 +104,6 @@ _ACTION_KEYS = {
     "conflict": "gui.output_action_conflict",
 }
 
-_SCOPE_ALL = "variants"
-_SCOPE_SELECTED = "selected"
 _SCOPE_BASE = "base"
 
 
@@ -130,10 +127,6 @@ class GeneratePage(QWidget):
         # fresh preview instead of the generic "preview first" line.
         self._stale = False
         self._defaults_token = None
-        # True once the user has picked a scope; a refresh then never replaces
-        # that choice. The opening default (all variants, or base only when
-        # none exist) is applied by _refresh_scope_availability.
-        self._scope_chosen = False
         self._build()
 
     # -- construction ------------------------------------------------------
@@ -168,9 +161,6 @@ class GeneratePage(QWidget):
         layout.addWidget(self._build_plan())
         layout.addWidget(self._build_generate_group())
         layout.addStretch(1)
-        # One choice is always checked; set it only after every step (and the
-        # actions that react to a change) exists.
-        self.scope_all.setChecked(True)
         # One scroll surface: a short window scrolls the steps instead of
         # clipping a path, a plan table or the conflict list.
         scroll = QScrollArea()
@@ -180,51 +170,17 @@ class GeneratePage(QWidget):
         outer.addWidget(scroll, 1)
 
     def _build_scope_group(self):
-        """Step 1: the service's scopes as explained choices, not a drop-down.
+        """Step 1: what this page writes — the open job's own file.
 
-        Every choice is a real radio button with its own sentence, so the
-        difference between "one file" and "a file per variant plus a manifest"
-        is visible without opening anything. A choice that the current job
-        cannot support is disabled with a line saying what to do first.
+        The job is the unit: its configuration is written as
+        ``<output>/<job>/<job>.json``, with the job's name inside the file
+        matching the names outside it. A file of ligands is a different
+        action with its own destination (Entities), so nothing here offers a
+        second kind of output to choose between.
         """
         group = QGroupBox(_text("gui.output_group_scope"))
         layout = QVBoxLayout(group)
-        layout.addWidget(hint_label(_text("gui.output_step1_hint")))
-        self.scope_group = QButtonGroup(self)
-        self.scope_all = QRadioButton(_text("gui.output_scope_all_title"))
-        self.scope_selected = QRadioButton(_text("gui.output_scope_selected_title"))
-        self.scope_base = QRadioButton(_text("gui.output_scope_base_title"))
-        for button in (self.scope_all, self.scope_selected, self.scope_base):
-            button.setAccessibleName(button.text())
-            self.scope_group.addButton(button)
-            button.toggled.connect(self._on_scope_changed)
-        for button, note_key in (
-            (self.scope_all, "gui.output_scope_all_note"),
-            (self.scope_selected, "gui.output_scope_selected_note"),
-            (self.scope_base, "gui.output_scope_base_note"),
-        ):
-            layout.addWidget(button)
-            note = hint_label(_text(note_key))
-            note.setContentsMargins(24, 0, 0, 4)
-            layout.addWidget(note)
-
-        self.variant_choice = QComboBox()
-        self.variant_choice.currentIndexChanged.connect(self._on_control_changed)
-        self.variant_choice.setEnabled(False)
-        self.variant_choice.setAccessibleName(_text("gui.output_variant"))
-        row = QWidget()
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(24, 0, 0, 4)
-        row_layout.addWidget(QLabel(_text("gui.output_variant")))
-        row_layout.addWidget(self.variant_choice, 1)
-        # The picker only means something for "Selected variant"; showing a
-        # disabled, empty box under every other scope is noise.
-        self._variant_row = row
-        row.setVisible(False)
-        layout.addWidget(row)
-        self._scope_note = hint_label("")
-        self._scope_note.setVisible(False)
-        layout.addWidget(self._scope_note)
+        layout.addWidget(hint_label(_text("gui.output_scope_base_note")))
         return group
 
     def _build_destination_group(self):
@@ -473,88 +429,16 @@ class GeneratePage(QWidget):
                 combo.setCurrentIndex(index)
                 combo.blockSignals(False)
 
-    def scope_value(self) -> str:
-        """The scope the checked choice names, in the service's own words."""
-        if self.scope_base.isChecked():
-            return _SCOPE_BASE
-        if self.scope_selected.isChecked():
-            return _SCOPE_SELECTED
-        return _SCOPE_ALL
-
-    def choose_scope(self, value: str, user: bool = True) -> bool:
-        """Check one scope choice, exactly as a click does.
-
-        ``user`` records whether this was an explicit choice (a click or a
-        test standing in for one); a refresh must not replace it.
-        """
-        for scope, button in (
-            (_SCOPE_ALL, self.scope_all),
-            (_SCOPE_SELECTED, self.scope_selected),
-            (_SCOPE_BASE, self.scope_base),
-        ):
-            if scope == value:
-                if button.isEnabled():
-                    button.setChecked(True)
-                    self._scope_chosen = user
-                    return True
-                return False
-        return False
-
-    def _on_scope_changed(self, *_args) -> None:
-        selected = self.scope_value() == _SCOPE_SELECTED
-        self.variant_choice.setEnabled(selected and self.variant_choice.count() > 0)
-        if getattr(self, "_variant_row", None) is not None:
-            self._variant_row.setVisible(selected)
-        self._invalidate_plan()
-
-    def _refresh_scope_availability(self) -> None:
-        """Disable choices the job cannot support, and say what to do first."""
-        has_project = self._state.configuration is not None
-        has_specs = bool(self._state.specs)
-        self.scope_base.setEnabled(has_project)
-        for button in (self.scope_all, self.scope_selected):
-            button.setEnabled(has_project and has_specs)
-        if has_project and not has_specs:
-            # Nothing to choose: base only, and the next time variants exist
-            # the page may open on them again.
-            if self.scope_value() != _SCOPE_BASE:
-                self.scope_base.setChecked(True)
-            self._scope_chosen = False
-        elif has_project and has_specs and not self._scope_chosen:
-            self.scope_all.setChecked(True)
-        self._scope_note.setText(
-            "" if has_specs else _text("gui.output_scope_unavailable")
-        )
-        self._scope_note.setVisible(has_project and not has_specs)
-        self._on_scope_changed()
-
-    def _on_control_changed(self, *_args) -> None:
-        self._invalidate_plan()
-
-    def _load_variant_choices(self) -> None:
-        selected = self.variant_choice.currentData()
-        specs = self._state.specs
-        self.variant_choice.blockSignals(True)
-        self.variant_choice.clear()
-        for spec in specs:
-            self.variant_choice.addItem(spec.label, spec.key)
-        if selected:
-            index = self.variant_choice.findData(selected)
-            if index >= 0:
-                self.variant_choice.setCurrentIndex(index)
-        self.variant_choice.blockSignals(False)
-        self.variant_choice.setEnabled(
-            self.scope_value() == _SCOPE_SELECTED and bool(specs)
-        )
-
     def _policy_name(self, combo) -> str:
         return combo.currentData() or ""
+
+    def _on_control_changed(self, *_args) -> None:
+        """Any control change voids the reviewed plan (it is never reused)."""
+        self._invalidate_plan()
 
     def _current_signature(self):
         return (
             self.destination.text().strip(),
-            self.scope_value(),
-            self.variant_choice.currentData() or "",
             self._policy_name(self.overwrite_policy),
             self._policy_name(self.path_policy),
         )
@@ -566,20 +450,15 @@ class GeneratePage(QWidget):
         configuration = self._state.configuration
         if configuration is None:
             self._base_label.setText(_text("menu.no_project"))
-            self.variant_choice.blockSignals(True)
-            self.variant_choice.clear()
-            self.variant_choice.blockSignals(False)
             self.preview_button.setEnabled(False)
             self._stale = False
             self._invalidate_plan(clear=True)
             self._defaults_token = None
-            self._refresh_scope_availability()
             return
 
-        specs = self._state.specs
         self._base_label.setText(
             _text("gui.output_base")
-            % (configuration.metadata.name, len(configuration.records), len(specs))
+            % (configuration.metadata.name, len(configuration.records))
         )
         if self.overwrite_policy.count() == 0 or self.path_policy.count() == 0:
             self._load_policy_choices()
@@ -591,9 +470,7 @@ class GeneratePage(QWidget):
         if token != self._defaults_token:
             self._apply_defaults()
             self._defaults_token = token
-        self._load_variant_choices()
         had_plan = self._plan is not None
-        self._refresh_scope_availability()
         self.preview_button.setEnabled(True)
         self._invalidate_plan(
             message_key="gui.output_plan_invalidated" if had_plan else None
@@ -634,11 +511,11 @@ class GeneratePage(QWidget):
     # -- planning ----------------------------------------------------------
 
     def _plan_arguments(self):
-        root, scope, key, overwrite, path = self._current_signature()
+        root, overwrite, path = self._current_signature()
         return {
             "output_root": root,
-            "scope": scope,
-            "only": [key] if scope == _SCOPE_SELECTED and key else None,
+            "scope": _SCOPE_BASE,
+            "only": None,
             "overwrite_policy": overwrite,
             "path_policy": path,
         }
@@ -649,12 +526,9 @@ class GeneratePage(QWidget):
             self._problems(_text("menu.no_project"))
             return False
         signature = self._current_signature()
-        root, scope, key, _overwrite, _path = signature
+        root = signature[0]
         if not root:
             self._problems(_text("gui.output_no_folder"))
-            return False
-        if scope == _SCOPE_SELECTED and not key:
-            self._problems(_text("gui.output_scope_needs_variant"))
             return False
         plan = self._state.plan_generation(**self._plan_arguments())
         self._signature = signature
@@ -715,26 +589,16 @@ class GeneratePage(QWidget):
             copied,
             len(plan.warnings),
         )
-        if any(entry.variant_key is None for entry in plan.entries):
-            note = note + " " + _text("gui.output_manifest_note")
         self.plan_note.setText(note)
         self._stale = False
         self.generate_button.setEnabled(self._current_signature() == self._signature)
         self._update_copy_button()
 
     def _fill_entries(self, plan) -> None:
-        labels = {spec.key: spec.label for spec in self._state.specs}
         for row, entry in enumerate(plan.entries):
             self.entries_table.insertRow(row)
-            if entry.variant_key is None:
-                kind = _text("gui.output_kind_manifest")
-                job = ""
-            elif entry.variant_key == "base":
-                kind = _text("gui.output_kind_base")
-                job = plan.project_name
-            else:
-                kind = _text("gui.output_kind_variant")
-                job = labels.get(entry.variant_key, entry.variant_key)
+            kind = _text("gui.output_kind_base")
+            job = plan.project_name
             action = _text(_ACTION_KEYS.get(entry.action, "gui.output_action_conflict"))
             for column, value in enumerate((kind, job, entry.path, action)):
                 item = QTableWidgetItem(value)
@@ -760,22 +624,10 @@ class GeneratePage(QWidget):
 
     def _fill_refusal_findings(self, plan) -> None:
         findings = tuple(plan.findings)
-        note = (
-            "gui.output_findings_variants"
-            if plan.refused_scope == "variant"
-            else "gui.output_findings_note"
-        )
-        if not findings and plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
-            validation = self._state.validate_all()
-            collected = []
-            for key in sorted(validation.variant_reports):
-                report = validation.variant_reports[key]
-                if report.blocking():
-                    collected.extend(report.findings)
-            findings = tuple(collected)
-            note = "gui.output_findings_variants"
         self.findings_model.set_findings(findings)
-        self.findings_note.setText(_text(note) if findings else "")
+        self.findings_note.setText(
+            _text("gui.output_findings_note") if findings else ""
+        )
         self.review_button.setVisible(bool(findings))
 
     # -- finding navigation ------------------------------------------------
@@ -930,21 +782,6 @@ class GeneratePage(QWidget):
 
     def plan_note_text(self) -> str:
         return self.plan_note.text()
-
-    def scope_note_text(self) -> str:
-        """The line explaining an unavailable scope (empty when available)."""
-        return self._scope_note.text()
-
-    def scope_available(self, value: str) -> bool:
-        """Whether the current job supports one scope choice."""
-        buttons = {
-            _SCOPE_ALL: self.scope_all,
-            _SCOPE_SELECTED: self.scope_selected,
-            _SCOPE_BASE: self.scope_base,
-        }
-        if value not in buttons:
-            raise KeyError("unknown scope %r" % (value,))
-        return buttons[value].isEnabled()
 
     def result_text(self) -> str:
         return self.result_view.toPlainText()

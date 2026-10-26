@@ -45,27 +45,35 @@ HANDOFF.md
 CHECKLIST.md
 
 # ---------------------------------------------------------------------------
-# Verification material: kept on disk, deliberately untracked.
+# Version-controlled project material (deliberately NOT ignored).
 #
-# The builder was verified locally; the repository now carries the application
-# and launchers only. These files remain in the working copy so they can still
-# be read or run, but they are not part of Git and no clone needs them.
+# `tests/`, `fixtures/`, `docs/` and `.github/` were excluded wholesale by the
+# gate-removal commit (85a606a), which left the whole suite, its fixtures, the
+# contract-pin document and the CI workflow untracked: `git ls-files tests`
+# returned 0 files, so no clone could reproduce the suite's result. They are
+# tracked again (gate recovery, docs/GATE_RECOVERY_IMPLEMENTATION_REPORT.md).
 #
-#   tests/       the local test suite
-#   fixtures/    golden recipes, compatibility projects and builder fixtures
-#   docs/        local reports, prompts and reference material
-#   .github/     local CI configuration
-#   *.md         root specifications, audits and READMEs
-#   af3_analysis/          separate comparative-analysis package
-#   generated_jobs/        local generated output and recipes
-#   .stage*                local review screenshots and notes
-#   pytest-of-*/           pytest's local temp workspace
-tests/
-fixtures/
-docs/
-.github/
-*.md
+#   tests/                   the suite, including tests/fixtures/af3_pipeline/
+#   fixtures/                golden recipes, compatibility .cbproj files, builder
+#   docs/                    CONTRACT_PIN.md (cited by tests), audits and reports
+#   .github/                 the CI workflow that runs the suite
+#   AUTHORITATIVE_SPEC.md    read by tests/contract/test_catalogue_traceability
+#   DOMAIN_MAPPING.md        read by tests/contract/test_catalogue_traceability
+#
+# `__pycache__/` above still excludes compiled test bytecode.
+#
+# Deliberately kept out, even so:
+#
+#   af3_analysis/            the separate comparative-analysis package (out of
+#                            the builder repository's scope by decision)
+#   generated_jobs/          local generated output and recipes
+#   .stage*                  local review screenshots and notes
+#   pytest-of-*/             pytest's local temp workspace
 af3_analysis/
 generated_jobs/
 .stage*
 pytest-of-*/
+# A workspace-local pytest basetemp: the GUI launch tests run the project venv
+# as a child process, and on a machine whose %TEMP% that venv cannot write to
+# they are run with ``--basetemp=.pytest-tmp``.
+.pytest-tmp/

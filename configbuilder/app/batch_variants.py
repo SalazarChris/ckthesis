@@ -35,10 +35,18 @@ Supports multiple input types:
 - Ligand SMILES strings
 - DNA sequences
 
-Each input type gets its own record builder, and the same variant spec
-architecture is used for all — manual and batch variants are identical
-in kind, visible in the same variant list, and exportable through the
-same generation pipeline.
+Each input type gets its own record builder, and the same spec
+architecture is used for all — a batch entry is the same ``base +
+AddRecord`` construction a hand-made change is, and it flows through the
+same validation and generation pipeline.
+
+Ligand files carry a name per entry (``name SMILES``), and that name is
+kept: :func:`ligand_specs_for_entries` derives each spec's key from it, so
+the generated file is named after the molecule the user named instead of a
+positional ``batch_NN``. Names are slugged (``output.naming.slug``) because
+a key becomes part of a path; duplicate names take a deterministic numeric
+suffix in file order, and a name that cannot be slugged falls back to its
+position.
 """
 
 from __future__ import annotations
@@ -55,7 +63,12 @@ from configbuilder.model import (
 )
 from configbuilder.variants import AddRecord, VariantSpec
 
-__all__ = ["BatchError", "batch_specs_for_sequences", "BATCH_RECORD_BUILDERS"]
+__all__ = [
+    "BatchError",
+    "batch_specs_for_sequences",
+    "ligand_specs_for_entries",
+    "BATCH_RECORD_BUILDERS",
+]
 
 
 class BatchError(Exception):
@@ -98,6 +111,100 @@ BATCH_RECORD_BUILDERS = {
 }
 
 
+#: Longest derived key base, leaving room for a ``-<n>`` disambiguation
+#: suffix inside ``naming.MAX_SLUG_LENGTH``.
+_MAX_KEY_BASE = 54
+
+
+def _name_key(name: str, index: int, key_prefix: str) -> str:
+    """``name`` as a path-safe key base, or the positional fallback.
+
+    ``output.naming.slug`` is the one authority for a filesystem-safe
+    token, so a key derived here is exactly what the output planner will
+    accept. A name with no usable characters at all falls back to the
+    entry's position (``ligand-01``), never to a silently empty key.
+    """
+    from configbuilder.output.naming import NameError, slug
+
+    try:
+        return slug(name, max_length=_MAX_KEY_BASE)
+    except NameError:
+        return "%s-%02d" % (key_prefix, index)
+
+
+def _unique_key(base: str, used, key_prefix: str, index: int) -> str:
+    """``base``, suffixed deterministically until it is unused in ``used``.
+
+    Two entries that name the same molecule both survive: the second gets
+    ``-2``, the third ``-3``. The suffix is appended in file order, so the
+    same file always produces the same keys and file names.
+    """
+    candidate = base or "%s-%02d" % (key_prefix, index)
+    if candidate not in used:
+        used.add(candidate)
+        return candidate
+    suffix = 2
+    while True:
+        candidate = "%s-%d" % (base.rstrip("-")[:_MAX_KEY_BASE], suffix)
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        suffix += 1
+
+
+def ligand_specs_for_entries(entries, registry: IdentityRegistry, key_prefix: str = "ligand"):
+    """One independent spec per ``(line_number, name, smiles)`` entry.
+
+    This is ``persistence.read_smiles_file``'s shape, so the documented
+    ``name SMILES`` format is honoured end to end: the name becomes the
+    spec's key (slugged) and the generation summary's label. The record
+    itself is the same ``ByNotation`` component the single-entity path
+    builds; the name is never written into the AF3 document, which has no
+    field for it.
+
+    All-or-nothing: an invalid entry or a duplicate SMILES refuses the
+    whole batch, every offending line named, and no spec is returned.
+    """
+    entries = tuple(entries)
+    if not entries:
+        raise BatchError("the ligand file contains no entries")
+
+    seen = set()
+    duplicates = []
+    for _line_number, _name, smiles in entries:
+        key = smiles.strip()
+        if key in seen and key not in duplicates:
+            duplicates.append(key)
+        seen.add(key)
+    if duplicates:
+        raise BatchError(
+            "the file contains duplicate ligand entries: %s"
+            % ", ".join("%s..." % value[:12] for value in duplicates)
+        )
+
+    failures = []
+    specs = []
+    used = set()
+    for index, (line_number, name, smiles) in enumerate(entries, start=1):
+        try:
+            entity = registry.allocate(owner="batch_variant")
+            record = _ligand_record(entity.value, smiles.strip())
+        except (ModelError, SequenceTextError) as error:
+            failures.append("line %d: %s" % (line_number, error))
+            continue
+        key = _unique_key(_name_key(name, index, key_prefix), used, key_prefix, index)
+        label = name.strip() or "%s %d" % (key_prefix, index)
+        specs.append(
+            VariantSpec(key=key, label=label, edits=(AddRecord(record),))
+        )
+    if failures:
+        raise BatchError(
+            "%d of %d ligand entries are invalid:\n  %s"
+            % (len(failures), len(entries), "\n  ".join(failures))
+        )
+    return tuple(specs)
+
+
 def batch_specs_for_sequences(entries, registry: IdentityRegistry, family: str = "protein", key_prefix: str = "batch"):
     """Turn cleaned sequence entries into independent variant specs.
 
@@ -115,6 +222,11 @@ def batch_specs_for_sequences(entries, registry: IdentityRegistry, family: str =
     Each variant is an independent ``base + AddRecord`` spec, identical
     in kind to a hand-created variant. All variants start from the same
     base configuration and are generated in parallel, never sequentially.
+
+    Ligand batches keep their names: this function's ``(line, text)``
+    shape has none, so ligand callers use
+    :func:`ligand_specs_for_entries` instead (a ligand entry is identified
+    by the name the user gave it, not by its position).
     """
     entries = tuple(entries)
     if not entries:
@@ -133,9 +245,8 @@ def batch_specs_for_sequences(entries, registry: IdentityRegistry, family: str =
             duplicates.append(key)
         seen.add(key)
     if duplicates:
-        raise BatchError(
-            "the file contains duplicate %s sequences: %s"
-            % (family, ", ".join("%s…" % v[:12] for v in duplicates))
+        raise BatchError(                "the file contains duplicate %s sequences: %s"
+                % (family, ", ".join("%s..." % v[:12] for v in duplicates))
         )
 
     failures = []

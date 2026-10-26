@@ -85,7 +85,7 @@ STRINGS = {
         "4. Custom CCD management\n"
         "5. Post-translational modification management\n"
         "6. Save and show summary\n"
-        "7. Create variants based on this JSON"
+        "7. Generate ligand configurations from a file"
     ),
     "menu.job_back": "0. Return to main menu",
     "menu.leave_title": "Save before leaving?",
@@ -330,86 +330,34 @@ STRINGS = {
     "menu.pick_hint": "Type a number to open or choose, a full path, or '..' to go up. 0 cancels.",
     "menu.pick_cannot_list": "Cannot list this directory.",
 
-    # -- variants --------------------------------------------------------
-    "menu.variant_title": "VARIANT GENERATION",
-    "menu.variant_description": "Create alternative JSON configurations from this base job. You can make changes manually or supply an input file to generate multiple variants automatically.",
-    "menu.variant_base_job": "Base job: %s",
-    "menu.variant_base_entities": "Base entities: %d",
-    "menu.variant_base_info": "Each variant starts from this base and can be edited independently.",
-    "menu.variant_current": "Current variant: %s",
-    "menu.variant_actions": (
-        "1. Vary the entities in this job\n"
-        "2. Set variant job name\n"
-        "3. Add entity\n"
-        "4. Edit entity\n"
-        "5. Save variant and reset to base\n"
-        "6. Generate variants from file\n"
-        "7. Generate the variants to a folder\n"
-        "8. View all variants"
+    # -- ligand configuration generation ----------------------------------
+    "menu.ligand_title": "LIGAND CONFIGURATION GENERATION",
+    "menu.ligand_description": (
+        "Load a file of ligands or small molecules. Each valid entry becomes "
+        "one independent AF3 JSON configuration: this base job plus that "
+        "ligand."
     ),
-    "menu.variant_targets_title": "VARY SELECTED ENTITIES",
-    "menu.variant_targets_intro": (
-        "Each selected entity becomes its own variant, built from the unchanged "
-        "base; the entities you leave out are untouched."
+    "menu.ligand_base_job": "Base job: %s",
+    "menu.ligand_base_entities": "Base entities: %d",
+    "menu.ligand_actions": "1. Open ligand input file and generate configurations",
+    "menu.ligand_file_prompt": "Ligand input file (.smiles or .txt): ",
+    "menu.ligand_preview_title": "%d entries read from %s:",
+    "menu.ligand_preview_entry": "  - %s",
+    "menu.ligand_preview_note": (
+        "Each entry is added to the base job as a new ligand entity; the base "
+        "job itself is not modified, and existing files are never replaced."
     ),
-    "menu.variant_targets_col_entity": "Entity",
-    "menu.variant_targets_col_type": "Type",
-    "menu.variant_targets_col_content": "Sequence or molecule",
-    "menu.variant_targets_col_copies": "Copies",
-    "menu.variant_targets_col_can": "Can vary",
-    "menu.variant_targets_row": "  %2d) %-3s %-8s %-28s copies %d  %s",
-    "menu.variant_targets_can": "%d ways",
-    "menu.variant_targets_cannot": "no change available",
-    "menu.variant_targets_select_prompt": (
-        "Entities to vary (numbers separated by commas, or 'all'; 0 cancels): "
+    "menu.ligand_output_root": "Output folder for the configurations [%s]: ",
+    "menu.ligand_generating": "Generating configurations...",
+    "menu.ligand_written": "Wrote %s",
+    "menu.ligand_summary": "Wrote %d file(s) under %s",
+    "menu.ligand_refused": "Nothing was written: %s",
+    "menu.ligand_blocked": "Nothing was written; %d blocking finding(s):",
+    "menu.ligand_nothing_written": (
+        "Nothing was written: every planned file already exists with the same "
+        "content."
     ),
-    "menu.variant_targets_select_none": "Select at least one entity.",
-    "menu.variant_targets_strategy_title": "What should change?",
-    "menu.variant_targets_value": "New value for every selected entity: ",
-    "menu.variant_targets_plan_title": "PLANNED VARIANTS",
-    "menu.variant_targets_count": "%d variant(s) will be created from the same base.",
-    "menu.variant_targets_row_plan": "  %s  (%s)",
-    "menu.variant_targets_change": "    %s",
-    "menu.variant_targets_unchanged": "Unchanged entities: %s",
-    "menu.variant_targets_confirm": "Create these variants? [y/N]: ",
-    "menu.variant_targets_created": "%d variants created. Option 8 lists them.",
-    "menu.variant_targets_cancelled": "Nothing was created.",
-    "menu.variant_generate_title": "GENERATE VARIANTS",
-    "menu.variant_generate_intro": (
-        "Writes every variant and the manifest through the same pipeline as the "
-        "desktop app: one folder, validation first, nothing written on a refusal."
-    ),
-    "menu.variant_generate_root": "Output folder for the variants [%s]: ",
-    "menu.variant_generate_count": "%d variant(s) to write into %s",
-    "menu.variant_generate_blocked": (
-        "Generation is blocked by %d finding(s); nothing was written:"
-    ),
-    "menu.variant_generate_written": "Wrote %s",
-    "menu.variant_generate_failed": "Nothing was written: %s",
-    "menu.variant_generate_conflicts": "Refused before writing: %s",
-    "menu.variant_generate_none": "Create at least one variant first.",
-    "menu.variant_file_menu": "Choose file type for batch generation:",
-    "menu.variant_file_protein": "Protein sequences (one sequence per line, .txt file)",
-    "menu.variant_file_dna": "DNA sequences (.txt file)",
-    "menu.variant_file_ligand": "Ligand SMILES (.smiles or .txt file)",
-    "menu.variant_choose_file": "Select input file:",
-    "menu.variant_batch_success": "Successfully generated %d variants from %s.",
-    "menu.variant_batch_failed": "Batch generation failed: %s",
-    "menu.variant_batch_generating": "Generating variants...",
-    "menu.variant_batch_no_variants": "No variants were generated.",
-    "menu.variant_batch_info": "%d variants are now available in the variant list.",
-    "menu.variant_list_title": "ALL VARIANTS",
-    "menu.variant_list_empty": "No variants have been created yet.",
-    "menu.variant_list_entry": "%d. %s (%s)",
-    "menu.variant_list_back": "0. Back to variant generation",
-    "menu.variant_preview_title": "Variant: %s",
-    "menu.variant_preview_key": "Key: %s",
-    "menu.variant_preview_edits": "Edits:",
-    "menu.variant_name_prompt": "Variant job name (blank keeps the current one): ",
-    "menu.variant_named": "Variant job name set to %s.",
-    "menu.ask_variant_path": "Save the variant JSON to (blank = %s): ",
-    "menu.variant_saved": "Variant saved to %s",
-    "menu.variant_reset": "Reset to the base job.",
+
 
     # -- the Qt desktop front end (Stage 1: review & preview) -------------
     # The desktop shell's own chrome. Domain wording is never repeated
@@ -496,6 +444,45 @@ STRINGS = {
         "the Edit button above."
     ),
     "gui.entity_partner_label": "Reverse-complement partner",
+    # The ligand file workflow: an action on Entities, its two path pickers,
+    # the review before writing, and the report of what was written.
+    "gui.action_ligand_file": "Generate ligand configurations...",
+    "gui.action_ligand_file_hint": (
+        "Open a file of ligands or small molecules and write one AF3 JSON per "
+        "entry. This job is the base and is not modified."
+    ),
+    "gui.entity_ligand_note": (
+        "One file in, one configuration per entry out; existing files are "
+        "never replaced."
+    ),
+    "gui.ligand_file_dialog": "Choose a ligand input file",
+    "gui.ligand_file_filter": "Ligand lists (*.smiles *.txt);;All files (*)",
+    "gui.ligand_folder_dialog": (
+        "Choose the folder for the generated configurations"
+    ),
+    "gui.ligand_preview_title": "Review the ligand file",
+    "gui.ligand_preview_entries": "%d ligand entries read:",
+    "gui.ligand_preview_row": "  - %s",
+    "gui.ligand_preview_more": "...and %d more",
+    "gui.ligand_preview_destination": "Output folder: %s",
+    "gui.ligand_preview_files": (
+        "%d configuration file(s) plus a manifest will be written."
+    ),
+    "gui.ligand_preview_note": (
+        "Existing files are never replaced. The job open now is the base for "
+        "every file and is not modified."
+    ),
+    "gui.ligand_preview_accept": "Generate",
+    "gui.ligand_result_title": "Ligand configurations",
+    "gui.ligand_result_written": "%d file(s) written:",
+    "gui.ligand_result_errors": "These could not be written:",
+    "gui.ligand_result_skipped": (
+        "%d planned file(s) already existed with the same content and were "
+        "left alone."
+    ),
+    "gui.ligand_result_refused": "Nothing was written: %s",
+    "gui.ligand_result_nothing": "Nothing was written.",
+    "gui.ligand_notice": "Wrote %d file(s) for the ligand file.",
     "gui.menu_file": "File",
     "gui.action_quit": "Quit",
     "gui.value_unset": "not set",
@@ -694,330 +681,18 @@ STRINGS = {
     "gui.bond_select_first": "Select a bond in the list first.",
     "gui.bond_needs_entities": "Add entities before defining a bond.",
 
-    # -- the Qt desktop front end (Stage 5: variants and batch) ------------
-    "gui.tab_variants": "Variants",
-    "gui.variants_title": "Variants",
-    "gui.variants_base": "Base job: %s",
-    "gui.variants_base_detail": "%d entities  ·  %d variants",
-    "gui.variants_none": (
-        "No variants yet. Use one of the four options above to create the first "
-        "one."
-    ),
-    "gui.variants_intro": (
-        "A variant is an alternative version of the base job. Choose one of the "
-        "four ways to create variants below; the base job is never changed by a "
-        "variant."
-    ),
-    "gui.variants_session_note": (
-        "Variants belong to this session; saving the job writes the base AF3 JSON."
-    ),
-    "gui.variants_col_label": "Variant",
-    "gui.variants_col_key": "ID",
-    "gui.variants_col_changes": "Declared changes",
-    "gui.variants_col_status": "Validation",
-    "gui.variants_new": "Create a variant…",
-    "gui.variants_add_change": "Add change…",
-    "gui.variants_rename": "Rename…",
-    "gui.variants_duplicate": "Duplicate…",
-    "gui.variants_remove": "Remove…",
-    "gui.variants_validate": "Validate all",
-    "gui.variants_select_first": "Select a variant in the list first.",
-    "gui.variants_no_selection": (
-        "Select a variant to see its declared changes, findings and JSON."
-    ),
-    "gui.variants_list_group": "Existing variants",
-    "gui.variants_list_hint": (
-        "Select a variant to see it below; the buttons act on the selected one."
-    ),
-    "gui.variants_status_header": "Validation: %s",
-    "gui.variants_details": "Selected variant",
-    "gui.variants_tab_changes": "Changes",
-    "gui.variants_tab_findings": "Findings",
-    "gui.variants_tab_json": "JSON preview",
-    "gui.variants_changes_none": (
-        "This variant declares no changes yet. Add one with Add change…."
-    ),
-    "gui.variants_findings_none": "No findings for this variant.",
-    "gui.variants_findings_base": (
-        "The base job blocks variant validation. Fix its findings on the "
-        "Overview tab first; the base findings are shown here."
-    ),
-    "gui.variants_findings_unavailable": "Validation could not run: %s",
-    "gui.variants_json_unavailable": "No JSON can be shown yet.\nReason: %s",
-    "gui.variants_status_ready": "Ready",
-    "gui.variants_status_warnings": "Ready (%d warnings)",
-    "gui.variants_status_blocked": "Blocked (%d)",
-    "gui.variants_status_base_blocked": "Base blocked",
-    "gui.variants_status_unavailable": "Not validated",
-    "gui.variants_created": "Variant created.",
-    "gui.variants_removed": "Variant removed.",
-    "gui.variants_renamed": "Variant renamed.",
-    "gui.variants_change_added": "Change added to the variant.",
-    "gui.variants_duplicated": "Variant duplicated.",
-    "gui.variants_validated": "Variants validated.",
-    "gui.variants_remove_title": "Remove a variant",
-    "gui.variants_remove_question": (
-        "Remove variant \"%s\" (%s)? The base job is not changed."
-    ),
-    "gui.variants_duplicate_title": "Duplicate a variant",
-    "gui.variants_duplicate_label": "Copy of %s",
-    "gui.variants_name": "Variant name",
-    "gui.variants_key": "Variant ID (unique, used in file names)",
-    "gui.variants_key_hint": (
-        "Letters, digits, hyphens and underscores; it must be unique among variants."
-    ),
-
-    "gui.variant_form_new_title": "New variant",
-    "gui.variant_form_create": "Create variant",
-    "gui.variant_form_change_title": "Add a change to variant %s",
-    "gui.variant_form_add": "Add change",
-    "gui.variant_form_rename_title": "Rename variant %s",
-    "gui.variant_form_rename": "Rename",
-    "gui.variant_form_duplicate_title": "Duplicate variant %s",
-    "gui.variant_form_duplicate": "Duplicate",
-    "gui.variant_change_kind": "What changes",
-    "gui.variant_change_hint": (
-        "Choose one change; only the fields it needs are shown."
-    ),
-    "gui.variant_kind_sequence": "Sequence change",
-    "gui.variant_kind_add_modification": "Add a PTM / modification",
-    "gui.variant_kind_remove_modification": "Remove a PTM / modification",
-    "gui.variant_kind_alignment": "MSA / alignment",
-    "gui.variant_kind_references": "Templates / references",
-    "gui.variant_kind_job_name": "Job name",
-    "gui.variant_kind_job_description": "Job description",
-    "gui.variant_kind_seeds": "Model seeds",
-    "gui.variant_kind_component_count": "Component copy count",
-    "gui.variant_kind_component_representation": "Ligand representation (SMILES)",
-    "gui.variant_hint_component_representation": (
-        "Replaces the ligand's representation with this SMILES string. A CCD "
-        "code cannot be typed here; use Add a new entity for a different code."
-    ),
-    "gui.variant_field_smiles_placeholder": "e.g. CCO",
-    "gui.variant_kind_add_entity": "Add a new entity",
-    "gui.variant_kind_remove_entity": "Remove an entity",
-    "gui.variant_hint_sequence": (
-        "Replace one entity's sequence in this variant only."
-    ),
-    "gui.variant_hint_add_modification": (
-        "Add a modification at a 1-based residue position on a polymer chain."
-    ),
-    "gui.variant_hint_remove_modification": (
-        "Remove an existing modification from this variant only."
-    ),
-    "gui.variant_hint_alignment": (
-        "Change how one protein or RNA entity's alignment is supplied."
-    ),
-    "gui.variant_hint_references": (
-        "Change a protein's template references in this variant only."
-    ),
-    "gui.variant_hint_job_name": "Give this variant's generated job another name.",
-    "gui.variant_hint_job_description": "Set a job description in this variant only.",
-    "gui.variant_hint_seeds": "Replace the model seeds in this variant only.",
-    "gui.variant_hint_component_count": (
-        "Change one component's copy count in this variant only."
-    ),
-    "gui.variant_hint_add_entity": (
-        "Add a protein, RNA, DNA duplex or ligand to this variant."
-    ),
-    "gui.variant_hint_remove_entity": "Remove one entity from this variant.",
-    "gui.variant_field_entity": "Entity",
-    "gui.variant_field_sequence": "Sequence",
-    "gui.variant_field_sequence_hint": (
-        "Paste a plain sequence - no FASTA header and no line breaks."
-    ),
-    "gui.variant_field_code": "Modification code",
-    "gui.variant_field_position": "Position (1-based residue number)",
-    "gui.variant_field_residue": "Residue at that position: %s",
-    "gui.variant_field_residue_out": (
-        "Position %d is past the end of this chain (%d residues)."
-    ),
-    "gui.variant_field_mode": "Mode",
-    "gui.variant_field_source": "Source",
-    "gui.variant_field_inline": "Alignment text",
-    "gui.variant_field_path": "Template file",
-    "gui.variant_field_browse": "Choose file…",
-    "gui.variant_field_route": "Templates",
-    "gui.variant_field_description": "Description",
-    "gui.variant_field_seeds": "Model seeds (comma or space separated)",
-    "gui.variant_field_count": "Copy count",
-    "gui.variant_field_family": "Family",
-    "gui.variant_field_representation": "Representation",
-    "gui.variant_field_representation_kind": "Kind",
-    "gui.variant_field_remove_target": "Modification to remove",
-    "gui.variant_field_no_records": "The base job has no entity of this kind.",
-    "gui.variant_field_no_modifications": (
-        "This variant has no modifications to remove."
-    ),
-    "gui.variant_route_search": "Let AlphaFold search",
-    "gui.variant_route_none": "No templates",
-    "gui.variant_route_list": "Explicit files",
-    "gui.variant_add_file": "Add file…",
-    "gui.variant_remove_file": "Remove file…",
-    "gui.variant_pairs": "Index pairs (query:template, 0-based)",
-    "gui.variant_no_source": "This mode takes no file or text.",
-    "gui.variant_preview_change": "Proposed change: %s",
-    "gui.variant_preview_pending": (
-        "Fill in the fields to preview this change before committing it."
-    ),
-    "gui.variant_choose_entity": "Choose an entity first.",
-    "gui.variant_choose_value": "Fill in the value this change needs.",
-    "gui.variant_name_required": "Give the variant a name and a non-empty ID.",
-    "gui.variant_seed_values": "Enter at least one whole-number seed.",
-
-    "gui.variants_one_title": "Create one variant",
-    "gui.variants_choose_title": "Create variants",
-    "gui.variants_choose_intro": (
-        "Choose one way to start. Only that workflow's options are shown, and "
-        "nothing is created until you review and confirm it."
-    ),
-    "gui.variants_back": "< Back to choices",
-    "gui.variants_one_hint": (
-        "Make one alternative configuration from the base job by choosing a "
-        "supported change: a sequence, a copy count, an added entity, and so on."
-    ),
-    "gui.variants_no_changes": "No changes yet",
-    "gui.variant_change_sequence": "Sequence of %s: %s",
-    "gui.variant_change_job_name": "Job name: %s",
-    "gui.variant_change_job_description": "Job description: %s",
-    "gui.variant_change_seeds": "Model seeds: %s",
-    "gui.variant_change_add_mod": "Add %s at position %d on %s",
-    "gui.variant_change_remove_mod": "Remove modification #%d from %s",
-    "gui.variant_change_alignment": "Alignment of %s: %s",
-    "gui.variant_change_references": "Templates of %s: %s",
-    "gui.variant_change_count": "Copy count of %s: %d",
-    "gui.variant_change_add_record": "Add %s %s",
-    "gui.variant_change_remove_record": "Remove entity %s",
-    "gui.variant_change_description": "Description of %s: %s",
-    "gui.variant_change_representation": "Representation of %s: %s",
-    "gui.variant_change_bond": "Covalent bond change on this job",
-    "gui.variant_change_definition": "Custom CCD definition change",
-    "gui.variant_change_version": "JSON version change",
-    "gui.variant_change_unknown": "A change this workspace cannot describe",
-    "gui.variant_reference_count": "%d file(s)",
-    "gui.variant_value_empty": "(empty)",
-    "gui.variant_value_unset": "not set",
-
-    "gui.variants_series_title": "Create a quantity series",
-    "gui.variants_series_hint": (
-        "Plan copy counts for the selected components at increasing multipliers. "
-        "Each level becomes its own variant; the base job is not changed."
-    ),
-    "gui.variants_series_components": "Components to vary",
-    "gui.variants_series_start": "Start multiplier",
-    "gui.variants_series_factor": "Factor per level",
-    "gui.variants_series_levels": "Levels",
-    "gui.variants_series_preview": "Preview series",
-    "gui.variants_series_create": "Create series",
-    "gui.variants_series_col_multiplier": "Level multiplier",
-    "gui.variants_series_col_counts": "Copy counts",
-    "gui.variants_series_planned": (
-        "%d variants planned. Review them, then create the series."
-    ),
-    "gui.variants_series_names": (
-        "Each level becomes one variant named from its multiplier "
-        "(series_1x, series_2x, ...)."
-    ),
-    "gui.variants_series_select": "Select at least one component to vary.",
-    "gui.variants_series_stale": (
-        "The values changed since the preview. Preview the series again before "
-        "creating it."
-    ),
-    "gui.variants_series_created": "%d series variants created.",
-    "gui.variants_series_empty": "Plan a series to see its variants here.",
-
-    "gui.variants_batch_title": "Create variants from a file",
-    "gui.variants_batch_hint": (
-        "One variant per entry, all built from the same base. Nothing is created "
-        "until you confirm; one invalid entry refuses the whole batch."
-    ),
-    "gui.variants_batch_family": "Input type",
-    "gui.variants_batch_family_note": (
-        "Protein and DNA files: one sequence per line. Ligand files: one SMILES "
-        "per line, optionally preceded by a name. RNA has no batch reader."
-    ),
-    "gui.variants_batch_path": "Batch file",
-    "gui.variants_batch_browse": "Choose file…",
-    "gui.variants_batch_file_filter": (
-        "Batch files (*.txt *.smiles);;All files (*)"
-    ),
-    "gui.variants_batch_preview": "Preview file",
-    "gui.variants_batch_create": "Create batch",
-    "gui.variants_batch_preview_title": (
-        "%d entries read, %d variants planned - nothing has been created yet."
-    ),
-    "gui.variants_batch_invalid": (
-        "%d entries were read, but this file cannot be used as it stands - "
-        "nothing has been created."
-    ),
-    "gui.variants_batch_preview_empty": (
-        "Choose a file and preview it before creating the batch."
-    ),
-    "gui.variants_batch_col_entry": "Entry",
-    "gui.variants_batch_no_normalization": (
-        "File contents are used exactly as read; no headers or line breaks are "
-        "stripped or added."
-    ),
-    # -- vary the entities of the open job (the multi-ligand path) ----------
-    "gui.variants_targets_title": "Vary the entities in this job",
-    "gui.variants_targets_hint": (
-        "Select one or more of the entities you opened, choose what should change, "
-        "review the variants and create them. Each selected entity becomes its own "
-        "variant, built from the unchanged base job."
-    ),
-    "gui.variants_targets_independent": (
-        "Independent, not combined: selecting three ligands makes three variants, "
-        "each changing one ligand. To change two entities in one variant, add a "
-        "second change to it afterwards."
-    ),
-    "gui.variants_targets_col_entity": "Entity",
-    "gui.variants_targets_col_type": "Type",
-    "gui.variants_targets_col_content": "Sequence or molecule",
-    "gui.variants_targets_col_copies": "Copies",
-    "gui.variants_targets_col_can": "Can vary",
-    "gui.variants_targets_can": "%d ways",
-    "gui.variants_targets_cannot": "no change available",
-    "gui.variants_targets_select_all": "Select all",
-    "gui.variants_targets_select_none": "Clear selection",
-    "gui.variants_targets_strategy": "What to change",
-    "gui.variants_targets_value": "New sequence or SMILES",
-    "gui.variants_targets_plan": "Preview variants",
-    "gui.variants_targets_create": "Create variants",
-    "gui.variants_targets_select_first": "Select at least one entity in the table.",
-    "gui.variants_targets_plan_empty": (
-        "Select entities, choose a change and preview the variants first."
-    ),
-    "gui.variants_targets_plan_ready": (
-        "%d variant(s) will be created, all from the same base. Unchanged: %s."
-    ),
-    "gui.variants_targets_none_unaffected": "nothing else",
-    "gui.variants_targets_created": (
-        "%d variants created. Review them below, then generate on the Generate page."
-    ),
-    "gui.variants_targets_col_variant": "Variant",
-    "gui.variants_targets_col_target": "Entity changed",
-    "gui.variants_targets_col_change": "Change",
-    "gui.variants_batch_created": "%d variants created from the file.",
-    "gui.variants_batch_stale": (
-        "The file or input type changed since the preview. Preview it again "
-        "before creating the batch."
-    ),
-    "gui.variants_batch_empty": "The file contains no usable entries.",
-
     # -- Generate & Output (Stage 6) --------------------------------------
     "gui.tab_output": "Generate",
     "gui.output_title": "Generate output files",
     "gui.output_intro": (
-        "Review the plan first - nothing is written until you confirm. Save "
-        "JSON in the FILE footer writes one file; this page writes the planned "
-        "project folder, any copied assets and the manifest."
+        "Review the plan first - nothing is written until you confirm. This "
+        "page writes the open job's own AF3 JSON file and any external files "
+        "it copies; Save JSON in the FILE footer writes the one file directly. "
+        "A file of ligands is generated from the Entities page."
     ),
-    "gui.output_base": "Base job: %s - %d entities, %d variants",
-    "gui.output_group_scope": "1. What do you want to generate?",
+    "gui.output_base": "Base job: %s - %d entities",
+    "gui.output_group_scope": "1. What is written",
     "gui.output_group_destination": "2. Where should the files go?",
-    "gui.output_step1_hint": (
-        "Choose one scope. The plan lists exactly what that choice writes."
-    ),
     "gui.output_destination": "Output folder",
     "gui.output_destination_placeholder": "Choose a folder for the generated files",
     "gui.output_destination_hint": (
@@ -1033,18 +708,7 @@ STRINGS = {
     "gui.output_write_hint": "Nothing is written until you confirm the plan.",
     "gui.output_browse": "Choose folder...",
     "gui.output_folder_dialog": "Choose the output folder",
-    "gui.output_scope_all_title": "All variants",
-    "gui.output_scope_all_note": (
-        "The base file, one file per variant and the manifest."
-    ),
-    "gui.output_scope_selected_title": "Selected variant",
-    "gui.output_scope_selected_note": "That variant's file and the manifest.",
-    "gui.output_scope_base_title": "Base job only",
     "gui.output_scope_base_note": "One AF3 JSON file. No manifest.",
-    "gui.output_scope_unavailable": (
-        "Create a variant on the Variants page to choose this."
-    ),
-    "gui.output_variant": "Which variant",
     "gui.output_overwrite_policy": "If a file already exists",
     "gui.output_path_policy": "External files (MSA, templates)",
     "gui.policy_overwrite_fail": "Stop and write nothing",
@@ -1118,7 +782,6 @@ STRINGS = {
         "generating."
     ),
     "gui.output_need_plan": "Preview the plan before generating.",
-    "gui.output_scope_needs_variant": "Choose a variant to generate.",
     "gui.output_no_folder": "Choose an output folder first.",
     "gui.output_plan_refused": "Nothing can be written: %s",
     "gui.output_col_kind": "Planned item",
@@ -1130,7 +793,6 @@ STRINGS = {
     "gui.output_col_copy": "Copied to",
     "gui.output_col_emitted": "Path in JSON",
     "gui.output_kind_base": "Base job",
-    "gui.output_kind_variant": "Variant",
     "gui.output_kind_manifest": "Manifest",
     "gui.output_manifest_note": (
         "The manifest (manifest.json) records the run; it is written last."
@@ -1146,10 +808,6 @@ STRINGS = {
     "gui.output_findings_note": (
         "These findings blocked generation. Select one to open its entity, or "
         "review the configuration."
-    ),
-    "gui.output_findings_variants": (
-        "These variant findings blocked generation. Select one to open its "
-        "entity, or review the configuration."
     ),
     "gui.output_review": "Review configuration",
     "gui.output_group_result": "Result",

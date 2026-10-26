@@ -1,0 +1,42 @@
+{
+  "name": "batch-base-with-ccd",
+  "modelSeeds": [
+    7
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "MKTAYIAKQRQISFVKSHFSRQ"
+      }
+    },
+    {
+      "ligand": {
+        "id": [
+          "B",
+          "E"
+        ],
+        "ccdCodes": [
+          "ATP"
+        ]
+      }
+    },
+    {
+      "ligand": {
+        "id": "C",
+        "ccdCodes": [
+          "ZN"
+        ]
+      }
+    },
+    {
+      "ligand": {
+        "id": "D",
+        "smiles": "CC(=O)Oc1ccccc1C(=O)O"
+      }
+    }
+  ],
+  "userCCD": "data_MY_LIGAND\n#\n_chem_comp.id MY_LIGAND\n_chem_comp.name 'A synthetic component definition used by the batch fixtures'\n_chem_comp.type non-polymer\n_chem_comp.formula 'C2 H6 O'\n#\nloop_\n_chem_comp_atom.comp_id\n_chem_comp_atom.atom_id\n_chem_comp_atom.type_symbol\nMY_LIGAND C1 C\nMY_LIGAND O1 O\nMY_LIGAND C2 C\n#\nloop_\n_chem_comp_bond.comp_id\n_chem_comp_bond.atom_id_1\n_chem_comp_bond.atom_id_2\n_chem_comp_bond.value_order\nMY_LIGAND C1 O1 SING\nMY_LIGAND C1 C2 SING\n#\n",
+  "dialect": "alphafold3",
+  "version": 3
+}

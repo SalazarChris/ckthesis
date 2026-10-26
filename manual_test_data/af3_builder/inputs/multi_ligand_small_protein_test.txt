@@ -1,0 +1,43 @@
+{
+  "name": "multi-ligand-small-protein",
+  "modelSeeds": [
+    1,
+    2,
+    3
+  ],
+  "sequences": [
+    {
+      "protein": {
+        "id": "A",
+        "sequence": "MKTAYIAKQRQISFVKSHFSRQ"
+      }
+    },
+    {
+      "ligand": {
+        "id": [
+          "B",
+          "F"
+        ],
+        "ccdCodes": [
+          "ATP"
+        ]
+      }
+    },
+    {
+      "ligand": {
+        "id": "C",
+        "smiles": "CC(=O)Oc1ccccc1C(=O)O"
+      }
+    },
+    {
+      "ligand": {
+        "id": "D",
+        "ccdCodes": [
+          "MG"
+        ]
+      }
+    }
+  ],
+  "dialect": "alphafold3",
+  "version": 3
+}

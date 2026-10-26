@@ -19,8 +19,8 @@ Stage 2 adds the job lifecycle:
   validates and may refuse. There is no second settings destination.
 
 The shell is the approved mockup's: a captioned sidebar (WORKSPACE, then the
-four destinations; FILE, then New · Open · Save) and a product header carrying
-the job name and the "Unsaved"/"Saved" pill. The three lifecycle actions live
+three destinations; FILE, then New · Open · Save) and a product header
+carrying the job name and the "Unsaved"/"Saved" pill. The three lifecycle actions live
 in the FILE footer and keep the standard Ctrl+N/Ctrl+O/Ctrl+S shortcuts; the
 menu bar itself is hidden, so the same commands are not offered twice.
 
@@ -71,7 +71,6 @@ from configbuilder.ui.render.qt.pages import (
     GeneratePage,
     OverviewPage,
     PreviewPage,
-    VariantsPage,
 )
 from configbuilder.ui.render.qt.style import apply_style
 from configbuilder.ui.render.qt.widgets import app_mark_pixmap, navigation_icon
@@ -185,12 +184,6 @@ class MainWindow(QMainWindow):
             bonds=self._bonds,
             parent=self,
         )
-        self._variants = VariantsPage(
-            self._state,
-            notify=self._notify,
-            problems=self.report_problem,
-            parent=self,
-        )
         self._output = GeneratePage(
             self._state,
             notify=self._notify,
@@ -226,21 +219,21 @@ class MainWindow(QMainWindow):
 
     # -- the shell: sidebar, header, one stacked workspace ---------------
 
-    #: The four destinations, in the order the sidebar shows them. The
+    #: The three destinations, in the order the sidebar shows them. The
     #: labels are the registry's page names, so the sidebar, the window and
-    #: any test agree by construction.
+    #: any test agree by construction. The file-driven ligand workflow is an
+    #: action on the Entities page, not a destination of its own.
     _DESTINATIONS = (
         ("gui.tab_overview", "_overview", "overview"),
         ("gui.tab_entities", "_entities", "entities"),
-        ("gui.tab_variants", "_variants", "variants"),
         ("gui.tab_output", "_output", "generate"),
     )
 
     def _build_shell(self) -> None:
         """The mockup's frame: captioned sidebar, product header, one pane.
 
-        The sidebar opens with WORKSPACE over the four working destinations and
-        closes with FILE over the three lifecycle actions, exactly as the
+        The sidebar opens with WORKSPACE over the three working destinations
+        and closes with FILE over the three lifecycle actions, exactly as the
         mockup arranges them. One destination is visible at a time; the header
         always says which job is open and whether it has unsaved changes.
         """
@@ -587,7 +580,6 @@ class MainWindow(QMainWindow):
         self._advanced.refresh()
         self._ccd.refresh()
         self._bonds.refresh()
-        self._variants.refresh()
         self._output.refresh()
         self._preview.refresh()
         self._refresh_source()
@@ -738,10 +730,6 @@ class MainWindow(QMainWindow):
     @property
     def advanced_page(self):
         return self._advanced
-
-    @property
-    def variants_page(self):
-        return self._variants
 
     @property
     def output_page(self):

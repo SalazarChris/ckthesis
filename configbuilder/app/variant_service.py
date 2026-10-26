@@ -1046,6 +1046,51 @@ class VariantService:
             )
         return FilePreview(ok=True, entries=[text for _, text in entries])
 
+    def ligand_file_specs(self, path: str):
+        """Read a ligand file and build its independent specs, uncommitted.
+
+        Returns ``(entries, specs, None)`` or ``(entries, (), message)``:
+        ``entries`` are the ``(line_number, name, smiles)`` rows exactly as
+        ``persistence.read_smiles_file`` read them, so a front end can show
+        what would be processed even when the file is refused. The specs are
+        ``base + AddRecord`` pairs built against a **throwaway clone** of the
+        base registry — the project never claims an identifier, and the base
+        configuration is not touched.
+
+        This is the single construction the preview, the legacy committing
+        path and the one-step generation share; a change to the ``name
+        SMILES`` reading can therefore never make one of them disagree with
+        another.
+        """
+        from configbuilder.persistence import PersistenceError, read_smiles_file
+
+        project = self._projects._require_project()
+        if project is None:
+            return (), (), "no project is open"
+        from configbuilder.app.batch_variants import (
+            BatchError,
+            ligand_specs_for_entries,
+        )
+        from configbuilder.model import SequenceTextError
+
+        try:
+            entries = read_smiles_file(path)
+        except PersistenceError as error:
+            return (), (), str(error)
+        if not entries:
+            return (
+                (),
+                (),
+                "the ligand file contains no entries (only blank lines or comments)",
+            )
+        try:
+            specs = ligand_specs_for_entries(
+                entries, project.configuration.identity.clone()
+            )
+        except (BatchError, SequenceTextError) as error:
+            return entries, (), str(error)
+        return entries, specs, None
+
     def inspect_batch_file(self, path: str, family: str = "protein"):
         """Preview a batch input file without creating anything.
 
@@ -1063,23 +1108,18 @@ class VariantService:
         Nothing is added to the project and no identifier is reserved in the
         base: the clone is discarded.
         """
-        from configbuilder.persistence import (
-            PersistenceError,
-            read_sequence_file,
-            read_smiles_file,
-        )
+        from configbuilder.persistence import PersistenceError, read_sequence_file
 
         if family == "ligand":
-            try:
-                reader = read_smiles_file(path)
-            except PersistenceError as error:
-                return FilePreview(ok=False, message=str(error))
-            if not reader:
-                return FilePreview(
-                    ok=False,
-                    message="the SMILES file contains no entries (only blank lines or comments)",
-                )
-            pairs = [(line_number, smiles) for line_number, _name, smiles in reader]
+            # The ligand preview is the *same* spec construction the one-step
+            # generation uses: the entries' own names become the keys, so the
+            # count, the names and any refusal are known before a file is
+            # written. Nothing is committed and no identifier is reserved.
+            entries, specs, problem = self.ligand_file_specs(path)
+            shown = ["%s  %s" % (name, smiles) for _line, name, smiles in entries]
+            if problem is not None:
+                return FilePreview(ok=False, message=problem, entries=shown)
+            return FilePreview(ok=True, entries=shown, planned=len(specs))
         elif family in ("protein", "dna"):
             try:
                 reader = read_sequence_file(path)
@@ -1152,28 +1192,18 @@ class VariantService:
         project = self._projects._require_project()
         if project is None:
             return self._not_open()
-        from configbuilder.persistence import PersistenceError, read_sequence_file, read_smiles_file
+        from configbuilder.persistence import PersistenceError, read_sequence_file
         from configbuilder.app.batch_variants import BatchError, batch_specs_for_sequences
         from configbuilder.model import SequenceTextError
 
         # Choose the appropriate reader based on family
         if family == "ligand":
-            try:
-                entries = read_smiles_file(path)
-            except PersistenceError as error:
-                return self._refuse(str(error))
-            if not entries:
-                return self._refuse("the SMILES file contains no entries (only blank lines or comments)")
-            try:
-                registry = project.configuration.identity.clone()
-                # For ligands, we pass (line_number, smiles) tuples, extracting just the SMILES
-                specs = batch_specs_for_sequences(
-                    [(ln, smiles) for ln, name, smiles in entries],
-                    registry,
-                    family=family,
-                )
-            except (BatchError, SequenceTextError) as error:
-                return self._refuse(str(error))
+            # The documented ``name SMILES`` names are kept: they become the
+            # variant keys (and so the output filenames). The discarded-name
+            # behaviour this replaces was the audit's defect D-4.
+            _entries, specs, problem = self.ligand_file_specs(path)
+            if problem is not None:
+                return self._refuse(problem)
         else:
             try:
                 entries = read_sequence_file(path)

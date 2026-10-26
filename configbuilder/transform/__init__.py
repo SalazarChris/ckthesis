@@ -24,7 +24,12 @@ from configbuilder.transform.mappings import (
 )
 from configbuilder.transform.presence import OMITTED, EmissionRule, Omitted
 
-from configbuilder.transform.from_wire import ImportNote, WireImportError, from_wire
+from configbuilder.transform.from_wire import (
+    ImportNote,
+    WireImportError,
+    from_wire,
+    rebase_resource_paths,
+)
 
 __all__ = [
     "ExternalResourceRequirement",
@@ -32,6 +37,7 @@ __all__ = [
     "TransformResult",
     "WireDocument",
     "from_wire",
+    "rebase_resource_paths",
     "to_wire",
     "used_version_features",
     "with_emitted_resource_paths",

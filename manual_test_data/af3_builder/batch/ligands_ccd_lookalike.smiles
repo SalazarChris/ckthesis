@@ -1,0 +1,4 @@
+# CCD codes are NOT a batch format. These lines are stored as SMILES text,
+# so each output carries "smiles": "ATP" / "ZN" - not "ccdCodes".
+atp ATP
+zinc ZN

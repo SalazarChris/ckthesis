@@ -1,0 +1,5 @@
+# Named entries: "<name> <SMILES>"; a bare line is a SMILES with an
+# auto-generated name. Blank lines and '#' lines are ignored.
+ethanol CCO
+acetic-acid CC(=O)O
+C1CCCCC1

@@ -2,12 +2,12 @@
 
 Each page is a plain ``QWidget`` that reads the application services through
 :class:`configbuilder.ui.render.qt.state.GuiState` and re-projects itself when
-the state says the open job changed. Only the entities, advanced and variants
-pages change a job, and each does so exclusively through the application
-services (``ConfigurationService``, ``VariantService``). Job-wide settings have
-**one** destination since Stage 8: the ``JobSettingsPanel`` Overview hosts. The
-generate page writes files only by executing a plan ``GenerationService``
-produced and the user reviewed.
+the state says the open job changed. Only the entities and advanced pages
+change a job, and each does so exclusively through the application services
+(``ConfigurationService``). Job-wide settings have **one** destination since
+Stage 8: the ``JobSettingsPanel`` Overview hosts. The ligand file action on
+the Entities page and the generate page write files only through
+``GenerationService`` — planning, validation and execution are its own.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from configbuilder.ui.render.qt.pages.generate import GeneratePage
 from configbuilder.ui.render.qt.pages.overview import OverviewPage
 from configbuilder.ui.render.qt.pages.preview import PreviewPage
 from configbuilder.ui.render.qt.pages.settings import JobSettingsPanel
-from configbuilder.ui.render.qt.pages.variants import VariantsPage
 
 __all__ = [
     "AdvancedPage",
@@ -27,5 +26,4 @@ __all__ = [
     "JobSettingsPanel",
     "OverviewPage",
     "PreviewPage",
-    "VariantsPage",
 ]

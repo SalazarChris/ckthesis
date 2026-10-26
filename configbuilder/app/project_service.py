@@ -133,7 +133,13 @@ class ProjectService:
         copies had already drifted once, over what a directory path should
         say (BUG-018).
         """
-        from configbuilder.transform import WireImportError, from_wire
+        import os
+
+        from configbuilder.transform import (
+            WireImportError,
+            from_wire,
+            rebase_resource_paths,
+        )
 
         refusal = self._directory_refusal(path)
         if refusal:
@@ -150,6 +156,11 @@ class ProjectService:
                 FailureReason.CORRUPT_FILE,
                 "the file is not valid JSON: %s" % (error,),
             )
+        # An AF3 file's relative paths mean "relative to this file"; resolve
+        # them before the model is built, so a self-contained job (assets
+        # copied beside it) can be reopened and re-saved without its files
+        # appearing to have vanished.
+        rebase_resource_paths(document, os.path.dirname(os.path.abspath(path)))
         try:
             configuration, notes = from_wire(document)
         except WireImportError as error:

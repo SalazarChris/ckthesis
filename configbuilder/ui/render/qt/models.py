@@ -58,8 +58,6 @@ __all__ = [
     "EntityTableModel",
     "FindingsTableModel",
     "StatusTableModel",
-    "VariantRow",
-    "VariantTableModel",
     "counts_text",
     "describe_entity",
     "family_label",
@@ -326,97 +324,6 @@ class EntityTableModel(QAbstractTableModel):
             )[column]
         if role == Qt.UserRole:
             return row.record_key
-        return None
-
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            return _text(self.COLUMN_KEYS[section])
-        if orientation == Qt.Vertical and role == Qt.DisplayRole:
-            return str(section + 1)
-        return None
-
-    def flags(self, index):
-        if not index.isValid():
-            return Qt.ItemIsEnabled
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
-
-
-# -- variant projection -------------------------------------------------------------
-
-
-class VariantRow(object):
-    """One variant, projected to display strings plus the service's key.
-
-    ``changes`` and ``status`` are built by the page from service data
-    (``spec_change_descriptions`` and ``validate_all``); this model only
-    arranges them, exactly like the entity and findings projections.
-    """
-
-    __slots__ = ("key", "label", "changes", "status")
-
-    def __init__(self, key, label, changes, status) -> None:
-        self.key = key
-        self.label = label
-        self.changes = changes
-        self.status = status
-
-    def __repr__(self) -> str:
-        return "VariantRow(%r)" % (self.key,)
-
-
-class VariantTableModel(QAbstractTableModel):
-    """The variant list, in the project's declared spec order."""
-
-    COLUMN_KEYS = (
-        "gui.variants_col_label",
-        "gui.variants_col_key",
-        "gui.variants_col_changes",
-        "gui.variants_col_status",
-    )
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        self._rows = []
-
-    def set_rows(self, rows) -> None:
-        self.beginResetModel()
-        self._rows = list(rows or ())
-        self.endResetModel()
-
-    @property
-    def rows(self):
-        return tuple(self._rows)
-
-    def row_at(self, index: int):
-        if 0 <= index < len(self._rows):
-            return self._rows[index]
-        return None
-
-    def row_for_key(self, key):
-        for position, row in enumerate(self._rows):
-            if row.key == key:
-                return position
-        return -1
-
-    def rowCount(self, parent=QModelIndex()) -> int:
-        if parent.isValid():
-            return 0
-        return len(self._rows)
-
-    def columnCount(self, parent=QModelIndex()) -> int:
-        if parent.isValid():
-            return 0
-        return len(self.COLUMN_KEYS)
-
-    def data(self, index, role=Qt.DisplayRole):
-        if not index.isValid():
-            return None
-        row = self._rows[index.row()]
-        column = index.column()
-        if role == Qt.DisplayRole:
-            return (row.label, row.key, row.changes, row.status)[column]
-        if role == Qt.UserRole:
-            return row.key
         return None
 
     def headerData(self, section, orientation, role=Qt.DisplayRole):

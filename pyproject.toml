@@ -15,6 +15,14 @@ requires-python = ">=3.9"
 dependencies = []
 
 [project.optional-dependencies]
+# Development-only; not required to run the application (§4).
+# Restored by the gate-recovery change: commit 85a606a dropped this extra while
+# removing the gates, but .github/workflows/ci.yml still installs
+# `-e ".[dev]"` and runs the suite, so a fresh clone needs pytest from here.
+dev = [
+    "pytest>=7",
+    "hypothesis>=6",
+]
 # The SOP §6 comparative-analysis stack for af3_analysis (the builder above
 # still needs nothing). numpy and pandas are hard requirements; the rest are
 # used when present and fall back to documented internal implementations when
@@ -53,3 +61,10 @@ af3-json-builder = "configbuilder.ui.render.qt.application:main"
 
 [tool.setuptools.packages.find]
 include = ["configbuilder*", "af3_analysis*"]
+
+# Restored with the dev extra: 85a606a removed this table too, leaving the CI
+# workflow's `-o addopts=""` override referring to an option that no longer
+# existed and a plain `pytest` invocation without a test path.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

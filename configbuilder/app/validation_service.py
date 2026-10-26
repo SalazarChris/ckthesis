@@ -155,14 +155,6 @@ class ValidationService:
                     message="no project is open",
                 )
             )
-        from configbuilder.validation import validate
-
-        base_report = validate(
-            project.configuration,
-            self._context(configuration=project.configuration),
-        )
-        if base_report.blocking():
-            return VariantValidationOutput(base_report)
         specs = project.specs
         if only is not None:
             keys = tuple(only)
@@ -177,6 +169,37 @@ class ValidationService:
                     )
                 )
             specs = tuple(spec for key in keys for spec in specs if spec.key == key)
+        return self.validate_specs(specs)
+
+    def validate_specs(self, specs) -> VariantValidationOutput:
+        """``validate_all`` over an **explicit** spec tuple.
+
+        The one-step ligand file flow builds its specs and writes their
+        files in the same pass, without ever committing them to the project
+        (no persistent variant list is part of that workflow). Its variants
+        still get the authoritative validation — base first, then each
+        variant against its own comparison data — through exactly this
+        method, so a batch cannot be written on a weaker check than an
+        in-memory variant would be.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return VariantValidationOutput(
+                ConfigurationOutput(
+                    ok=False,
+                    failure_reason=FailureReason.NOT_OPEN,
+                    message="no project is open",
+                )
+            )
+        from configbuilder.validation import validate
+
+        specs = tuple(specs)
+        base_report = validate(
+            project.configuration,
+            self._context(configuration=project.configuration),
+        )
+        if base_report.blocking():
+            return VariantValidationOutput(base_report)
         try:
             variants = expand(project.configuration, specs)
         except (EditError, VariantSpecError) as error:

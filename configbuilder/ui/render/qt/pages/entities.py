@@ -60,7 +60,11 @@ from configbuilder.ui.present.strings import text as _text
 from configbuilder.ui.render.qt.dialogs import (
     LigandFormDialog,
     SequenceFormDialog,
+    choose_ligand_file,
+    choose_output_folder,
     confirm_entity_delete,
+    confirm_ligand_preview,
+    report_ligand_run,
 )
 from configbuilder.ui.render.qt.models import EntityTableModel
 from configbuilder.ui.render.qt.style import (
@@ -171,6 +175,12 @@ class EntitiesPage(QWidget):
         # default, and the forms are real dialogs whose modal loop the tests
         # stand in for.
         self.delete_confirmer = confirm_entity_delete
+        # The ligand-file workflow's four modal seams: the two path pickers,
+        # the review box and the result report.
+        self.ligand_file_chooser = choose_ligand_file
+        self.ligand_folder_chooser = choose_output_folder
+        self.ligand_previewer = confirm_ligand_preview
+        self.ligand_reporter = report_ligand_run
         self._build()
 
     # -- construction ------------------------------------------------------
@@ -245,6 +255,22 @@ class EntitiesPage(QWidget):
             add_row.addWidget(button)
         add_row.addStretch(1)
         outer.addLayout(add_row)
+
+        # The file-driven workflow lives with the entity actions because that
+        # is exactly what it extends: one ligand entity per input entry, added
+        # to this job as the base. It reads the job and writes files; it never
+        # changes the job on screen.
+        file_row = QHBoxLayout()
+        file_row.setContentsMargins(0, 0, 0, 0)
+        file_row.setSpacing(8)
+        self.ligand_file_button = QPushButton(_text("gui.action_ligand_file"))
+        self.ligand_file_button.setToolTip(_text("gui.action_ligand_file_hint"))
+        self.ligand_file_button.setAccessibleName(self.ligand_file_button.text())
+        self.ligand_file_button.clicked.connect(self.generate_ligand_file)
+        file_row.addWidget(self.ligand_file_button)
+        file_row.addWidget(hint_label(_text("gui.entity_ligand_note")), 1)
+        outer.addLayout(file_row)
+
         self._notice = hint_label("")
         outer.addWidget(self._notice)
         return row
@@ -319,6 +345,35 @@ class EntitiesPage(QWidget):
             self._detail_rows[label_key] = (row_label, label)
         outer.addLayout(form)
         return card
+
+    # -- the ligand file workflow -------------------------------------------
+
+    def generate_ligand_file(self) -> None:
+        """One file of ligands in, one configuration per entry out.
+
+        Four steps, no detour: choose the file, show what was read, choose the
+        folder, then write. The preview is the service's own read-only check
+        (so an empty file, a duplicate molecule or an unreadable path refuses
+        here, before a folder is chosen), the write is one service call that
+        plans and validates before touching a file, and the report lists what
+        was actually written. Nothing about the open job changes.
+        """
+        path = self.ligand_file_chooser(self)
+        if not path:
+            return
+        preview = self._state.inspect_ligand_file(path)
+        if not preview.ok:
+            self._problems(preview.message)
+            return
+        root = self.ligand_folder_chooser(self)
+        if not root:
+            return
+        if not self.ligand_previewer(self, preview, root):
+            return
+        outcome = self._state.generate_ligand_configurations(path, root)
+        self.ligand_reporter(self, outcome)
+        if outcome.ok:
+            self._notify(_text("gui.ligand_notice") % len(outcome.written))
 
     # -- reading the details pane back --------------------------------------
 

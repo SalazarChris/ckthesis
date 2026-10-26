@@ -307,152 +307,32 @@ class GuiState(QObject):
             self.project_changed.emit()
         return outcome
 
-    # -- variants and batch, through VariantService (Stage 5) --------------
+    # -- the ligand file workflow, through the application services --------
 
-    @property
-    def specs(self):
-        """The committed variant specs, in declared order (read-only)."""
-        return tuple(self._services.variants.specs())
+    def inspect_ligand_file(self, path):
+        """Preview a ligand input file: no variant, no file, no write.
 
-    def edit_options(self):
-        """The change kinds the service supports, as its own choice rows."""
-        return self._services.variants.edit_options()
+        The preview is the service's own read-only check, built from exactly
+        the specs generation would write, so the count and any refusal shown
+        here cannot disagree with what a commit does.
+        """
+        return self._services.variants.inspect_batch_file(path, family="ligand")
 
-    def all_entity_choices(self):
-        """Every base record as a choice row (labels are the service's)."""
-        return self._services.variants.all_entity_choices()
+    def generate_ligand_configurations(self, path, output_root):
+        """Write one independent configuration per ligand entry.
 
-    def entity_choices(self, family):
-        """The base's records of one family as choice rows."""
-        return self._services.variants.entity_choices(family)
-
-    def component_count_choices(self):
-        """The component records whose copy count a variant can change."""
-        return self._services.variants.component_count_choices()
-
-    def modification_summary(self, key):
-        """The expanded variant's modification rows for the remove picker."""
-        return self._services.variants.modification_summary(key)
-
-    def modification_choices(self, key):
-        """Modification rows with their record key, for the remove picker."""
-        return self._services.variants.modification_choices(key)
-
-    def describe_spec_edits(self, key):
-        """One spec's declared edits as plain described data."""
-        return self._services.variants.describe_spec_edits(key)
-
-    def spec_change_descriptions(self, key):
-        """One spec's changes as ``(kind, described, record)`` rows."""
-        return self._services.variants.spec_change_descriptions(key)
-
-    def add_spec_with_edit(self, key, label, kind, value, record_key=None):
-        """Create a spec and its first change in one service commit."""
-        outcome = self._services.variants.add_spec_with_edit(
-            key, label, kind, value, record_key=record_key
-        )
-        if outcome.ok:
-            self.project_changed.emit()
-        return outcome
-
-    def update_spec(self, key, label=None, edits=None):
-        """Change a spec's label and/or declared edits (the service's own)."""
-        outcome = self._services.variants.update_spec(key, label=label, edits=edits)
-        if outcome.ok:
-            self.project_changed.emit()
-        return outcome
-
-    def remove_spec(self, key):
-        """Remove one spec; cancellation is the caller's concern, not ours."""
-        outcome = self._services.variants.remove_spec(key)
-        if outcome.ok:
-            self.project_changed.emit()
-        return outcome
-
-    def duplicate_spec(self, key, new_key, new_label=""):
-        """Copy one spec under a fresh key through the service."""
-        outcome = self._services.variants.duplicate_spec(key, new_key, new_label)
-        if outcome.ok:
-            self.project_changed.emit()
-        return outcome
-
-    def describe_variant_change(self, kind, value, record_key=None):
-        """Preview one proposed change as described data (no commit)."""
-        return self._services.variants.describe_change(
-            kind, value, record_key=record_key
-        )
-
-    def apply_variant_edit(self, key, kind, value, record_key=None):
-        """Append one declared change to an existing spec."""
-        outcome = self._services.variants.apply_variant_edit(
-            key, kind, value, record_key=record_key
-        )
-        if outcome.ok:
-            self.project_changed.emit()
-        return outcome
-
-    def preview_variant(self, key):
-        """Expand one spec without committing anything (``ExpandOutput``)."""
-        return self._services.variants.preview(key)
-
-    def preview_variant_json(self, key):
-        """The variant's JSON text through the generation pipeline."""
-        return self._services.generation.show_json(key)
-
-    def validate_all(self, only=None):
-        """Base and variant validation, from the validation service."""
-        return self._services.validation.validate_all(only=only)
-
-    def quantity_series_plan(self, keys, start, factor, levels):
-        """The planned series as reviewable data; nothing is created."""
-        return self._services.variants.quantity_series_plan(keys, start, factor, levels)
-
-    def entity_table(self):
-        """The base's entities, copies and supported strategies."""
-        return self._services.variants.entity_table()
-
-    def target_strategy_choices(self):
-        """The per-entity strategies this base can actually use."""
-        return self._services.variants.target_strategy_choices()
-
-    def plan_target_variants(self, keys, kind, value):
-        """What varying ``keys`` would create, without committing."""
-        return self._services.variants.plan_target_variants(keys, kind, value)
-
-    def create_target_variants(self, keys, kind, value):
-        """Commit one independent variant per selected entity."""
-        outcome = self._services.variants.create_target_variants(keys, kind, value)
-        if outcome.ok:
-            self.project_changed.emit()
-        return outcome
-
-    def create_quantity_series(self, keys, start, factor, levels):
-        """Commit the series the user reviewed (one spec per level)."""
-        outcome = self._services.variants.create_quantity_series(
-            keys, start, factor, levels
-        )
-        if outcome.ok:
-            self.project_changed.emit()
-        return outcome
-
-    def inspect_batch_file(self, path, family="protein"):
-        """Preview a batch input file without creating variants."""
-        return self._services.variants.inspect_batch_file(path, family=family)
-
-    def generate_from_file(self, path, family="protein"):
-        """Commit an all-or-nothing batch from ``path``."""
-        outcome = self._services.variants.generate_from_file(path, family=family)
-        if outcome.ok:
-            self.project_changed.emit()
-        return outcome
-
-    def build_add_records(self, family, sequence, representation="", representation_kind=""):
-        """The records an add-entity change would add, built by the service."""
-        return self._services.variants.build_add_records(
-            family,
-            sequence,
-            representation=representation,
-            representation_kind=representation_kind,
+        ``LigandBatchOutput``: the reviewed plan, the files actually written
+        and any errors. The project's own output policies are passed
+        explicitly, exactly as the console and Generate page do, so existing
+        files are never replaced silently. Nothing is added to the job: the
+        base configuration stays exactly as it was.
+        """
+        defaults = self._services.generation.output_defaults()
+        return self._services.generation.generate_ligand_batch(
+            path,
+            output_root,
+            overwrite_policy=defaults["overwrite"],
+            path_policy=defaults["path"],
         )
 
     # -- saving, through the generation service (Stage 2) ------------------
@@ -474,7 +354,7 @@ class GuiState(QObject):
     def plan_generation(
         self,
         output_root,
-        scope="variants",
+        scope="base",
         only=None,
         overwrite_policy=None,
         path_policy=None,

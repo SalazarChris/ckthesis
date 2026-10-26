@@ -2,10 +2,11 @@
 
 One workflow, one screen at a time: open a job (new, or an existing AF3
 JSON), edit its job settings and entities, manage its custom CCD and PTM
-metadata, save it as JSON with a summary, and derive independent variants
-from it. The former session/project management — saved work, recovery,
-a separate review workflow, the variant-spec catalogue — was removed with
-the rework; the only way to resume a saved job is to open its JSON.
+metadata, save it as JSON with a summary, and generate one independent
+configuration per ligand in a file. The former session/project management
+— saved work, recovery, a separate review workflow, the variant-spec
+catalogue — was removed with the rework; the only way to resume a saved
+job is to open its JSON.
 
 The module owns only menus, prompts, and dispatch. Every state change goes
 through the application services (the same calls the e2e suite drives), and
@@ -31,7 +32,6 @@ from configbuilder.app.configuration_service import ReferenceInput
 from configbuilder.app.reference_validation import file_issue, parse_pair_text
 from configbuilder.app.results import FailureReason
 from configbuilder.app.status import FieldState
-from configbuilder.ui.present.labels import change_text
 from configbuilder.ui.present.sequence import residue_at
 from configbuilder.ui.present.strings import text as _text
 
@@ -355,10 +355,6 @@ class MenuApp:
         # A deep copy of the configuration as of the last save / open / new
         # job. A job is "unsaved" when the live configuration differs from it.
         self._saved_snapshot = None
-        # The pristine base configuration while the variant editor is open,
-        # and the name the active variant will be saved under.
-        self._variant_base = None
-        self._variant_name = ""
 
     # -- primitives ------------------------------------------------------
 
@@ -618,7 +614,7 @@ class MenuApp:
             elif choice == "6":
                 self._save_and_summary()
             elif choice == "7":
-                self._variant_menu()
+                self._ligand_menu()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
@@ -1576,345 +1572,114 @@ class MenuApp:
             self._say(_text("menu.not_applied") % error)
         return False
 
-    # -- variants ----------------------------------------------------------
+    # -- ligand configuration generation -----------------------------------
 
-    def _variant_menu(self) -> None:
-        """Variant generation over the current job. The base is snapshotted
-        on entry; the user edits the live copy and saves it as its own JSON,
-        then the working copy is reset to the base. The base is never
-        mutated, and no variant inherits an earlier one's changes.
-        
-        Ordinary editing modifies the currently loaded job directly.
-        Variant generation creates alternative configurations that differ
-        from the base in specified ways, saving each as an independent JSON
-        file.
-        
-        Batch generation is a form of variant generation, not a separate
-        feature: both manual and file-based variants use the same underlying
-        infrastructure (VariantService, VariantSpec, expand, generate)."""
-        project = self._project()
-        if project is None:
-            return
-        # Immutability makes the base object a complete, isolated snapshot:
-        # the variant edits replace the project's configuration with new
-        # objects and never touch this one.
-        self._variant_base = project.configuration
-        self._variant_name = ""
-        try:
-            while True:
-                project = self._project()
-                if project is None:
-                    return
-                self._say(_banner(_text("menu.variant_title"), self._width))
-                self._say()
-                self._say(_text("menu.variant_description"))
-                self._say()
-                self._say(_text("menu.variant_base_job") % self._variant_base.metadata.name)
-                self._say(
-                    _text("menu.variant_base_entities") 
-                    % len(self._variant_base.records)
-                )
-                self._say(_text("menu.variant_base_info"))
-                self._say(
-                    _text("menu.variant_current")
-                    % (self._variant_name or self._default_variant_name())
-                )
-                self._say()
-                self._say(_text("menu.variant_actions"))
-                self._say()
-                self._say(_text("menu.back"))
-                choice = self._select()
-                if choice in ("0", "q", "back"):
-                    return
-                if choice == "1":
-                    self._vary_entities_menu()
-                elif choice == "2":
-                    self._set_variant_name()
-                elif choice == "3":
-                    self._add_entity_menu()
-                elif choice == "4":
-                    self._edit_entity_menu()
-                elif choice == "5":
-                    self._save_variant_and_reset()
-                elif choice == "6":
-                    self._batch_generate_from_file()
-                elif choice == "7":
-                    self._generate_variants_to_folder()
-                elif choice == "8":
-                    self._list_variants()
-                elif choice:
-                    self._say(_text("menu.invalid") % choice)
-        finally:
-            # Leaving variant management restores the base and forgets the
-            # active variant entirely — the base job is never modified.
-            self._reset_variant()
-            self._variant_base = None
+    def _ligand_menu(self) -> None:
+        """One file of ligands in, one AF3 JSON per entry out.
 
-    def _vary_entities_menu(self) -> None:
-        """Vary the open job's own entities — the multi-ligand workflow.
-
-        The console's primary variant path, and the same service calls the
-        desktop page makes: ``entity_table`` answers "what do I have?",
-        ``target_strategy_choices`` answers "what can I change?",
-        ``plan_target_variants`` shows the variants before anything exists,
-        and ``create_target_variants`` commits them all-or-nothing. Nothing
-        here builds an edit or a spec itself.
+        The whole workflow is two questions: which file, and which folder.
+        The base job is the source of truth and is never modified — every
+        written configuration is that base plus one ligand entity — and
+        nothing is kept in an in-memory list afterwards, so running the same
+        job again starts from the same base.
         """
-        project = self._project()
-        if project is None:
-            return
-        rows = self._services.variants.entity_table()
-        if not rows:
-            self._say(_text("menu.no_entities"))
-            return
-        self._say(_banner(_text("menu.variant_targets_title"), self._width))
-        self._say()
-        for index, row in enumerate(rows, start=1):
-            can = (
-                _text("menu.variant_targets_can") % len(row.kinds)
-                if row.kinds
-                else _text("menu.variant_targets_cannot")
+        while True:
+            project = self._project()
+            if project is None:
+                return
+            self._say(_banner(_text("menu.ligand_title"), self._width))
+            self._say()
+            self._say(_text("menu.ligand_description"))
+            self._say()
+            self._say(
+                _text("menu.ligand_base_job")
+                % project.configuration.metadata.name
             )
             self._say(
-                _text("menu.variant_targets_row")
-                % (index, row.key, row.family, row.summary, row.copies, can)
+                _text("menu.ligand_base_entities")
+                % len(project.configuration.records)
             )
-            if row.note:
-                self._say("      %s" % row.note)
-        self._say()
-        self._say(_text("menu.variant_targets_intro"))
-        keys = self._ask_target_keys(rows)
-        if not keys:
-            return
-        choices = self._services.variants.target_strategy_choices()
-        entries = [(choice.label, choice.kind) for choice in choices]
-        kind = self._numbered_choice(
-            _text("menu.variant_targets_strategy_title"), entries
-        )
-        if kind is None:
-            return
-        value = ""
-        if kind != "remove_entity":
-            value = self._ask("menu.variant_targets_value")
-            if not value:
-                self._say(_text("menu.variant_targets_cancelled"))
+            self._say()
+            self._say(_text("menu.ligand_actions"))
+            self._say()
+            self._say(_text("menu.back"))
+            choice = self._select()
+            if choice in ("0", "q", "quit", "exit", "back"):
                 return
-        plan = self._services.variants.plan_target_variants(keys, kind, value)
-        self._say()
-        self._say(_banner(_text("menu.variant_targets_plan_title"), self._width))
-        if not plan.ok:
-            self._say(_text("menu.not_applied") % (plan.message or "refused"))
-            return
-        self._say(_text("menu.variant_targets_count") % plan.count)
-        for row in plan.rows:
-            self._say(_text("menu.variant_targets_row_plan") % (row.label, row.key))
-            for described in row.described:
-                self._say(
-                    _text("menu.variant_targets_change")
-                    % change_text(described.get("kind", ""), described)
-                )
-        self._say(
-            _text("menu.variant_targets_unchanged")
-            % (", ".join(plan.unchanged_keys) or "-")
-        )
-        if self._ask("menu.variant_targets_confirm").lower() not in ("y", "yes"):
-            self._say(_text("menu.variant_targets_cancelled"))
-            return
-        outcome = self._services.variants.create_target_variants(keys, kind, value)
-        if not self._report(outcome):
-            return
-        self._say(_text("menu.variant_targets_created") % plan.count)
+            if choice == "1":
+                self._generate_ligand_file()
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
 
-    def _ask_target_keys(self, rows):
-        """The entity numbers the user typed, as record keys (empty = cancel)."""
-        raw = self._ask("menu.variant_targets_select_prompt").strip().lower()
-        if raw in ("", "0", "q", "back"):
-            return ()
-        if raw in ("all", "*"):
-            return tuple(row.key for row in rows)
-        keys = []
-        for part in raw.replace(";", ",").split(","):
-            part = part.strip()
-            if not part.isdigit() or not 1 <= int(part) <= len(rows):
-                self._say(_text("menu.invalid") % part)
-                return ()
-            key = rows[int(part) - 1].key
-            if key not in keys:
-                keys.append(key)
-        if not keys:
-            self._say(_text("menu.variant_targets_select_none"))
-        return tuple(keys)
+    def _generate_ligand_file(self) -> None:
+        """Read the ligand file, show what it holds, then write the batch.
 
-    def _generate_variants_to_folder(self) -> None:
-        """Write the variant run through the shared generation pipeline.
-
-        The same call the desktop's Generate page makes
-        (``plan_selection(scope="variants")`` then ``execute``): validation,
-        the manifest and every asset decision come from one place, so the two
-        entry points cannot write different files for the same variants.
+        The preview is the service's own read-only check, so the count, the
+        entries and any refusal (a bad line, a duplicate molecule, an empty
+        file) are known before a folder is even chosen. The write is one
+        service call — plan and execute share the desktop's pipeline, so the
+        two front ends cannot produce different files — and the report lists
+        the files that were actually written, never the ones that were
+        merely planned.
         """
-        project = self._project()
-        if project is None:
+        self._say()
+        path = self._pick_path("menu.ligand_file_prompt")
+        if not path:
+            self._say(_text("menu.save_cancelled"))
             return
-        count = self._services.variants.spec_count()
-        if not count:
-            self._say(_text("menu.variant_generate_none"))
+        preview = self._services.variants.inspect_batch_file(path, family="ligand")
+        if not preview.ok:
+            self._say(
+                _text("menu.ligand_refused")
+                % (preview.message or _text("menu.unknown_error"))
+            )
             return
-        self._say(_banner(_text("menu.variant_generate_title"), self._width))
-        self._say(_text("menu.variant_generate_intro"))
-        default = os.path.join(os.getcwd(), "variants")
-        root = self._ask_destination("menu.variant_generate_root", default)
+        self._say()
+        self._say(_text("menu.ligand_preview_title") % ((preview.planned or 0), path))
+        for entry in preview.entries:
+            self._say(_text("menu.ligand_preview_entry") % entry)
+        self._say()
+        self._say(_text("menu.ligand_preview_note"))
+        default = os.path.join(os.getcwd(), "ligand_configurations")
+        root = self._ask_destination("menu.ligand_output_root", default)
         if not root:
             self._say(_text("menu.save_cancelled"))
             return
-        # The project's own policies, passed explicitly: a plan made without
-        # them would fall back to overwriting, while the desktop preselects
-        # these same defaults. One run therefore behaves the same way in both.
+        self._say()
+        self._say(_text("menu.ligand_generating"))
+        # The project's own policies, passed explicitly, exactly as the save
+        # and the desktop routes do: a plan made without them would fall back
+        # to overwriting, and existing files must never be replaced silently.
         defaults = self._services.generation.output_defaults()
-        plan = self._services.generation.plan_selection(
+        outcome = self._services.generation.generate_ligand_batch(
+            path,
             root,
-            scope="variants",
             overwrite_policy=defaults["overwrite"],
             path_policy=defaults["path"],
         )
-        self._say(_text("menu.variant_generate_count") % (count, root))
-        if not plan.ok:
+        plan = outcome.plan
+        if plan is not None and not plan.ok:
             if plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
                 findings = tuple(plan.findings)
-                self._say(_text("menu.variant_generate_blocked") % len(findings))
+                self._say(_text("menu.ligand_blocked") % len(findings))
                 for finding in findings:
                     self._say("  - %s" % finding.user_message)
             else:
-                self._say(_text("menu.variant_generate_failed") % (plan.message or ""))
-                for conflict in plan.conflicts:
-                    self._say(_text("menu.variant_generate_conflicts") % conflict)
+                self._say(
+                    _text("menu.ligand_refused")
+                    % (plan.message or _text("menu.unknown_error"))
+                )
+            for conflict in plan.conflicts:
+                self._say(_text("menu.export_conflict") % conflict)
             return
-        for entry in plan.entries:
-            self._say("  %s -> %s" % (entry.variant_key or "manifest", entry.path))
-        result = self._services.generation.execute(plan)
-        if not result.ok:
-            message = "; ".join(str(error) for error in result.errors) or result.message
-            self._say(_text("menu.variant_generate_failed") % message)
-            return
-        for path in result.written:
-            self._say(_text("menu.variant_generate_written") % path)
-
-    def _batch_generate_from_file(self) -> None:
-        """Generate multiple variants from a file (protein, DNA, or ligand SMILES)."""
-        self._say()
-        self._say(_text("menu.variant_file_menu"))
-        entries = [
-            (_text("menu.variant_file_protein"), "protein"),
-            (_text("menu.variant_file_dna"), "dna"),
-            (_text("menu.variant_file_ligand"), "ligand"),
-        ]
-        family = self._numbered_choice(_text("menu.variant_file_menu"), entries)
-        if family is None:
-            return
-        self._say()
-        self._say(_text("menu.variant_choose_file"))
-        path = self._pick_path("menu.ask_import_path")
-        if not path:
-            return
-        self._say()
-        self._say(_text("menu.variant_batch_generating"))
-        result = self._services.variants.generate_from_file(path, family=family)
-        if result.ok:
-            count = self._services.variants.spec_count()
-            self._say(_text("menu.variant_batch_success") % (count, path))
-            self._say(_text("menu.variant_batch_info") % count)
-        else:
-            self._say(_text("menu.variant_batch_failed") % (result.message or _text("menu.unknown_error")))
-
-    def _list_variants(self) -> None:
-        """Show all variants that have been created."""
-        while True:
-            self._say(_banner(_text("menu.variant_list_title"), self._width))
-            self._say()
-            specs = self._services.variants.specs()
-            if not specs:
-                self._say(_text("menu.variant_list_empty"))
-            else:
-                for index, spec in enumerate(specs, start=1):
-                    self._say(_text("menu.variant_list_entry") % (index, spec.label, spec.key))
-            self._say()
-            self._say(_text("menu.variant_list_back"))
-            choice = self._select()
-            if choice in ("0", "q", "back"):
-                return
-            # Could add variant preview/edit options here in the future
-            try:
-                index = int(choice)
-                if 1 <= index <= len(specs):
-                    spec = specs[index - 1]
-                    self._say()
-                    self._say(_text("menu.variant_preview_title") % spec.label)
-                    self._say(_text("menu.variant_preview_key") % spec.key)
-                    self._say(_text("menu.variant_preview_edits"))
-                    for described in self._services.variants.describe_spec_edits(spec.key):
-                        self._say(
-                            "  - %s"
-                            % change_text(described.get("kind", ""), described)
-                        )
-                    self._say()
-                else:
-                    self._say(_text("menu.invalid") % choice)
-            except ValueError:
-                self._say(_text("menu.invalid") % choice)
-
-    def _default_variant_name(self) -> str:
-        base = self._variant_base.metadata.name if self._variant_base is not None else "job"
-        return "%s_variant" % base
-
-    def _set_variant_name(self) -> None:
-        current = self._variant_name or self._default_variant_name()
-        raw = self._ask("menu.variant_name_prompt")
-        if raw:
-            self._variant_name = raw
-            self._say(_text("menu.variant_named") % raw)
-        else:
-            self._say(_text("menu.variant_named") % current)
-
-    def _save_variant_and_reset(self) -> None:
-        """Save the active variant as its own file, then reset to the base.
-        A failed validation or write resets nothing and loses nothing."""
-        default = self._variant_name or self._default_variant_name()
-        destination = self._ask_destination(
-            "menu.ask_variant_path", default + ".json"
-        )
-        if not destination:
-            self._say(_text("menu.save_cancelled"))
-            return
-        overwrite = os.path.exists(destination)
-        if overwrite:
-            entries = [
-                (_text("menu.overwrite_yes"), True),
-                (_text("menu.overwrite_no"), False),
-            ]
-            if not self._numbered_choice(
-                _text("menu.overwrite_confirm") % destination, entries, back_note=False
-            ):
-                self._say(_text("menu.save_cancelled"))
-                return
-        name = self._variant_name or self._default_variant_name()
-        if not self._write_json(destination, name=name, overwrite=overwrite):
-            return
-        self._say(_text("menu.variant_saved") % destination)
-        self._reset_variant()
-        self._say(_text("menu.variant_reset"))
-
-    def _reset_variant(self) -> None:
-        """Restore the pristine base configuration and clear the variant's
-        name, ready for the next variant. The base snapshot is retained so
-        the next variant starts from the same base again."""
-        self._variant_name = ""
-        if self._variant_base is None:
-            return
-        project = self._services.projects.project
-        if project is not None:
-            self._services.projects._replace_project(
-                project.with_configuration(self._variant_base)
-            )
+        for error in outcome.errors:
+            self._say(_text("menu.ligand_refused") % error)
+        for written in outcome.written:
+            self._say(_text("menu.ligand_written") % written)
+        if outcome.ok and outcome.written:
+            self._say(_text("menu.ligand_summary") % (len(outcome.written), root))
+        elif not outcome.written and not outcome.errors:
+            self._say(_text("menu.ligand_nothing_written"))
 
     # -- view helpers ------------------------------------------------------
 

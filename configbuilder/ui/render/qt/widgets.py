@@ -66,16 +66,6 @@ def _draw_entities(painter: QPainter) -> None:
     painter.drawLine(QPointF(6.1, 7.4), QPointF(9.7, 9.0))
 
 
-def _draw_variants(painter: QPainter) -> None:
-    """One input branching into two: a variant set."""
-    painter.drawLine(QPointF(2.4, 8.0), QPointF(7.6, 8.0))
-    painter.drawLine(QPointF(7.6, 8.0), QPointF(12.2, 3.4))
-    painter.drawLine(QPointF(7.6, 8.0), QPointF(12.2, 12.6))
-    painter.drawEllipse(QPointF(2.4, 8.0), 1.3, 1.3)
-    painter.drawEllipse(QPointF(12.9, 2.8), 1.7, 1.7)
-    painter.drawEllipse(QPointF(12.9, 13.2), 1.7, 1.7)
-
-
 def _draw_generate(painter: QPainter) -> None:
     """A folder: the destination of the output plan."""
     path = QPainterPath()
@@ -98,7 +88,6 @@ def _draw_preview(painter: QPainter) -> None:
 _DRAWERS = {
     "overview": _draw_overview,
     "entities": _draw_entities,
-    "variants": _draw_variants,
     "generate": _draw_generate,
     "preview": _draw_preview,
 }
@@ -119,7 +108,7 @@ def navigation_icon(name: str) -> QIcon:
 
     Two pixmaps per icon (normal and selected) let the row follow the
     destination state without the widget knowing any colour. ``name`` is one
-    of ``overview``, ``entities``, ``variants``, ``generate``, ``preview``.
+    of ``overview``, ``entities``, ``generate``, ``preview``.
     """
     icon = QIcon()
     icon.addPixmap(_glyph(name, COLORS["muted"]), QIcon.Normal, QIcon.Off)
