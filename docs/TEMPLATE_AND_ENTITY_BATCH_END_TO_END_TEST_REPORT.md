@@ -410,6 +410,9 @@ fail loudly at `load_parser`, which is what happened here.
 
 - Branch: `main`, remote `origin`
   (`https://github.com/SalazarChris/ckthesis.git`), upstream `origin/main`.
-- The commit hash and push result are recorded in
-  `docs/LIGAND_VARIANT_GENERATION_IMPLEMENTATION_REPORT.md` §9 (both documents are
-  part of the same push), together with the second commit that records it.
+- Implementation commit: `a4a488c` ("Make the ligand-file workflow the variant
+  service, and verify it end to end"), 290 files.
+- This document, the terminology report and the implementation report were
+  committed on top of it and pushed to `origin/main` together. The follow-up
+  commit records the hashes, so `git log --oneline origin/main -3` shows the
+  implementation first, then the documentation.

@@ -140,5 +140,8 @@ Neither front end keeps a variant list, and neither offers a second entry point.
   → **267 passed**.
 - `grep -ri variant configbuilder/ui` → internal identifiers and docstrings only.
 - `grep -n "gui.variants_" configbuilder/ui/present/strings.py` → no matches.
+
+These results were re-run on the commit that carries the cleanup (`a4a488c`);
+the full suite at that commit is **1430 passed, 1 skipped**.
 - Every screen above was exercised by the tests named in §6, through the real
   widgets, not by reading source text.

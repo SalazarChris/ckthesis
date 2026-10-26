@@ -223,9 +223,13 @@ window was driven offscreen through its real widgets and saved files inspected.
 
 - Branch `main`, remote `origin`
   (`https://github.com/SalazarChris/ckthesis.git`), upstream `origin/main`.
-- Implementation commit: recorded in the commit that adds this document; the
-  push result and the documentation commit are recorded below once it exists
-  (`git log -2 --oneline` on `origin/main` shows both).
+- Implementation commit: `a4a488c` ("Make the ligand-file workflow the variant
+  service, and verify it end to end") — 290 files: the `configbuilder` changes
+  above, the test suite and its fixtures, the manual test pack, the
+  documentation and the CI workflow.
+- The documentation commit that records the hashes in these reports follows it,
+  and both were pushed together to `origin/main`; `git log --oneline origin/main`
+  shows them in that order.
 
 ---
 
