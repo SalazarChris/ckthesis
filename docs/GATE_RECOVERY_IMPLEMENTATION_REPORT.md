@@ -228,6 +228,10 @@ examined, and they were extended rather than replaced.
 * **Template-chain bounds remain unverifiable**: there is still no mmCIF parser
   in the project, so no bounds or residue mappings were invented. Only file
   existence/readability and the service's existing pair checks are enforced.
+  (Follow-up 2026-10-27: an attached template's file is now read as mmCIF — an
+  established parser when installed, the bundled lexical scan otherwise — so a
+  file that is not a structure is refused. Bounds and residue mappings are still
+  not derived: `docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §2.)
 
 ---
 
@@ -390,6 +394,10 @@ resulting ligand.
 Unchanged and still unverifiable: no mmCIF parser exists, so template chain
 bounds and residue-index mappings are not validated beyond what the service
 already checks (file readability, pair shape). Nothing was invented.
+
+(Follow-up 2026-10-27: template files are now read as mmCIF and a file that is
+not a structure is refused — `docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §2.
+Chain bounds and mappings remain as stated here.)
 
 ### 8.3 Git
 

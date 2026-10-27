@@ -18,7 +18,7 @@ from configbuilder.app import (
     ValidationService,
     VariantService,
 )
-from configbuilder.validation import OsFilesystemPort
+from configbuilder.validation import BundledChemistryProbe, OsFilesystemPort
 
 __all__ = ["Services", "build_services"]
 
@@ -55,9 +55,15 @@ def build_services():
     configuration = ConfigurationService(projects)
     variants = VariantService(projects, configuration)
     # The real shallow filesystem port: existence/readability of configured
-    # external files is a production preflight check, not a test-only one. No
-    # chemistry probe is wired — see docs/GATE_RECOVERY_IMPLEMENTATION_REPORT.md
-    # for the parser decision this leaves open.
-    validation = ValidationService(projects, filesystem=OsFilesystemPort())
+    # external files is a production preflight check, not a test-only one.
+    # The chemistry probe is the bundled SMILES *grammar* check — the part of
+    # the question that needs no chemistry toolkit, so a ligand whose notation
+    # is not SMILES at all is refused instead of being reported "not checked"
+    # and serialised. What it does not claim is chemistry; a deployment with a
+    # real checker replaces it and gains the stronger verdict. See
+    # docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md §3.
+    validation = ValidationService(
+        projects, filesystem=OsFilesystemPort(), chemistry=BundledChemistryProbe()
+    )
     generation = GenerationService(projects, variants, validation=validation)
     return Services(projects, configuration, variants, generation, validation)

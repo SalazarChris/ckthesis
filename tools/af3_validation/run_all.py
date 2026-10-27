@@ -46,12 +46,17 @@ DNA = "ATGCATGCATGCATGCATGC"
 OTHER_PROT = "MKTAYIAKQR"
 A3M = ">query\n%s\n>hit1\n%s\n" % (PROT, PROT[:-1] + "-")
 
+# The template this tool writes must itself be a structure the builder will
+# attach: the builder now checks a template's mmCIF (persistence.mmcif) before
+# accepting it, so the atom_site tags live in a real `loop_` whose rows hold
+# exactly as many values as the loop declares tags.
 TEMPLATE_CIF = """data_template
 _entry.id template
 _entity.id 1
 _entity.type polymer
-_entity.polymer.type polypeptide(L)
-_struct.title synthetic template
+_entity.polymer.type 'polypeptide(L)'
+_struct.title 'synthetic template'
+loop_
 _atom_site.group_PDB
 _atom_site.id
 _atom_site.label_atom_id
@@ -61,7 +66,7 @@ _atom_site.label_seq_id
 _atom_site.Cartn_x
 _atom_site.Cartn_y
 _atom_site.Cartn_z
-ATOM 1 N N ALA A 1 0.000 0.000 0.000
+ATOM 1 N ALA A 1 0.000 0.000 0.000
 """
 
 USER_CCD = """data_MY_LIG

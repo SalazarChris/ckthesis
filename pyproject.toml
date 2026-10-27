@@ -36,6 +36,14 @@ analysis = [
     "PyYAML>=5.4",
     "freesasa>=2.1",
 ]
+# Structural-template checking, strengthened (plan §9.6). The builder checks
+# an attached template's mmCIF with its own lexical scan in every environment;
+# with gemmi present the same file is *also* parsed by an established mmCIF
+# library, which can only add strictness. Neither the core package nor [dev]
+# needs it, and its absence removes strength, never capability.
+templates = [
+    "gemmi>=0.6",
+]
 # The optional desktop front end (Stage 1: review & preview). It is deliberately
 # NOT installed with the core package or with ``[dev]``, so CI's 3.9 job and
 # ``pip install .`` on 3.9 still need nothing. The floor below still admits 3.9:

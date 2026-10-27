@@ -61,6 +61,7 @@ from configbuilder.model import (
     SequenceText,
     SequenceTextError,
 )
+from configbuilder.validation.smiles import notation_problem
 from configbuilder.variants import AddRecord, VariantSpec
 
 __all__ = [
@@ -162,8 +163,16 @@ def ligand_specs_for_entries(entries, registry: IdentityRegistry, key_prefix: st
     builds; the name is never written into the AF3 document, which has no
     field for it.
 
-    All-or-nothing: an invalid entry or a duplicate SMILES refuses the
-    whole batch, every offending line named, and no spec is returned.
+    All-or-nothing: an entry whose notation is not SMILES, a value the model
+    refuses, or a duplicate SMILES refuses the whole batch, every offending
+    line named, and no spec is returned.
+
+    The notation check is ``validation.smiles``' grammar: the same checker the
+    validation rule uses, so a file entry and a hand-typed ligand are judged by
+    one implementation. It refuses notation that is not SMILES (a component
+    code, a protein sequence, a sentence) rather than storing it as text and
+    serialising a document AF3 will refuse — what it does *not* claim is
+    chemistry.
     """
     entries = tuple(entries)
     if not entries:
@@ -186,9 +195,17 @@ def ligand_specs_for_entries(entries, registry: IdentityRegistry, key_prefix: st
     specs = []
     used = set()
     for index, (line_number, name, smiles) in enumerate(entries, start=1):
+        notation = smiles.strip()
+        problem = notation_problem(notation)
+        if problem is not None:
+            failures.append(
+                "line %d: %r is not SMILES notation (%s)"
+                % (line_number, notation, problem)
+            )
+            continue
         try:
             entity = registry.allocate(owner="batch_variant")
-            record = _ligand_record(entity.value, smiles.strip())
+            record = _ligand_record(entity.value, notation)
         except (ModelError, SequenceTextError) as error:
             failures.append("line %d: %s" % (line_number, error))
             continue

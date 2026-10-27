@@ -9,14 +9,22 @@ Everything in this folder is for exercising the builder's **template path
 workflow**. None of these files has been through AlphaFold 3, and attaching one
 proves nothing about prediction quality.
 
-> **What the builder checks, and what it does not.** There is no mmCIF parser
-> in this project. Attaching a template checks that the path exists, is a
-> regular file, ends in `.cif`/`.mmcif`, and is not empty, and that every
-> `query:template` pair is two non-negative whole numbers whose query index is
-> inside the target sequence. Nothing reads the template's own residues or
-> coordinates — so the expected indices below are **the values the user
-> supplies**, and the fixtures exist so those values can be checked against a
-> file a human can read.
+> **What the builder checks, and what it does not.** Attaching a template
+> checks the path (exists, a regular file, ends in `.cif`/`.mmcif`), the file's
+> *content* (non-empty, UTF-8, and readable as mmCIF: `persistence/mmcif.py`),
+> and that every `query:template` pair is two non-negative whole numbers whose
+> query index is inside the target sequence. The content check is an mmCIF
+> parse with **gemmi** when that library is installed (the `templates` extra),
+> and otherwise the bundled lexical scan: a `data_` block, a value for every
+> data item, and every `loop_` row holding exactly as many values as the loop
+> declares tags. Both refuse the same committed fixtures, so the verdict does
+> not depend on the optional library.
+>
+> Nothing reads the template's own residues, coordinates or chain identity — so
+> the expected indices below are **the values the user supplies**, and the
+> fixtures exist so those values can be checked against a file a human can
+> read. A parsed template proves the file is a structure, never that a mapping
+> is biologically right.
 
 ---
 
@@ -27,7 +35,8 @@ proves nothing about prediction quality.
 | `template_fully_resolved.cif` | `ACDEFG` (6) | all six: ALA1…GLY6 | `ACDEFG` | `queryIndices [0,1,2,3,4,5]`, `templateIndices [0,1,2,3,4,5]` |
 | `template_unresolved_residues.cif` | `ACQDEFG` (7) | last four: ASP4, GLU5, PHE6, GLY7 | `DEFG` | `queryIndices [0,1,2,3]`, `templateIndices [3,4,5,6]` |
 | `template_empty.cif` | — | none (0 bytes) | any | refused: *"the file is empty"* |
-| `template_malformed.cif` | none declared | a truncated `_atom_site` loop | any | **accepted** — see the limitation below |
+| `template_malformed.cif` | none declared | a truncated `_atom_site` loop | any | refused: *"the loop starting at line 9 declares 3 tags, and its values do not form complete rows of that size"* |
+| `template_no_records.cif` | none declared | a `data_` block, a title, no records | any | refused: *"it has no _atom_site, _entity_poly, _struct_asym or _entity records"* |
 | `minimal_template.cif` | one residue (ALA) | ALA1 | one-residue protein | `0:0` — the original smoke-test file |
 | `with spaces/template with spaces.cif` | one residue | one | one-residue protein | `0:0` — proves a path containing spaces survives the dialogs |
 
@@ -65,22 +74,28 @@ query with the wrong part of the template.
 The fixture is built so this is visible: `_entity_poly_seq` has seven rows,
 `_atom_site` has four, and the first `ATOM` line says `ASP 4`.
 
-### Fixture C — invalid input
+### Fixtures C and D — invalid input
 
-Two files, because the builder has exactly one kind of "invalid" it can detect:
+Three files, one per way a chosen file can fail to be a template:
 
-- `template_empty.cif` — a 0-byte file. **Rejected** at the file prompt with
+- `template_empty.cif` — a 0-byte file. **Refused** at the file prompt with
   *"The template file '…' cannot be used: the file is empty. Enter another path
   or 0 to cancel."*; the template collection is cancelled and the entity keeps
   its previous template setting (nothing is half-attached).
-- `template_malformed.cif` — non-empty text that is not a usable mmCIF at all
-  (no `_entity_poly`, a truncated `_atom_site` loop). **Accepted**, because no
-  mmCIF parsing happens. This is a documented limitation, not a pass: the
-  builder stores and serialises the path without reading the structure.
+- `template_malformed.cif` — non-empty text that is not readable mmCIF (a
+  truncated `_atom_site` loop whose values cannot form rows of the three
+  declared tags). **Refused** with the loop's line number.
+- `template_no_records.cif` — lexically fine mmCIF with a `data_` block, a title
+  and no atom or polymer records at all. **Refused**: AF3 would have no
+  structure to read.
 
-Adding a real mmCIF parser (chain matching, resolution/offset detection, a
-warning for template residues that are unresolved) would be new functionality
-with a new dependency; it is deliberately out of scope here.
+All three refusals leave the job exactly as it was — the same configuration
+object, the field still "let AlphaFold search", and no `templates` field in a
+saved file. What is deliberately *not* checked: whether the mapping is right
+(the linker may match the wrong chain), whether the template's residues are
+resolved, and whether its sequence is really the one the user means. Chain
+matching and resolution/offset detection would be new biological semantics, not
+structural validation.
 
 ---
 
@@ -148,7 +163,8 @@ modified.
 
 | Test module | What it drives |
 |---|---|
-| `tests/e2e/test_template_cli_subprocess.py` | fixtures A and B, the save → reopen → save round trip, and fixture C's rejection, all through `python af3builder.py` |
-| `tests/gui/test_template_attachment.py` | the same fixtures through the real `TemplateEditorDialog` and the window's own save, including the refusal and the accepted-malformed limitation |
-| `tests/unit/app/test_reference_validation.py` | the pair rules themselves (syntax, query range, file checks) |
+| `tests/e2e/test_template_cli_subprocess.py` | fixtures A and B, the save → reopen → save round trip, and all three rejections (empty, malformed, no records), through `python af3builder.py` |
+| `tests/gui/test_template_attachment.py` | the same fixtures through the real `TemplateEditorDialog` and the window's own save, including the three refusals and the untouched job |
+| `tests/unit/persistence/test_mmcif.py` | the structure check itself over this pack, both tiers: the bundled scan and the installed parser, plus the lexical rules (loop width, a data item with no value, `;` text fields, quotes, comments) |
+| `tests/unit/app/test_reference_validation.py` | the file and pair rules as the service enforces them (naming, contents, syntax, query range) |
 | `tests/unit/transform/test_from_wire.py` | template import: `queryIndices`/`templateIndices` → `IndexPair` tuples |

@@ -1,0 +1,9 @@
+data_AF3_TEMPLATE_D_NO_RECORDS
+#
+# Deliberately not a structure: lexically well-formed mmCIF text with a data
+# block, a title and no atom or polymer records at all. The builder refuses it
+# at the file prompt ("no _atom_site, _entity_poly, _struct_asym or _entity
+# records"), because AF3 would have no structure to read.
+#
+_struct.title 'AF3 builder fixture D: an mmCIF file with no structure in it'
+#

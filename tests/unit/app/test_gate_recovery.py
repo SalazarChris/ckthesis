@@ -353,29 +353,49 @@ def test_probe_error_is_reported_not_raised():
     assert "could not be checked" in findings[0].user_message
 
 
-def test_null_probe_downgrades_to_warning(tmp_path):
-    """With no chemistry probe the rule is advisory — and an advisory finding
-    never blocks a save (plan 9.6)."""
-    services = build_services()
+def test_no_probe_at_all_downgrades_to_warning(tmp_path):
+    """A caller that wires *nothing* is told so, and the advisory never blocks
+    a save (plan §9.6). ``build_services`` wires the bundled grammar probe; a
+    caller with no checker is the ``NullChemistryProbe`` case pinned here."""
+    services = _services_with_chemistry(NullChemistryProbe())
     _smiles_job(services, smiles="not-smiles")
     report = services.validation.validate_base().report
     ent = [f for f in report.findings if f.rule_id == "R-ENT-010"]
     assert ent, [f.rule_id for f in report]
     assert ent[0].severity.value == "WARNING"
+    assert "not checked" in ent[0].user_message
     plan = services.generation.plan_save(str(tmp_path / "job.json"))
     assert plan.ok, plan.message
 
 
-def test_production_wiring_claims_no_smiles_guarantee():
-    """``build_services`` wires no chemistry probe by design (plan 9.6), so the
-    shipped bundle must not claim SMILES is validated. This keeps the report's
-    dependency decision honest: production chemistry enforcement still needs a
-    real parser to be wired."""
+def test_production_wiring_claims_grammar_only(tmp_path):
+    """What the shipped bundle checks, and what it still does not.
+
+    ``build_services`` wires the bundled grammar probe, so notation that is
+    not SMILES is a blocking finding with the reason quoted, while a
+    notation this check cannot judge is left alone: chemistry is still the
+    external parser's business (plan §9.6), and no dependency was taken on one.
+    """
+    from configbuilder.ui.services import build_services
+
     services = build_services()
     _smiles_job(services, smiles="not-smiles")
     report = services.validation.validate_base().report
     ent = [f for f in report.findings if f.rule_id == "R-ENT-010"]
-    assert ent and ent[0].severity.value == "WARNING"
+    assert ent and ent[0].severity.value == "ERROR"
+    assert "not one SMILES writes without brackets" in ent[0].user_message
+    refused = services.generation.plan_save(str(tmp_path / "job.json"))
+    assert not refused.ok
+
+    # Grammatical but chemically impossible: still written, because valence is
+    # not a grammar question and this check does not pretend otherwise.
+    lenient = build_services()
+    _smiles_job(lenient, smiles="C(C)(C)(C)(C)C")
+    assert [
+        f
+        for f in lenient.validation.validate_base().report.findings
+        if f.rule_id == "R-ENT-010"
+    ] == []
 
 
 # -- 4. Variant generation -------------------------------------------------

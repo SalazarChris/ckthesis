@@ -186,13 +186,13 @@ def test_the_console_never_replaces_existing_output(tmp_path):
     assert not (project_dir / "manifest.json").exists()
 
 
-def test_the_console_does_not_claim_chemistry_it_does_not_check(tmp_path):
-    """The documented limitation, pinned: SMILES text is stored, not parsed.
+def test_the_console_refuses_notation_that_is_not_smiles(tmp_path):
+    """Grammar, not chemistry: text that is not SMILES is never written.
 
-    ``batch/ligands_unchecked_syntax.smiles`` holds deliberately malformed
-    SMILES. The builder wires no chemistry parser, so they are accepted (an
-    advisory warning, never a blocking finding) — this test says so on the
-    record instead of letting the flow imply a check that does not exist.
+    ``batch/ligands_unchecked_syntax.smiles`` holds a broken ring closure and
+    a sentence. Both used to be stored as text and written into the JSON; the
+    notation check now refuses the file, names each offending line with its
+    reason, and writes nothing — no folder, no files.
     """
     malformed = PACK / "batch" / "ligands_unchecked_syntax.smiles"
     output = tmp_path / "out"
@@ -213,13 +213,9 @@ def test_the_console_does_not_claim_chemistry_it_does_not_check(tmp_path):
     )
 
     assert completed.returncode == 0, completed.stderr[-800:]
-    assert "Wrote" in completed.stdout
-    documents = _documents(output)
-    assert len(documents) == 2
-    # The added ligand is the last entry; the base's own ligands (CCD codes)
-    # are still there ahead of it.
-    added = []
-    for document in documents.values():
-        ligands = [entry["ligand"] for entry in document["sequences"] if "ligand" in entry]
-        added.append(ligands[-1]["smiles"])
-    assert sorted(added) == ["C1CC", "this is not a smiles"]
+    assert "Traceback" not in completed.stderr, completed.stderr[-800:]
+    assert "not SMILES notation" in completed.stdout
+    assert "ring-closure number 1 is opened but never closed" in completed.stdout
+    assert "it contains ' '" in completed.stdout
+    assert "Wrote" not in completed.stdout
+    assert not output.exists() or not _documents(output)

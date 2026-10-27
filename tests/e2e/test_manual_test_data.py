@@ -177,24 +177,27 @@ def test_smiles_batch_reads_names_comments_and_bare_smiles():
     assert len(services.variants.specs()) == 3
 
 
-def test_smiles_syntax_is_not_checked_and_the_pack_says_so():
-    """No chemistry parser is wired, so a malformed SMILES is still accepted.
+def test_the_malformed_smiles_fixture_is_refused_with_its_own_reasons():
+    """Grammar is checked; chemistry is not, and the pack says which.
 
-    The fixture exists to demonstrate that limit, not to be refused: builder
-    acceptance here means "stored as text", never "valid molecule".
+    The fixture holds a broken ring closure and a sentence. Both are refused
+    by the reader with the offending line and the reason, before anything is
+    written — builder acceptance here would mean "stored as text", which is
+    exactly what the notation check stopped doing. What is still not claimed:
+    that a grammatical notation describes a molecule.
     """
     services = _services("batch-smiles-unchecked")
-    preview = services.variants.inspect_batch_file(
-        _pack("batch", "ligands_unchecked_syntax.smiles"), family="ligand"
-    )
-    assert preview.ok, preview.message
-    assert preview.planned == 2
-    assert services.variants.generate_from_file(
-        _pack("batch", "ligands_unchecked_syntax.smiles"), family="ligand"
-    ).ok
+    malformed = _pack("batch", "ligands_unchecked_syntax.smiles")
 
-    # The same notation as a *base* entity, where validation looks: the rule
-    # reports "not checked" as a warning, never as a parse failure.
+    preview = services.variants.inspect_batch_file(malformed, family="ligand")
+    assert not preview.ok
+    assert "not SMILES notation" in preview.message
+    assert "ring-closure number 1 is opened but never closed" in preview.message
+    assert services.variants.specs() == []
+    assert not services.variants.generate_from_file(malformed, family="ligand").ok
+
+    # The same notation as a *base* entity, where the rule looks: a blocking
+    # finding that names the defect, so a save cannot write it either.
     checked = _services("batch-smiles-warning")
     checked.configuration.add_record(
         "ligand", representation="C1CC", representation_kind="smiles"
@@ -203,7 +206,25 @@ def test_smiles_syntax_is_not_checked_and_the_pack_says_so():
         f for f in checked.validation.validate_base().report.findings
         if f.rule_id == "R-ENT-010"
     ]
-    assert findings and {finding.severity.value for finding in findings} == {"WARNING"}
+    assert findings
+    assert {finding.severity.value for finding in findings} == {"ERROR"}
+    assert "ring-closure number 1 is opened but never closed" in findings[0].user_message
+
+
+def test_a_grammatical_notation_is_never_judged_for_chemistry():
+    """The other half of the claim: the fixture below is notation the pack
+    documents as absent from the builder's promises, and it is written."""
+    services = _services("batch-smiles-grammar-only")
+    services.configuration.add_record(
+        "ligand", representation="C(C)(C)(C)(C)C", representation_kind="smiles"
+    )
+
+    findings = [
+        f for f in services.validation.validate_base().report.findings
+        if f.rule_id == "R-ENT-010"
+    ]
+
+    assert findings == []
 
 
 def test_empty_and_invalid_batch_files_are_refused_with_their_lines(tmp_path):

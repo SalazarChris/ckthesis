@@ -218,6 +218,11 @@ Notes:
    accepted with an advisory (`R-ENT-010`, warning). `batch/ligands_unchecked_syntax.smiles`
    exists to demonstrate the limit (README scenario 2 states it). Do not let the
    streamlined flow imply chemistry checking that does not exist.
+
+   *(Status 2026-10-27: the notation half is fixed — an entry that is not SMILES
+   grammar is refused by the reader and by `R-ENT-010`, which now has a bundled
+   grammar probe. Chemistry remains unclaimed; see
+   `docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §3.)*
 10. **Overwrite safety depends on the project policy.** Default is `Fail`
     (safe), but a project configured to `Overwrite` will silently replace files
     — established behavior; the new flow must keep passing the project's

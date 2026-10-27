@@ -1,15 +1,19 @@
 """Structural-reference input rules (application layer).
 
 This module is the one owner of what a usable template definition is:
-an external source must be a readable CIF file, and every template must
-carry at least one parseable, non-negative ``query:template`` pair whose
-query index addresses the target protein. The console and the GUI both
-collect text, but the rules and their wording live here so
-``ConfigurationService.set_references`` enforces them for every caller.
+an external source must be a readable, structurally valid mmCIF file, and
+every template must carry at least one parseable, non-negative
+``query:template`` pair whose query index addresses the target protein. The
+console and the GUI both collect text, but the rules and their wording live
+here so ``ConfigurationService.set_references`` enforces them for every
+caller.
 
-The builder has no mmCIF parser: template-chain length is not knowable
-here and is deliberately not guessed. Only the target sequence's length
-and the pair syntax are checked.
+The file's *content* is judged by ``persistence.mmcif`` (an established
+mmCIF parser when one is installed, the bundled lexical scan otherwise): a
+file that is not a structure is refused here, before it is attached. The
+mapping is still the user's own — the template's own residues are never read
+here, so template-chain length is not knowable and is deliberately not
+guessed. Only the target sequence's length and the pair syntax are checked.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from __future__ import annotations
 import os
 
 from configbuilder.model import IndexPair
+from configbuilder.persistence.mmcif import template_structure_problem
 
 __all__ = [
     "ReferenceIssue",
@@ -59,21 +64,21 @@ class ReferenceIssue:
 
 
 def _file_problem(path: str):
-    """Why ``path`` is not a usable template CIF, or ``None`` when it is."""
+    """Why ``path`` is not a usable template CIF, or ``None`` when it is.
+
+    Existence, file-ness and extension are the naming rules owned here; the
+    content — readable, non-empty, UTF-8, and a structure a parser can read —
+    is the persistence reader's answer, so this module never opens the file.
+    ``the file cannot be read`` therefore still reaches the user exactly as it
+    did before, now from the reader.
+    """
     if not os.path.exists(path):
         return "the file does not exist"
     if not os.path.isfile(path):
         return "the path is not a regular file"
     if os.path.splitext(path)[1].lower() not in (".cif", ".mmcif"):
         return "the file must end in .cif or .mmcif"
-    try:
-        with open(path, "rb") as handle:
-            first = handle.read(1)
-    except OSError:
-        return "the file cannot be read"
-    if not first:
-        return "the file is empty"
-    return None
+    return template_structure_problem(path)
 
 
 def file_issue(path: str):

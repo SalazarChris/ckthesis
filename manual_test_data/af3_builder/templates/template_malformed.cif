@@ -1,8 +1,10 @@
 data_AF3_TEMPLATE_C_BROKEN
 #
-# Deliberately malformed: the atom_site loop is truncated mid-row and there
-# is no _entity_poly block at all. The builder stores the path without parsing
-# mmCIF, so this file is ACCEPTED (see README: limitation, not a pass).
+# Deliberately malformed: the atom_site loop is truncated mid-row and there is
+# no _entity_poly block. The builder REFUSES this file at the mmCIF file
+# prompt (the loop declares three tags and its values do not form complete
+# rows), so it can never be attached: see the templates README, "invalid
+# inputs", and tests/unit/app/test_reference_validation.py.
 #
 loop_
 _atom_site.group_PDB

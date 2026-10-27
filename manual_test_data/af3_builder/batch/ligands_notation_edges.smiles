@@ -1,0 +1,13 @@
+# Notation the check must keep, not refuse: aromatic rings, charges, ring
+# closures above 9, isotopes, a disconnected salt and a stereocentre. One
+# entry per line; each becomes its own configuration.
+#
+# No bare-ion entry here on purpose: this contract writes ions as CCD codes
+# (rule R-BND-001), so `[Zn+2]` alone is refused for that reason, not by the
+# notation check. A bracketed isotope is a molecule and stays.
+aspirin CC(=O)Oc1ccccc1C(=O)O
+saline [Na+].[Cl-]
+macrocycle C%10CCCCCC%10
+alanine C[C@H](N)C(=O)O
+deuterated-methane [2H]C([2H])([2H])[2H]
+isotopic-methane [13CH4]

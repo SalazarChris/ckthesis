@@ -61,7 +61,7 @@ manual_test_data/af3_builder/
 │   ├── rna_sequences.txt               3 RNA sequences — no RNA batch reader
 │   ├── dna_sequences.txt               2 DNA sequences
 │   ├── ligands_valid.smiles            2 named + 1 bare SMILES, with a comment
-│   ├── ligands_unchecked_syntax.smiles malformed SMILES (accepted; warning only)
+│   ├── ligands_unchecked_syntax.smiles malformed notation (refused, per line)
 │   ├── empty.txt                       zero bytes (refused)
 │   └── invalid_sequence.txt            lines 2–3 invalid (refused, by line)
 ├── msa/
@@ -297,12 +297,20 @@ Full steps, prompts and expected JSON are in
 
 ## 10. Limitations and decisions needed
 
-1. **SMILES parsing still does not exist.** `batch/ligands_unchecked_syntax.smiles`
+1. ~~**SMILES parsing still does not exist.** `batch/ligands_unchecked_syntax.smiles`
    is accepted. Making invalid SMILES blocking needs a parser dependency
    (`rdkit`/`openbabel`) wired as a `ChemistryProbe`; that decision is unchanged
-   from the gate-recovery report.
-2. **RNA batch generation remains unsupported.** Both front ends say so. If batch
-   RNA is wanted, it is an additive `BATCH_RECORD_BUILDERS["rna"]` entry plus a
+   from the gate-recovery report.~~ **Partly closed 2026-10-27.** The file is now
+   refused, naming each line's defect: SMILES *grammar* (character set, balanced
+   brackets, paired ring closures, unbracketed atoms from the organic subset) is
+   checked by a bundled probe, so no dependency was taken on `rdkit`/
+   `openbabel`. Still not checked, and still not claimed: chemistry — valence,
+   aromaticity and perception stay with AF3's own parser. See
+   `docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §3.
+2. **RNA batch generation remains unsupported.** No front end offers it (there is
+   no RNA batch family anywhere in either menu), and the service refuses the
+   family in its own words. If batch RNA is wanted, it is an additive
+   `BATCH_RECORD_BUILDERS["rna"]` entry plus a
    menu/combo entry — a feature decision, not this audit.
 3. **RNA content advisories are protein-documented.** AF3 documents “first row =
    query” and “rectangular after removing insertions” under the protein section.

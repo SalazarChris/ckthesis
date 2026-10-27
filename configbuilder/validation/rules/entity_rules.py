@@ -228,6 +228,9 @@ def check_r_ent_010(configuration: Configuration, report: Report, rule: Rule, co
 
     The probe decides only chemical *syntax*: a parseable SMILES string is
     not a promise that the ligand is accepted by the deployment (plan §9.2).
+    A probe that can explain itself does: ``smiles_problem`` (optional — the
+    bundled grammar probe has it) names the defect in the finding, so the
+    user is told what to fix instead of only that something failed.
     """
     from configbuilder.validation.catalogue import Severity
     from configbuilder.validation.engine import ValidationContext
@@ -269,11 +272,32 @@ def check_r_ent_010(configuration: Configuration, report: Report, rule: Rule, co
                 )
                 continue
             if not parsed:
+                detail = _probe_detail(probe, smiles)
                 _add(
                     report,
                     rule,
-                    "The SMILES notation of ligand %r could not be parsed." % key,
-                    "SMILES text %r failed to parse" % smiles,
+                    "The SMILES notation of ligand %r could not be parsed%s."
+                    % (key, detail),
+                    "SMILES text %r failed to parse%s" % (smiles, detail),
                     (FieldPath("ByNotation", key, "smiles"),),
                     suggestion="Correct the SMILES notation, or use a component code instead.",
                 )
+
+
+def _probe_detail(probe, smiles: str) -> str:
+    """The probe's own explanation, as a trailing clause (or nothing).
+
+    Optional on purpose: a probe that only answers ``parses_smiles`` keeps
+    working, and one that can say *why* is quoted. An explanation that raises
+    is dropped rather than allowed to break the report.
+    """
+    explain = getattr(probe, "smiles_problem", None)
+    if not callable(explain):
+        return ""
+    try:
+        reason = explain(smiles)
+    except Exception:
+        return ""
+    if not reason:
+        return ""
+    return ": %s" % reason

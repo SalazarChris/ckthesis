@@ -29,6 +29,8 @@ TEMPLATES = ROOT / "manual_test_data" / "af3_builder" / "templates"
 RESOLVED = TEMPLATES / "template_fully_resolved.cif"
 UNRESOLVED = TEMPLATES / "template_unresolved_residues.cif"
 EMPTY = TEMPLATES / "template_empty.cif"
+MALFORMED = TEMPLATES / "template_malformed.cif"
+NO_RECORDS = TEMPLATES / "template_no_records.cif"
 
 pytestmark = pytest.mark.skipif(
     not LAUNCHER.exists() or not RESOLVED.exists() or not UNRESOLVED.exists(),
@@ -185,6 +187,35 @@ def test_the_console_refuses_an_empty_template_and_keeps_the_job(tmp_path):
     assert "Template collection cancelled" in completed.stdout
     assert "Saved to" in completed.stdout
     # The job saved normally and carries no template: nothing was half-attached.
+    assert target.is_file()
+    with open(str(target), encoding="utf-8") as handle:
+        protein = json.load(handle)["sequences"][0]["protein"]
+    assert protein == {"id": "A", "sequence": "ACDEFG"}
+
+
+@pytest.mark.parametrize(
+    "template, fragment",
+    (
+        (MALFORMED, "the loop starting at line 9 declares 3 tags"),
+        (NO_RECORDS, "no _atom_site, _entity_poly, _struct_asym or _entity records"),
+    ),
+)
+def test_the_console_refuses_a_template_that_is_not_a_structure(
+    tmp_path, template, fragment
+):
+    """The same refusal the window makes: an unusable mmCIF is not attached."""
+    target = tmp_path / "not-a-structure.json"
+
+    completed = _run(
+        tmp_path,
+        _attach_answers("tpl-d", "ACDEFG", template, "0", target, another="n"),
+    )
+
+    assert completed.returncode == 0, completed.stderr[-800:]
+    assert "Traceback" not in completed.stderr, completed.stderr[-800:]
+    assert "cannot be used" in completed.stdout
+    assert fragment in completed.stdout
+    assert "Template collection cancelled" in completed.stdout
     assert target.is_file()
     with open(str(target), encoding="utf-8") as handle:
         protein = json.load(handle)["sequences"][0]["protein"]

@@ -20,8 +20,9 @@ Pinned here:
   path against the file's own folder);
 - the empty fixture is refused by the service, the dialog stays open with the
   service's own message, and the job keeps its previous template state;
-- the malformed-but-non-empty fixture is **accepted** — the builder has no
-  mmCIF parser — which is a documented limitation, not a pass.
+- the malformed and structure-less fixtures are refused the same way: the
+  service checks an attached template's mmCIF, so a broken structure is never
+  attached and never serialised.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ RESOLVED = TEMPLATES / "template_fully_resolved.cif"
 UNRESOLVED = TEMPLATES / "template_unresolved_residues.cif"
 EMPTY = TEMPLATES / "template_empty.cif"
 MALFORMED = TEMPLATES / "template_malformed.cif"
+NO_RECORDS = TEMPLATES / "template_no_records.cif"
 
 pytestmark = pytest.mark.skipif(
     not RESOLVED.exists() or not UNRESOLVED.exists(),
@@ -248,20 +250,35 @@ def test_the_empty_template_is_refused_and_leaves_the_job_alone(
     assert "templates" not in protein
 
 
-def test_a_malformed_template_is_accepted_and_that_is_a_known_limitation(
-    job, tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "template, fragment",
+    (
+        (MALFORMED, "the loop starting at line 9 declares 3 tags"),
+        (NO_RECORDS, "no _atom_site, _entity_poly, _struct_asym or _entity records"),
+    ),
+)
+def test_a_template_that_is_not_a_structure_is_refused_and_leaves_the_job_alone(
+    job, tmp_path, monkeypatch, template, fragment
 ):
-    """No mmCIF parser: only existence, extension and emptiness are checked.
+    """A truncated loop or a data block with no structure in it: refused.
 
-    This is pinned so nobody mistakes the attachment for structural validation.
+    The dialog is accepted — Save is pressed — and the service refuses, which
+    is the path a user takes. Nothing is half-attached, and the saved job
+    carries no ``templates`` field.
     """
-    _add_protein(job, "ACDEFG")
-    _drive_templates(monkeypatch, [str(MALFORMED)], "0:0")
+    key = _add_protein(job, "ACDEFG")
+    before = job.state.configuration
+    opened = _drive_templates(monkeypatch, [str(template)], "0:0")
 
-    assert job.advanced_page.edit_templates() is True
+    assert job.advanced_page.edit_templates() is False
 
-    target = tmp_path / "malformed.json"
+    dialog = opened[0]
+    assert "cannot be used" in dialog.error_text()
+    assert fragment in dialog.error_text()
+    assert dialog.result() != TemplateEditorDialog.Accepted
+    assert job.state.configuration is before
+    target = tmp_path / "refused.json"
     assert _save(job, target) is True
-    templates = _templates(target)
-    assert templates[0]["queryIndices"] == [0]
-    assert templates[0]["templateIndices"] == [0]
+    protein = _document(target)["sequences"][0]["protein"]
+    assert protein["id"] == key
+    assert "templates" not in protein

@@ -56,7 +56,7 @@ were **kept** and are documented alongside the new files.
 | `ligands_duplicate_names.smiles` | two molecules, one name: deterministic `-2` |
 | `ligands_duplicate_entries.smiles` | the same molecule twice: whole-file refusal |
 | `ligands_empty.smiles` | comments only: "no entries" refusal |
-| `ligands_ccd_lookalike.smiles` | `ATP`/`ZN` typed as entries: stored as SMILES text |
+| `ligands_ccd_lookalike.smiles` | `ATP`/`ZN` typed as entries: stored as SMILES text at the time of this run; **refused** since 2026-10-27 |
 | `base_job_custom_ccd.json` | base with inline `userCCD`, ATP×2, ZN, aspirin, seeds `[7]`, version 3 |
 | `README.md` | support matrix, expected outputs, manual procedure |
 
@@ -108,9 +108,11 @@ Invalid fixture: `template_empty.cif` was refused at the file prompt —
 — the collection was cancelled, the job saved normally, and the protein carried
 no `templates` field at all (nothing half-attached).
 
-`template_malformed.cif` was **accepted** (a `templates` entry was written). No
-mmCIF parsing exists, so this is a limitation, not a pass; it is pinned by a
-test so nobody mistakes attachment for validation.
+`template_malformed.cif` was **accepted** at the time of this run (a `templates`
+entry was written), because no mmCIF parsing existed. That limitation was
+closed on 2026-10-27: the file is now **refused** at the same prompt — see
+`docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §2. The statement is kept here as
+the record of what this run observed.
 
 ### 3.2 Through the desktop window (real widgets, offscreen)
 
@@ -132,17 +134,22 @@ Results (assertions in `tests/gui/test_template_attachment.py`):
   `templates` block;
 - empty fixture → dialog stayed open with the service's message, job unchanged,
   saved JSON has no `templates`;
-- malformed fixture → accepted (limitation).
+- malformed fixture → accepted (limitation; **now refused** — closed
+  2026-10-27, `docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §2).
 
 ### 3.3 What the mapping means, and what the builder checks
 
 AF3 template indices are positions in the **template's polymer sequence**.
 `ACQDEFG` puts `DEFG` at 3–6 even though only those four residues are resolved.
-The builder itself cannot derive this: `reference_validation.py` states plainly
-that there is no mmCIF parser, and checks only that the file exists, is a regular
-`.cif`/`.mmcif`, is non-empty, and that each pair is two non-negative integers
-whose query index is inside the target sequence. The mapping is therefore
-user-supplied input, verified here against fixtures a human can read.
+The builder itself cannot derive this, and still does not: it cannot see that
+`DEFG` is the resolved tail of `ACQDEFG`, because reading a template's own
+residues is not something a structure check can decide for the user. At the time
+of this run `reference_validation.py` checked only that the file exists, is a
+regular `.cif`/`.mmcif`, is non-empty, and that each pair is two non-negative
+integers whose query index is inside the target sequence. Since 2026-10-27 the
+file's *content* is checked as well (readable mmCIF with structure in it), which
+changes none of the above: the mapping is still user-supplied input, verified
+here against fixtures a human can read.
 
 ---
 
@@ -208,7 +215,10 @@ the fixtures were byte-identical afterwards.
 `…__kinase-inhibitor-2.json` (`c1ccccc1`).
 
 `ligands_ccd_lookalike.smiles` → `…__atp.json` `{"smiles": "ATP"}` and
-`…__zinc.json` `{"smiles": "ZN"}`; no `ccdCodes` on either added entry.
+`…__zinc.json` `{"smiles": "ZN"}`; no `ccdCodes` on either added entry. (Since
+2026-10-27 this file is **refused** — `ATP` is not SMILES grammar — and the same
+applies to `ligands_unchecked_syntax.smiles`; nothing is written for either. See
+`docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §3.)
 
 `ligands_duplicate_entries.smiles` → `the file contains duplicate ligand entries: CCO...`;
 `ligands_empty.smiles` → `the ligand file contains no entries (only blank lines or comments)`.
@@ -312,9 +322,14 @@ their suites passing.
 
 ## 10. Limitations and blocked tests
 
-- **No mmCIF parsing.** Template attachment checks the path, extension,
-  emptiness and pair syntax only. Chain identity, residue numbering, unresolution
-  and bounds are the user's responsibility; `template_malformed.cif` is accepted.
+- ~~**No mmCIF parsing.** Template attachment checks the path, extension,
+  emptiness and pair syntax only.~~ **Closed 2026-10-27** for the part that can
+  be decided without AF3: a template whose file is not readable mmCIF is now
+  refused, and `template_malformed.cif` is refused rather than accepted (an
+  established parser when installed, the bundled lexical scan otherwise). Still
+  out of scope, and still the user's responsibility: chain identity, residue
+  numbering, unresolution and bounds. See
+  `docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §2.
 - **No SMILES/chemistry validation.** Malformed SMILES are stored with an
   advisory; a CCD code in a ligand file becomes SMILES text.
 - **Protein/DNA batch has no front end.** The service keeps the capability and

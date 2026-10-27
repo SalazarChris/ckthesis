@@ -68,6 +68,52 @@ def test_the_service_rejects_bad_extensions_and_empty_files(tmp_path):
         assert isinstance(_references(services), SearchAllowed)
 
 
+def test_the_service_refuses_a_template_that_is_not_a_structure(tmp_path):
+    """A refused file leaves the record exactly as it was: nothing half-attached.
+
+    The text below is a loop whose values cannot form rows of the declared
+    width — the shape of a truncated template. Existence, extension and
+    emptiness are not enough for a template: AF3 has to be able to read it.
+    """
+    services = _project()
+    broken = tmp_path / "truncated.cif"
+    broken.write_text(
+        "data_template\nloop_\n_atom_site.group_PDB\n_atom_site.id\n"
+        "_atom_site.Cartn_x\nATOM 1 0.000\nATOM\n",
+        encoding="utf-8",
+    )
+
+    outcome = services.configuration.set_references(
+        "A",
+        references=(ReferenceInput(external_path=str(broken), pairs=((0, 0),)),),
+    )
+
+    assert not outcome.ok
+    assert "the file is not a usable mmCIF structure" in outcome.message
+    assert isinstance(_references(services), SearchAllowed)
+
+
+def test_the_service_refuses_an_mmCIF_file_with_no_structure_in_it(tmp_path):
+    services = _project()
+    empty_structure = tmp_path / "title-only.cif"
+    empty_structure.write_text(
+        "data_template\n_struct.title 'no atoms here'\n", encoding="utf-8"
+    )
+
+    outcome = services.configuration.set_references(
+        "A",
+        references=(
+            ReferenceInput(external_path=str(empty_structure), pairs=((0, 0),)),
+        ),
+    )
+
+    assert not outcome.ok
+    assert "no _atom_site, _entity_poly, _struct_asym or _entity records" in (
+        outcome.message
+    )
+    assert isinstance(_references(services), SearchAllowed)
+
+
 def test_the_service_rejects_empty_and_malformed_pairs(tmp_path):
     services = _project()
     path = _cif(tmp_path)

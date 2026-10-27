@@ -6,11 +6,20 @@ what was read, choose the folder, generate. These tests drive
 seams and then read the files the application service actually wrote, so a
 page that only rendered a label would fail here.
 
+Two of them go one link further and use the *packaged* dialogs instead of the
+seams: the real button is clicked (so the click-to-handler connection is
+exercised), ``QFileDialog``'s two statics answer with the file and folder, and
+the review box's own ``exec`` is driven to press the button it built (so the
+box's text and its ``clickedButton`` answer are the shipped ones). No human
+operated the GUI in either case.
+
 What is pinned:
 
 - the action is the only entry point, and there is no variant page or list;
 - a cancelled picker, an empty file, a duplicate entry and a refused base all
   write nothing and change nothing;
+- a protein, DNA or RNA sequence file is refused the same way, naming the line:
+  this action reads ligand notation, and no interface offers a sequence batch;
 - every entry becomes its **own** configuration — base + exactly one ligand —
   named after the entry's own name where it has one;
 - an existing file with different content stops the whole run (all-or-nothing)
@@ -27,9 +36,16 @@ import pytest
 
 pytest.importorskip("PySide6", reason="the GUI extra (PySide6) is not installed")
 
-from PySide6.QtWidgets import QMessageBox, QPushButton  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QFileDialog,
+    QMessageBox,
+    QPushButton,
+)
 
 from configbuilder.ui.present.strings import text as _text  # noqa: E402
+from configbuilder.ui.render.qt.dialogs import ligand_batch  # noqa: E402
 from configbuilder.ui.render.qt.dialogs import (  # noqa: E402
     choose_ligand_file,
     choose_output_folder,
@@ -466,3 +482,113 @@ def test_a_custom_ccd_base_survives_in_every_generated_file(window, tmp_path):
     assert [
         record.ids.primary.value for record in window.state.configuration.records
     ] == ["A", "B", "C", "D"]
+
+
+# -- the packaged dialogs, and the real click -----------------------------------
+
+
+def _answer_with_file_dialog(monkeypatch, path, root):
+    """Let the *packaged* choosers run, answering the native statics."""
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *args, **kwargs: (path, "")),
+    )
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory", staticmethod(lambda *args, **kwargs: root)
+    )
+
+
+def _drives_boxes(monkeypatch, label_key, seen):
+    """Drive each packaged ``QMessageBox.exec`` by pressing one of its buttons.
+
+    The boxes are the shipped ones — their text, buttons and ``clickedButton``
+    answers are their own. Only the human's mouse is stood in for, because
+    nothing in this process can move one.
+    """
+
+    def fake_exec(box):
+        seen.append(box.text())
+        for button in box.buttons():
+            if button.text() == _text(label_key):
+                button.click()
+                break
+        return 0
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+
+
+def test_the_real_button_click_writes_the_files_through_the_packaged_dialogs(
+    base_job, tmp_path, monkeypatch
+):
+    """Click → handler → service → files, with the shipped dialogs in place.
+
+    The other tests in this file replace the page's four modal seams; this one
+    replaces none of them. It clicks the real button (so the click-to-handler
+    connection is exercised), answers the two native file-dialog statics, and
+    presses the review box's own *Generate* button, so the box's text and its
+    ``clickedButton`` answer are the shipped ones too.
+    """
+    page = base_job.entities_page
+    path = _write_ligands(tmp_path, "ethanol CCO\nbenzene c1ccccc1\n")
+    root = tmp_path / "out"
+    boxes = []
+    _answer_with_file_dialog(monkeypatch, path, str(root))
+    _drives_boxes(monkeypatch, "gui.ligand_preview_accept", boxes)
+
+    assert page.ligand_file_chooser is choose_ligand_file
+    assert page.ligand_folder_chooser is choose_output_folder
+    assert page.ligand_previewer is confirm_ligand_preview
+    assert page.ligand_reporter is report_ligand_run
+
+    QTest.mouseClick(page.ligand_file_button, Qt.LeftButton)
+
+    documents = _documents(root)
+    assert sorted(documents) == [
+        "ligand-base__benzene.json",
+        "ligand-base__ethanol.json",
+    ]
+    # The review box, then the result box: two shipped boxes, in that order.
+    assert len(boxes) == 2
+    assert _text("gui.ligand_preview_entries") % 2 in boxes[0]
+    assert str(root) in boxes[0]
+    # Two configurations plus the run's own manifest.json.
+    assert _text("gui.ligand_result_written") % 3 in boxes[1]
+    for document in documents.values():
+        # The base's protein and CCD ligand, plus exactly one new ligand.
+        assert len(_ligands(document)) == 2
+        assert document["sequences"][0]["protein"]["id"] == "A"
+    assert [
+        record.ids.primary.value for record in base_job.state.configuration.records
+    ] == ["A", "B"]
+
+
+def test_a_sequence_file_is_refused_through_the_real_action(base_job, tmp_path):
+    """No interface offers a sequence batch, and this action says why.
+
+    ``proteins_valid.txt`` is the pack's protein fixture: the ligand action
+    reads notation, so every line is refused with the offending text, before
+    the folder question and before anything is written. A protein/DNA/RNA
+    batch has no entry point by decision (D2), so the honest behaviour here is
+    the refusal, never a configuration whose "ligand" is a sequence.
+    """
+    page = base_job.entities_page
+    pack = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "manual_test_data",
+        "af3_builder",
+        "batch",
+        "proteins_valid.txt",
+    )
+    run = _Run(page, pack, str(tmp_path / "out"))
+
+    assert run.generate() is None
+    assert run.folders == []
+    message = base_job.last_problem_text()
+    assert "not SMILES notation" in message
+    assert "MKTAYIAKQRQISFVKSHFSRQ" in message
+    assert run.reports == []
+    assert not os.path.exists(str(tmp_path / "out"))
+    assert [
+        record.ids.primary.value for record in base_job.state.configuration.records
+    ] == ["A", "B"]

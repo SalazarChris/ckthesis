@@ -20,6 +20,7 @@ from configbuilder.validation.engine import (
     validate,
 )
 from configbuilder.validation.ports import (
+    BundledChemistryProbe,
     ChemistryProbe,
     FilesystemPort,
     NullChemistryProbe,
@@ -43,6 +44,7 @@ __all__ = [
     "convert_identity_error",
     "validate",
     # ports
+    "BundledChemistryProbe",
     "ChemistryProbe",
     "FilesystemPort",
     "NullChemistryProbe",

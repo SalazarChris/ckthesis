@@ -26,15 +26,26 @@ front ends reach them through
 | Comment / blank line | `# …`, empty | Ignored. `#` is a comment **only** at the start of the line; a `#` inside a SMILES is text like any other. |
 | Duplicate SMILES | two lines with the same molecule | **Refused** — whole file, the repeated value named. |
 | Duplicate names | `x CCO` + `x c1ccccc1` | Both survive: the second key becomes `x-2` (then `-3`…), deterministically in file order. |
-| CCD code as an entry | `atp ATP` | **Not a CCD entry.** Stored as the SMILES text `"ATP"`. See §3. |
+| CCD code as an entry | `atp ATP` | **Not a CCD entry.** Refused: a ligand file has no CCD syntax, and `ATP` is not SMILES notation. Add codes to the base job instead. See §3. |
 | Anything per-entry besides SMILES: MSA, templates, PTMs, custom CCD | — | Not expressible in this format. They belong to the base job and are preserved. |
 
-Nothing validates chemistry: SMILES are stored as text, and malformed input is
-accepted with an advisory warning (`R-ENT-010`). That is pinned by
-`ligands_unchecked_syntax.smiles` and `ligands_ccd_lookalike.smiles` in this
-folder.
+Notation is checked, chemistry is not. Every entry is parsed against SMILES'
+own grammar (`configbuilder/validation/smiles.py`: the SMILES character set,
+balanced brackets, paired ring-closure numbers, and unbracketed atoms from the
+organic subset), so a component code, a protein sequence or a sentence is
+**refused** with its line number and reason before anything is written. What is
+still nobody's business here: whether a grammatical notation describes a real
+molecule — valence, aromaticity and perception belong to AF3's own parser
+(RDKit), which this builder does not depend on. `ligands_unchecked_syntax.smiles`
+and `ligands_ccd_lookalike.smiles` are now *refusal* fixtures;
+`ligands_notation_edges.smiles` is the positive control that keeps bracketed
+atoms, charges, `%nn` rings and isotopes working.
 
-### Supported-input matrix (verified 2026-10-26)
+A ligand typed by hand is checked by the same implementation through the
+validation rule `R-ENT-010` (`BundledChemistryProbe` is what
+`ui.services.build_services` wires), so the two doors cannot disagree.
+
+### Supported-input matrix (verified 2026-10-27)
 
 "CLI" and "GUI" mean the real entry points were driven — `python af3builder.py`
 with its prompts answered, and the desktop window's **Entities → Generate ligand
@@ -45,21 +56,26 @@ service-level test is marked as such, never as an end-to-end pass.
 |---|---|---|---|---|---|
 | SMILES (named) | `name SMILES` | Yes | Yes (`tests/e2e/test_variant_cli_subprocess.py`, `tests/e2e/test_entity_batch_cli_subprocess.py`) | Yes (`tests/gui/test_ligand_file_generation.py`) | Yes — accepted by AF3's own parser |
 | SMILES (bare) | `SMILES` | Yes, auto-named | Yes | Yes | Yes — accepted by AF3's own parser |
-| Standard CCD code | `name ATP` | **No** — stored as SMILES text | Yes (output shows `"smiles": "ATP"`) | Same behaviour (same service) | Yes |
+| SMILES notation the check must keep | `[Zn+2]`-style brackets, `%10`, `[2H]`, stereocentres, a disconnected salt | Yes, deliberately permissive | Yes — `ligands_notation_edges.smiles`, 6 configurations | Yes (same service) | Yes — accepted by AF3's own parser |
+| Standard CCD code | `name ATP` | **No** — refused as notation | Yes (refused: *"'ATP' is not SMILES notation"*) | Yes (same service; refused before the folder question) | N/A |
+| Bare ion as SMILES | `[Zn+2]`, `ZN` | Grammar accepts a bracketed ion; the **contract** refuses it (rule `R-BND-001`: ions are CCD-coded ligands) | Yes (refused, naming that rule) | Yes (same service) | N/A |
 | Custom CCD (job-wide) | base JSON `userCCD` / `userCCDPath` | Preserved, not per entry | Yes (`base_job_custom_ccd.json`) | Yes — the base's own Custom CCDs tab feeds the same job | UNVERIFIED by AF3's parser (its `userCCD` path needs the compiled CIF extension); the field round-trips byte-identically |
 | Ions / multi-copy ligands | base JSON `ccdCodes` | Preserved, not per entry | Yes (ZN and ATP×2 in the same run) | Yes | Yes |
 | Protein sequences | one per line, `.txt` | Yes in the service (`batch_specs_for_sequences`); **no front end offers it** | Not exposed | Not exposed | Service-level tests only |
 | DNA sequences | one per line, `.txt` | Yes in the service; **no front end offers it** | Not exposed | Not exposed | Service-level tests only |
-| RNA sequences | — | **Not supported** — `BATCH_RECORD_BUILDERS` has no RNA builder, so `inspect_batch_file(family="rna")` and `generate_from_file(family="rna")` both refuse in those terms | Not reachable — no front end passes `family="rna"` | Not reachable | N/A |
+| Protein / DNA / RNA sequences fed to the **ligand** action | one per line, `.txt` | The reader is the ligand one, so each line is refused as notation | Yes — refused, naming the line (`tests/e2e/test_entity_batch_cli_subprocess.py`) | Yes — refused (`tests/gui/test_ligand_file_generation.py`) | N/A |
+| RNA sequences (as a family) | — | **Not supported by design** — `BATCH_RECORD_BUILDERS` has no RNA builder, so `inspect_batch_file(family="rna")` says *"a batch file can contain protein, DNA or ligand entries; 'rna' is not supported"* and `generate_from_file(family="rna")` refuses with *"no record builder for family 'rna'"* | Not reachable — no front end passes `family="rna"`, and none should | Not reachable | N/A |
 | MSA / template per entry | — | **Not supported** in a batch file | N/A | N/A | Base-job MSA/templates are preserved |
 
 Why protein/DNA have parser support but no route: the approved refactor narrowed
 this feature to ligands and small molecules (decision D2) and the shared service
 kept `generate_from_file(family=…)` for protein/DNA with its unit coverage. No
 menu item or button calls those families any more; do not claim otherwise. The
-same is true of the RNA refusal: it is a **service-level** guarantee
-(`tests/unit/app/test_batch_variants.py`, `tests/e2e/test_manual_test_data.py`),
-not something a user can reach and see.
+console's ligand screen was checked for exactly that (`test_the_console_offers_no_
+family_picker_for_the_file_action`: no protein, DNA or RNA line, one numbered
+action). The RNA refusal is a **service-level** guarantee
+(`tests/unit/app/test_batch_variants.py`), and RNA batch generation is *not*
+part of this project's contract: it is unsupported by design, not pending.
 
 ---
 
@@ -73,7 +89,8 @@ not something a user can reach and see.
 | `ligands_duplicate_names.smiles` | `kinase-inhibitor CCO`, `kinase-inhibitor c1ccccc1` | 2 configurations: `…__kinase-inhibitor`, `…__kinase-inhibitor-2` |
 | `ligands_duplicate_entries.smiles` | `first CCO`, `second CCO` | Refused: *"the file contains duplicate ligand entries: CCO..."*; nothing written, no folder created |
 | `ligands_empty.smiles` | comments only | Refused: *"the ligand file contains no entries (only blank lines or comments)"* |
-| `ligands_ccd_lookalike.smiles` | `atp ATP`, `zinc ZN` | 2 configurations whose added ligand is `{"smiles": "ATP"}` / `{"smiles": "ZN"}` — **not** `ccdCodes` |
+| `ligands_ccd_lookalike.smiles` | `atp ATP`, `zinc ZN` | **Refused**: *"2 of 2 ligand entries are invalid … 'ATP' is not SMILES notation"*; nothing written |
+| `ligands_notation_edges.smiles` | aspirin, `[Na+].[Cl-]`, `C%10CCCCCC%10`, alanine, `[2H]C([2H])([2H])[2H]`, `[13CH4]` | 6 configurations, one per entry — the positive control for the notation check |
 | `base_job_custom_ccd.json` | not a batch file — the base job | Protein `A`, ATP×2 (`B`,`E`), ZN (`C`), aspirin (`D`), inline `userCCD`, seeds `[7]`, version 3 |
 
 ### The pack's original input files
@@ -81,7 +98,7 @@ not something a user can reach and see.
 | File | Entries | What it is for |
 |---|---|---|
 | `ligands_valid.smiles` | `ethanol CCO`, `acetic-acid CC(=O)O`, `C1CCCCC1` | The plain "three named ligands" case, before the workflow fixtures existed |
-| `ligands_unchecked_syntax.smiles` | `broken-ring C1CC`, `not-a-smiles this is not a smiles` | Deliberately malformed SMILES: accepted as text, advisory `R-ENT-010` only |
+| `ligands_unchecked_syntax.smiles` | `broken-ring C1CC`, `not-a-smiles this is not a smiles` | Deliberately malformed notation: **refused** with each line's reason (*"ring-closure number 1 is opened but never closed"*, *"it contains ' '"*) |
 | `proteins_valid.txt` | 3 protein sequences | The protein-family reader (service level; no front end) |
 | `proteins_wrapped_fasta.txt` | wrapped FASTA | **Not a FASTA reader** — every line is an entry, so wrapped records are separate (wrong) entries. Pins that the reader is line-based |
 | `dna_sequences.txt` | `ATGCATGC`, `GGCCTTAA` | The DNA-family reader (service level; no front end) |
@@ -112,11 +129,15 @@ another entry's molecule.
 
 ## 3. Things people get wrong
 
-* **A CCD code in a `.smiles` file is not a CCD ligand.** The reader has no way
-  to say "this token is a component code", so `ATP` becomes the SMILES text
-  `"ATP"`. AF3 will treat it as an invalid SMILES. Add CCD/ion ligands with
-  **Add Ligand** (CCD mode) on the base job, where the base is then preserved in
-  every generated file.
+* **A CCD code in a `.smiles` file is refused, not converted.** The reader has
+  no way to say "this token is a component code", and the notation check will
+  not pass `ATP` off as a molecule, so the file is refused with its line number.
+  Add CCD/ion ligands with **Add Ligand** (CCD mode) on the base job, where the
+  base is then preserved in every generated file.
+* **A protein, DNA or RNA sequence file is not a ligand file.** There is no
+  sequence batch in this workflow (decision D2), so feeding one of the `.txt`
+  fixtures to the ligand action is refused per line rather than turned into
+  configurations — see the `proteins_valid.txt` row of the matrix.
 * **An `.txt` extension means nothing.** What matters is which reader the action
   uses — the ligand one — and whether each line fits the syntax above.
 * **The output folder may already exist; the files may not.** An existing file
@@ -154,10 +175,12 @@ Window (`python gui.py`):
 4. **Generate** → the result box lists the written files; the status bar says how
    many.
 
-Then repeat the refusal cases: `ligands_duplicate_entries.smiles` and
-`ligands_empty.smiles` must both write nothing and say why (the console asks for
-the folder only after a successful read, so an empty file never reaches that
-prompt).
+Then repeat the refusal cases: `ligands_duplicate_entries.smiles`,
+`ligands_empty.smiles`, `ligands_unchecked_syntax.smiles` and
+`ligands_ccd_lookalike.smiles` must all write nothing and say why (the console
+asks for the folder only after a successful read, so none of them reaches that
+prompt). `ligands_notation_edges.smiles` is the positive control: six entries,
+six configurations, every bracketed atom and `%10` ring kept as written.
 
 Assert the pack itself is unchanged afterwards (`git status` on this folder).
 
@@ -178,7 +201,7 @@ the three ligand configurations above come back `ACCEPTED`; with
 | Test | Covers |
 |---|---|
 | `tests/e2e/test_variant_cli_subprocess.py` | the real console: one configuration per entry, names in file names, base intact, duplicates/empty refused, no silent overwrite, malformed SMILES accepted |
-| `tests/e2e/test_entity_batch_cli_subprocess.py` | this pack through the real console: base fields and `userCCD` preserved, distinct added identifiers, deterministic `-2` suffix, CCD-lookalike stored as SMILES |
+| `tests/e2e/test_entity_batch_cli_subprocess.py` | this pack through the real console: base fields and `userCCD` preserved, distinct added identifiers, deterministic `-2` suffix, the CCD-lookalike and every sequence file refused with a reason and nothing written, the notation-edge file generating six configurations |
 | `tests/gui/test_ligand_file_generation.py` | the real Entities action: preview, cancel paths, per-entry independence, ids, collision refusal, report == files on disk, the `base_job_custom_ccd.json` base surviving |
 | `tests/unit/app/test_batch_variants.py` | builders per family, duplicate/empty refusals, identity allocation, name→key slugging, the RNA refusal |
 | `tests/unit/persistence/test_sequence_files.py` | the readers themselves (`name SMILES`, comments, blanks, `#` semantics, file errors) |

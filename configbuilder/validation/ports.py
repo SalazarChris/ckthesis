@@ -9,9 +9,12 @@ shallow by design (plan §9.2: "no reimplementation of external parsing").
 from __future__ import annotations
 
 import os
-from typing import Protocol
+from typing import Optional, Protocol
+
+from configbuilder.validation.smiles import notation_problem
 
 __all__ = [
+    "BundledChemistryProbe",
     "ChemistryProbe",
     "FilesystemPort",
     "NullChemistryProbe",
@@ -74,8 +77,35 @@ class NullChemistryProbe:
     """The probe that answers nothing: no notation parses.
 
     With this probe the SMILES rule reports a WARNING "not checked"
-    instead of an ERROR (plan §9.6).
+    instead of an ERROR (plan §9.6). It is what a caller wiring no probe at
+    all gets, so the absence of a checker is stated rather than hidden — the
+    application wires ``BundledChemistryProbe`` instead.
     """
 
     def parses_smiles(self, notation: str) -> bool:  # noqa: D102 - see protocol
         return False
+
+
+class BundledChemistryProbe:
+    """SMILES **notation grammar**, with no chemistry and no dependency.
+
+    The gap this closes: with no chemistry checker wired, a ligand whose
+    notation is not SMILES at all (a component code, a protein sequence, a
+    sentence) was stored as text and serialised into an AF3 document that AF3
+    then refused; the only finding was the "not checked" warning. This probe
+    answers the part that needs no chemistry — the grammar
+    (``validation.smiles``) — so the rule reports a real refusal, while what
+    remains unclaimed stays unclaimed: this does not say the notation
+    describes a molecule, and nothing here duplicates RDKit.
+
+    It is the probe the application wires (``ui.services.build_services``);
+    a deployment with a real chemistry checker replaces it and gains the
+    stronger verdict.
+    """
+
+    def parses_smiles(self, notation: str) -> bool:  # noqa: D102 - see protocol
+        return notation_problem(notation) is None
+
+    def smiles_problem(self, notation: str) -> Optional[str]:
+        """Why ``notation`` is not SMILES, or ``None`` (the rule's detail)."""
+        return notation_problem(notation)

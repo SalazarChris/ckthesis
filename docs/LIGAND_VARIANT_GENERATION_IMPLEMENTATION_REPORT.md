@@ -103,11 +103,14 @@ The workflow accepts **ligand/small-molecule lists only** (decision D2):
 | blank line, line starting `#` | ignored |
 
 `persistence.read_smiles_file` reads it; nothing else was added, and no new file
-format exists. SMILES are **not** chemically validated (no parser is wired), so
-malformed input is accepted with an advisory. A CCD code typed as an entry is
-stored as SMILES text — the file format has no way to say "component code";
-CCD/ion ligands belong to the base job (see
-`manual_test_data/af3_builder/batch/README.md`).
+format exists. At the time of this report SMILES were **not** validated at all,
+and a CCD code typed as an entry was stored as SMILES text. That changed on
+2026-10-27: SMILES **grammar** is now checked (`validation/smiles.py`, wired as
+`BundledChemistryProbe`), so a CCD code, a sequence or a sentence is refused
+with its line number, while chemistry (valence, aromaticity) is still the
+external parser's business and is not claimed. See
+`docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §3 and
+`manual_test_data/af3_builder/batch/README.md`.
 
 Protein and DNA sequence batches remain implemented in
 `VariantService.generate_from_file(family=…)` for API compatibility and unit
@@ -264,8 +267,13 @@ window was driven offscreen through its real widgets and saved files inspected.
 
 - Ligand files are SMILES lists: no CCD codes, custom CCDs, ions, MSA, templates
   or PTMs per entry; those are base-job properties and are preserved.
-- No chemistry validation: malformed SMILES are stored with an advisory, and a
-  CCD-looking token becomes a SMILES string.
+- ~~No chemistry validation: malformed SMILES are stored with an advisory, and a
+  CCD-looking token becomes a SMILES string.~~ **Partly closed 2026-10-27:**
+  notation that is not SMILES grammar (including a CCD-looking token) is now
+  refused with the defect named, and the same checker is used by the file action
+  and by the base-job rule `R-ENT-010`. Still open, and still not claimed:
+  chemistry — a grammatical notation is written whether or not it denotes a real
+  molecule (`docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §3).
 - Output naming embeds the job name, so two different jobs with the same name
   into one folder collide — caught as a conflict, never overwritten.
 - A `manifest.json` is written beside the configurations (the generation

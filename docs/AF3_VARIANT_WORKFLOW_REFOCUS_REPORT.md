@@ -151,7 +151,7 @@ walkthroughs) and [INVENTORY.md](../../manual_test_data/af3_builder/INVENTORY.md
 | `batch/rna_sequences.txt` | RNA batch — not supported; demonstrates the refusal. |
 | `batch/dna_sequences.txt` | DNA batch (2 entries). |
 | `batch/ligands_valid.smiles` | SMILES batch: named, bare and commented lines. |
-| `batch/ligands_unchecked_syntax.smiles` | Malformed SMILES that the builder accepts (no parser). |
+| `batch/ligands_unchecked_syntax.smiles` | Malformed notation that the builder refuses, per line (notation grammar is checked; chemistry is not). |
 | `batch/empty.txt`, `batch/invalid_sequence.txt` | Empty file; per-line invalid records. |
 | `msa/protein/*.a3m`, `msa/rna/*.a3m`, `msa/with spaces/…` | Protein paired/unpaired MSA, RNA MSA, and a path containing spaces. |
 | `templates/minimal_template.cif`, `templates/with spaces/…` | Template path workflow (synthetic mmCIF). |

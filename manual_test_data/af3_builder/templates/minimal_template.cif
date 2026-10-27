@@ -19,6 +19,6 @@ _atom_site.Cartn_x
 _atom_site.Cartn_y
 _atom_site.Cartn_z
 ATOM 1 N N ALA A 1 0.000 0.000 0.000
-ATOM 2 CA C CA ALA A 1 1.458 0.000 0.000
-ATOM 3 C C C ALA A 1 2.009 1.420 0.000
+ATOM 2 C CA ALA A 1 1.458 0.000 0.000
+ATOM 3 C C ALA A 1 2.009 1.420 0.000
 #

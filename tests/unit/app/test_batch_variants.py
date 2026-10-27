@@ -433,17 +433,53 @@ def test_a_name_that_cannot_be_slugged_falls_back_to_its_position(tmp_path):
     assert specs[0].key == "ligand-01"
 
 
-def test_a_ccd_code_in_a_ligand_file_stays_smiles_text(tmp_path):
-    """The documented limitation, pinned: there is no CCD syntax for a file."""
-    from configbuilder.model import ByNotation, ByCode
+def test_a_ccd_code_in_a_ligand_file_is_refused_rather_than_stored(tmp_path):
+    """A ligand file has no CCD syntax, so a code in one is not a molecule.
+
+    Until the notation check existed the text was stored and serialised as
+    ``{"smiles": "ATP"}`` — a document AF3 refuses. It is now refused here,
+    once, naming the line and the reason, and nothing is generated.
+    """
+    from configbuilder.app.batch_variants import BatchError, ligand_specs_for_entries
+    from configbuilder.persistence import read_smiles_file
 
     projects, configuration, variants, _ = _services()
     path = _write(tmp_path, "atp ATP\nzinc ZN\n", name="ccd.smiles")
 
+    outcome = variants.generate_from_file(path, family="ligand")
+
+    assert not outcome.ok
+    assert "2 of 2 ligand entries are invalid" in outcome.message
+    assert repr("ATP") in outcome.message
+    assert "line 1" in outcome.message and "line 2" in outcome.message
+    assert "not SMILES notation" in outcome.message
+    # Nothing was committed, and the base job still has only what it started
+    # with: the refusal is all-or-nothing, exactly like a duplicate entry.
+    assert variants.specs() == []
+    assert [record.ids.primary.value for record in projects.project.configuration.records] == [
+        "A"
+    ]
+    with pytest.raises(BatchError) as caught:
+        ligand_specs_for_entries(
+            read_smiles_file(path), projects.project.configuration.identity.clone()
+        )
+    assert "the atom 'A' in 'ATP' is not one SMILES writes without brackets" in str(
+        caught.value
+    )
+
+
+def test_a_notation_that_is_smiles_is_still_stored_as_by_notation(tmp_path):
+    """The positive half: grammar-valid notation is stored, not judged for
+    chemistry — this check never claims a molecule."""
+    from configbuilder.model import ByCode, ByNotation
+
+    projects, configuration, variants, _ = _services()
+    path = _write(tmp_path, "aspirin CC(=O)Oc1ccccc1C(=O)O\nzinc [Zn+2]\n", name="ok.smiles")
+
     assert variants.generate_from_file(path, family="ligand").ok
 
     expanded = _expanded_variants(variants, projects)
-    for key, token in (("atp", "ATP"), ("zinc", "ZN")):
+    for key, token in (("aspirin", "CC(=O)Oc1ccccc1C(=O)O"), ("zinc", "[Zn+2]")):
         added = expanded[key].configuration.records[-1]
         assert isinstance(added.representation, ByNotation)
         assert not isinstance(added.representation, ByCode)

@@ -2,8 +2,9 @@
 
 Small, synthetic input files for driving the **builder** by hand through both front
 ends: the console menu (`python af3builder.py`) and the desktop window
-(`python gui.py`). They cover batch generation, external MSA files (protein and
-RNA), and template files, including a directory whose name contains spaces.
+(`python gui.py`). They cover ligand batch generation, external MSA files
+(protein and RNA), and template files, including a directory whose name
+contains spaces.
 
 Read this first:
 
@@ -32,17 +33,20 @@ They are narrower than "FASTA" in general:
 
 | Input | Accepted form |
 |---|---|
-| **Ligand batch file** (`.smiles`, `.txt`) — the one batch route both front ends offer | One ligand per line: `<name> <SMILES>` or just `<SMILES>`. Lines starting with `#` and blank lines are ignored. SMILES syntax is **not** parsed (no chemistry checker is wired): any non-empty text is stored. A CCD code typed here is stored as a *SMILES string*, not as `ccdCodes` — see §4 Scenario 2. |
-| Protein / DNA sequence file (`.txt`) | **Parser support only.** `persistence.read_sequence_file` and `VariantService.generate_from_file(family="protein"|"dna")` accept one sequence per line (blank lines skipped, no `>` headers, no wrapping, no comments), and the suite covers them — but since the ligand-only refactor there is **no menu or button** that reaches those families, so a user cannot run such a batch today. |
-| RNA batch file | **Not supported at all.** There is no RNA batch reader; the service refuses the family and says so. |
+| **Ligand batch file** (`.smiles`, `.txt`) — the one batch route both front ends offer | One ligand per line: `<name> <SMILES>` or just `<SMILES>`. Lines starting with `#` and blank lines are ignored. The notation is checked as **SMILES grammar** (`validation/smiles.py`): characters, balanced brackets, paired ring closures, unbracketed atoms from the organic subset. Chemistry is **not** checked (no chemistry toolkit is wired), so a grammatical notation is stored as written. A CCD code typed here is refused as notation, never converted to `ccdCodes` — see §4 Scenario 2. |
+| Protein / DNA sequence file (`.txt`) | **Parser support only.** `persistence.read_sequence_file` and `VariantService.generate_from_file(family="protein"|"dna")` accept one sequence per line (blank lines skipped, no `>` headers, no wrapping, no comments), and the suite covers them — but since the ligand-only refactor there is **no menu or button** that reaches those families, so a user cannot run such a batch today. Fed to the ligand action instead, every line is refused as notation. |
+| RNA batch file | **Not supported by design.** There is no RNA batch reader or builder; the service refuses the family and says so, and no front end offers it. |
 | MSA file | A3M text: `>` header lines plus alignment rows; lowercase letters are insertions, `-` is a gap. |
-| Template file | Any non-empty `.cif` / `.mmcif` file. The builder never parses mmCIF, so it cannot check chains, residues or bounds. |
+| Template file | A readable `.cif` / `.mmcif` file containing a structure: the builder parses it (gemmi when installed, its own lexical scan otherwise) and refuses a file that is not mmCIF. It still never reads the template's own residues, so chains, resolution and bounds are the user's mapping to supply. |
 | AF3 JSON input (Open) | **Content decides, not the extension.** `*.json` and `*.txt` both appear in the Open dialog's filter; a file is accepted when it parses as AF3 JSON for a supported version. `inputs/multi_ligand_small_protein_test.txt` is the `.txt` example. |
 
-A **wrapped** FASTA file is a trap worth knowing about: without a `>` header its
-lines are separate sequences and become separate variants. The invalid example in
-this pack is refused because of its header line, but if you delete that line the
-remaining wrapped lines commit as three variants. Use one line per sequence.
+A **wrapped** FASTA file is a trap worth knowing about: the readers are line
+based, so a file without a `>` header becomes one *entry per line* rather than
+one record per sequence, and each entry is read as its own entry. The invalid
+example in this pack is refused because of its header line; every wrapped line
+below it would otherwise be read separately. Use one line per entry, and note
+that a protein/DNA/RNA `.txt` file has no front-end route at all (§1) — fed to
+the ligand action, each line is refused as notation.
 
 ---
 
@@ -51,12 +55,13 @@ remaining wrapped lines commit as three variants. Use one line per sequence.
 | File | Purpose |
 |---|---|
 | `batch/ligands_valid.smiles` | **The normal batch input.** Two named ligands (`ethanol CCO`, `acetic-acid CC(=O)O`) plus one bare SMILES, with a `#` comment: three entries, three configurations. |
-| `batch/ligands_unchecked_syntax.smiles` | **Deliberately malformed** SMILES. The builder accepts them and only warns (no parser). See §4 Scenario 3. |
+| `batch/ligands_unchecked_syntax.smiles` | **Deliberately malformed** notation. The builder refuses them, naming each line's defect. See §4 Scenario 3. |
+| `batch/ligands_notation_edges.smiles` | **The positive control** for the notation check: bracketed atoms and charges, a `%10` ring closure, isotopes, a disconnected salt, a stereocentre — six entries, six configurations. |
 | `batch/empty.txt` | Zero bytes — refused as "no entries". |
 | `inputs/multi_ligand_small_protein_test.txt` | **The base job for the batch walkthrough.** A full AF3 JSON input (not a batch file): one small protein, ATP with two copies, an aspirin SMILES ligand and a magnesium ion, at JSON version 3. Open it, then generate from a ligand file. See §4 Scenario 1. |
 | `batch/proteins_valid.txt` | 3 protein sequences, one per line — **service-level** fixture only; no front end offers a protein batch after the ligand-only refactor. |
 | `batch/proteins_wrapped_fasta.txt` | **Invalid on purpose.** A real FASTA header plus a wrapped sequence: the reader refuses it with `line 1`, nothing created. Demonstrates "FASTA is not the batch format". Service-level, like the file above. |
-| `batch/rna_sequences.txt` | 3 valid RNA sequences. **Not supported** by any batch route — used to demonstrate the refusal. |
+| `batch/rna_sequences.txt` | 2 valid RNA sequences. **Not supported** by any batch route — there is no RNA builder; used to demonstrate the refusal. |
 | `batch/dna_sequences.txt` | 2 DNA sequences, one per line. Service-level, like the protein files. |
 | `batch/invalid_sequence.txt` | Line 1 valid, lines 2–3 invalid: the refusal names exactly those lines. Service-level. |
 | `msa/protein/unpaired-query.a3m` | Protein A3M whose first row is the query `ACDEFGHIKLMNPQRSTVWY`. |
@@ -67,8 +72,9 @@ remaining wrapped lines commit as three variants. Use one line per sequence.
 | `templates/with spaces/template with spaces.cif` | The same file with spaces in both the directory and the file name. |
 | `templates/template_fully_resolved.cif` | Fixture A: six-residue polymer `ACDEFG`, coordinates for all six. Query `ACDEFG` → `0:0…5:5`. |
 | `templates/template_unresolved_residues.cif` | Fixture B: seven-residue polymer `ACQDEFG`, coordinates only for `DEFG`. Query `DEFG` → `queryIndices [0,1,2,3]`, `templateIndices [3,4,5,6]`. |
-| `templates/template_empty.cif` | Fixture C1: zero bytes — **rejected** ("the file is empty"). |
-| `templates/template_malformed.cif` | Fixture C2: non-empty garbage — **accepted**, because nothing parses mmCIF. A pinned limitation, not a pass. |
+| `templates/template_empty.cif` | Fixture C1: zero bytes — **refused** ("the file is empty"). |
+| `templates/template_malformed.cif` | Fixture C2: a truncated `_atom_site` loop — **refused** (the loop's values cannot form rows of its three tags). |
+| `templates/template_no_records.cif` | Fixture D: a `data_` block with a title and no atom or polymer records — **refused** (nothing for AF3 to read). |
 | `templates/README.md` | The fixtures' sequences, resolved residues, expected mappings and why Fixture B maps to 3–6. |
 | `batch/` | Batch input fixtures by category — ligand, protein, DNA, RNA, invalid and empty — with the support matrix and expected output names. See its `README.md`. |
 
@@ -132,7 +138,7 @@ only how the text reaches the service.
 | Modes | automatic, free, unpaired, paired, both | automatic, free, provided |
 | Paired side | yes (including a separate file) | no — the mode list has no paired/both |
 | Templates | yes (`mmcifPath` + index pairs) | no — the template action is protein-only |
-| Batch input | one sequence per line | none |
+| Batch input | one sequence per line, **service-level only** (no menu or button) | none — unsupported by design |
 
 ### 3.5 Evidence
 
@@ -238,18 +244,20 @@ page.
 
 ### Scenario 2 — what a ligand file cannot carry: CCD codes, custom CCD, ions
 
-The file format is SMILES only. A line like `ATP` (a standard CCD code) is
-stored as `"smiles": "ATP"` — it does **not** become `ccdCodes`. Neither custom
-CCD definitions nor ions can be supplied per entry. What a file *can* do is work
+The file format is SMILES only, and a line like `ATP` (a standard CCD code) is
+**refused**, not stored: it is not SMILES notation. Neither custom CCD
+definitions nor ions can be supplied per entry. What a file *can* do is work
 on a base job that already carries those things: open the multi-ligand example
 (which has `ccdCodes` ATP and an ion) and, for a base with a custom CCD set on
 the **Custom CCDs** tab, every generated file keeps that job-wide definition and
 its `userCCDPath`/`userCCD` field intact. To add a CCD-coded ligand, use
 **Add Ligand** (CCD mode) instead of a file.
 
-`batch/ligands_unchecked_syntax.smiles` shows the other honest limit: broken
-SMILES are *accepted* with an advisory warning ("no chemistry checker is
-available"), because the builder stores SMILES text and wires no parser.
+`batch/ligands_unchecked_syntax.smiles` shows where the checks stop: broken
+notation is refused with the defect named (a ring closure opened and never
+closed; a line containing spaces), while a *grammatical* notation that no
+chemist would accept is written, because valence and perception belong to
+AF3's own parser (RDKit) and this builder does not depend on one.
 
 ### Scenario 3 — protein MSA, each user-provided mode
 
@@ -423,17 +431,25 @@ the automated tests assert it stays byte-identical.
   data pipeline).
 * The advisory A3M checks (query first, rectangular) are protein-documented;
   applying them to RNA is a project choice.
-* SMILES are stored, never parsed. `batch/ligands_unchecked_syntax.smiles`
-  demonstrates that.
+* SMILES notation **is** checked for grammar, chemistry is **not**
+  (`validation/smiles.py`: characters, balanced brackets, paired ring closures,
+  unbracketed atoms from the organic subset). Whether a grammatical notation
+  describes a real molecule — valence, aromaticity, perception — belongs to
+  AF3's own RDKit parser, which this builder does not depend on.
+  `batch/ligands_unchecked_syntax.smiles` and `batch/ligands_ccd_lookalike.smiles`
+  are the refusal fixtures; `batch/ligands_notation_edges.smiles` is the
+  positive control.
 * A batch file cannot express CCD codes, custom CCDs or ions; those belong to
   the base job or the **Add Ligand** dialog (see Scenario 2).
 * Protein, DNA and RNA batch processing still exists in the service
   (`VariantService.generate_from_file`) and is covered by unit tests, but no
   front end offers it: the file action is ligand-only by decision. Its fixtures
   stay here so the service does not lose its regression coverage.
-* The template mmCIFs are synthetic; the builder parses no mmCIF, so only path
-  handling and the serialized mapping are verified. `templates/README.md` states
-  exactly what is and is not checked.
+* The template mmCIFs are synthetic. The builder refuses a file that is not a
+  readable mmCIF structure (its own lexical scan, plus gemmi when the
+  `templates` extra is installed), but it still never reads the template's own
+  residues: only path handling, structural validity and the serialized mapping
+  are verified. `templates/README.md` states exactly what is and is not checked.
 
 The full audit — including exact JSON fields, source citations and the test
 results behind every claim above — is
