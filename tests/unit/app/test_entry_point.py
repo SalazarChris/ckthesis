@@ -180,7 +180,7 @@ def test_new_job_opens_the_job_menu():
     out = console.transcript
     assert "Name          : Oct4_POU" in out
     assert "1. Edit job configurations" in out
-    assert "7. Generate ligand configurations from a file" in out
+    assert "7. Generate configurations from a file (sequences or ligands)" in out
 
 
 def _opened(script):
@@ -267,7 +267,7 @@ def test_a_legacy_output_code_page_does_not_end_the_session(tmp_path):
     script = "\n".join([
         "1", "job",                      # new job
         "2", "1", "ACDE", "", "",        # add protein
-        "7", "1", str(ligands), str(output),  # ligand file → folder
+        "7", "1", "4", str(ligands), str(output),  # file → SMILES kind → folder
         "0", "0", "2", "0",             # back, leave (discard), exit
     ]) + "\n"
 

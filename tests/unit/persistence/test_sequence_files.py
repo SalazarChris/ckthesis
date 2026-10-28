@@ -84,3 +84,52 @@ def test_a_missing_file_still_names_the_missing_path(tmp_path):
     missing = tmp_path / "not-here.txt"
     with pytest.raises(PersistenceError, match="cannot be read"):
         read_sequence_file(str(missing))
+
+
+# -- CCD code lists (the identifier form of a ligand list) -------------------
+
+
+def test_a_code_line_keeps_its_interior_separators():
+    """One line is one ligand; only the model decides a component boundary."""
+    from configbuilder.persistence.sequences import parse_code_text
+
+    payload = "# comment\nATP\n\n  NAG NAG BMA MAN MAN  \nZN\n"
+    assert parse_code_text(payload) == (
+        (2, "ATP"),
+        (4, "NAG NAG BMA MAN MAN"),
+        (5, "ZN"),
+    )
+
+
+def test_a_code_file_reads_comments_and_crlf_but_a_sequence_file_does_not():
+    """The comment rule differs by format, and that difference is deliberate.
+
+    A code list is a hand-written list (comments are useful); a sequence list
+    has no comment syntax, so a ``#`` line there is an invalid sequence with
+    its line number. Both come from the same line reader.
+    """
+    from configbuilder.persistence.sequences import parse_code_text
+
+    assert parse_code_text("# header\n#\nATP\r\n") == ((3, "ATP"),)
+    assert parse_sequence_text("# header\nATP\n") == ((1, "# header"), (2, "ATP"))
+
+
+def test_reading_a_code_file_names_its_own_format_when_it_fails(tmp_path):
+    from configbuilder.persistence import read_code_file
+
+    with pytest.raises(PersistenceError, match="CCD code file cannot be read"):
+        read_code_file(str(tmp_path / "absent.txt"))
+    with pytest.raises(PersistenceError, match="is a directory, not a CCD code file"):
+        read_code_file(str(tmp_path))
+    with pytest.raises(PersistenceError, match="not UTF-8 text"):
+        broken = tmp_path / "broken.txt"
+        broken.write_bytes(b"\xff\xfe\x00\x01")
+        read_code_file(str(broken))
+
+
+def test_a_code_file_reads_from_disk(tmp_path):
+    from configbuilder.persistence import read_code_file
+
+    path = tmp_path / "codes.txt"
+    path.write_text("ATP\nNAG NAG\n", encoding="utf-8")
+    assert read_code_file(str(path)) == ((1, "ATP"), (2, "NAG NAG"))

@@ -307,30 +307,33 @@ class GuiState(QObject):
             self.project_changed.emit()
         return outcome
 
-    # -- the ligand file workflow, through the application services --------
+    # -- file generation, through the application services -----------------
 
-    def inspect_ligand_file(self, path):
-        """Preview a ligand input file: no variant, no file, no write.
+    def inspect_input_file(self, path, kind="ligand-smiles"):
+        """Preview a batch input file of ``kind``: no variant, no file, no write.
 
         The preview is the service's own read-only check, built from exactly
         the specs generation would write, so the count and any refusal shown
-        here cannot disagree with what a commit does.
+        here cannot disagree with what a commit does. ``kind`` is the user's
+        explicit choice; nothing here guesses it from the file.
         """
-        return self._services.variants.inspect_batch_file(path, family="ligand")
+        return self._services.variants.inspect_input_file(path, kind)
 
-    def generate_ligand_configurations(self, path, output_root):
-        """Write one independent configuration per ligand entry.
+    def generate_input_configurations(self, path, output_root, kind="ligand-smiles"):
+        """Write one independent configuration per entry of ``kind``.
 
-        ``LigandBatchOutput``: the reviewed plan, the files actually written
-        and any errors. The project's own output policies are passed
-        explicitly, exactly as the console and Generate page do, so existing
-        files are never replaced silently. Nothing is added to the job: the
-        base configuration stays exactly as it was.
+        ``LigandBatchOutput`` (the outcome type every batch uses): the reviewed
+        plan, the files actually written and any errors. The project's own
+        output policies are passed explicitly, exactly as the console and
+        Generate page do, so existing files are never replaced silently.
+        Nothing is added to the job: the base configuration stays exactly as it
+        was.
         """
         defaults = self._services.generation.output_defaults()
-        return self._services.generation.generate_ligand_batch(
+        return self._services.generation.generate_input_batch(
             path,
             output_root,
+            kind,
             overwrite_policy=defaults["overwrite"],
             path_policy=defaults["path"],
         )

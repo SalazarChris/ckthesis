@@ -28,7 +28,7 @@ this project's environment and nothing is written inside the repository.
 |---|---|
 | 1. Positive control | AF3's own `examples/*.json` (13 files) are ACCEPTED. If the harness cannot accept genuine AF3 input, nothing it says about this builder counts. |
 | 2. Negative control | 8 deliberate corruptions of a real example — missing/empty `modelSeeds`, wrong `dialect`, `version: 5`, an unknown top-level key, an unknown chain key, a sequence entry with no `id`, a bond naming an unknown chain — are all REJECTED. A harness that accepts rubbish proves nothing. |
-| 3. Corpus | 21 documents built by this builder's own services and serialization path, covering all four families, multi-copy records, PTMs, bonds, a bonded multi-code glycan, MSA (inline and external), templates, custom CCD (inline and external), descriptions on every family, versions 1–4 and a variant batch, are validated individually. |
+| 3. Corpus | 35 documents built by this builder's own services and serialization path, covering all four families, multi-copy records, PTMs, bonds, a bonded multi-code glycan, MSA (inline and external), templates, custom CCD (inline and external), descriptions on every family, versions 1–4, a variant batch and explicit file-input batches for protein, DNA, RNA and CCD ligands; 33 are ACCEPTED and 2 custom-CCD documents are UNVERIFIED because the compiled CIF parser is stubbed. |
 | 4. Round trip | Each official example is imported by the builder, re-emitted through the builder's generation path, and compared field by field against the original, with AF3's parser as the judge on both sides. |
 
 ## The parser, and what is stubbed
@@ -69,6 +69,11 @@ Not established:
 * **Semantic chemistry of atom names.** `bondedAtomPairs` atom names are checked
   for shape and residue range, not against the CCD's real atoms. AF3's parser is
   equally permissive here; a wrong atom name fails later, in featurisation.
+* **Batch sequence scope.** Protein, DNA and RNA batch outputs in the corpus are
+  accepted as AF3 input JSON; the parser result does not establish that minimal
+  test sequences are biologically useful or that inference succeeds. The batch
+  action requires an explicit kind, since `.txt` alone is ambiguous. FASTA and
+  per-entry custom-CCD definition files are not supported.
 * **AF3's documented limitation is respected, not re-tested.** Bonds between or
   within polymers are refused by this builder (`R-BND-006`) because AF3's docs
   say they are unsupported; AF3's *parser* accepts them, so parsing does not

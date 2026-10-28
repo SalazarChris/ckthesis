@@ -52,6 +52,7 @@ from configbuilder.model import (
     SingleProvided,
     duplex_partner,
     reverse_complement,
+    split_component_codes,
 )
 
 __all__ = ["ConfigurationService", "ReferenceInput"]
@@ -364,8 +365,12 @@ class ConfigurationService:
         made that promise false through the submenu's explicit CCD route: the
         five-code glycan ``NAG NAG BMA MAN MAN`` became a single component of
         that name, which no CCD contains.
+
+        The splitting itself is ``model.split_component_codes``, shared with
+        the batch reader so one line of a code file and one form entry can
+        never disagree about what a component boundary is.
         """
-        tokens = text.replace(",", " ").replace(";", " ").split()
+        tokens = split_component_codes(text)
         if not tokens:
             return self._refused("a ligand representation cannot be empty")
         try:

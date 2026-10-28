@@ -614,7 +614,7 @@ class MenuApp:
             elif choice == "6":
                 self._save_and_summary()
             elif choice == "7":
-                self._ligand_menu()
+                self._file_menu()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
@@ -1572,88 +1572,126 @@ class MenuApp:
             self._say(_text("menu.not_applied") % error)
         return False
 
-    # -- ligand configuration generation -----------------------------------
+    # -- configuration generation from a file -------------------------------
 
-    def _ligand_menu(self) -> None:
-        """One file of ligands in, one AF3 JSON per entry out.
+    #: The input kinds this console offers, in the order it lists them: the
+    #: registry key of the label, then the application's kind token. A test
+    #: compares this table with ``batch_variants.INPUT_KINDS``, because
+    #: offering a sixth kind here would advertise a construction no service
+    #: builds (and a missing one would hide a working kind).
+    FILE_KINDS = (
+        ("menu.file_kind_protein", "protein-sequence"),
+        ("menu.file_kind_dna", "dna-sequence"),
+        ("menu.file_kind_rna", "rna-sequence"),
+        ("menu.file_kind_ligand_smiles", "ligand-smiles"),
+        ("menu.file_kind_ligand_ccd", "ligand-ccd"),
+    )
 
-        The whole workflow is two questions: which file, and which folder.
-        The base job is the source of truth and is never modified — every
-        written configuration is that base plus one ligand entity — and
-        nothing is kept in an in-memory list afterwards, so running the same
-        job again starts from the same base.
+    #: The file prompt each kind asks with — the extension and the per-line
+    #: shape are the kind's, so the question never promises a format the reader
+    #: does not take.
+    _FILE_PROMPTS = {
+        "protein-sequence": "menu.file_prompt_sequence",
+        "dna-sequence": "menu.file_prompt_sequence",
+        "rna-sequence": "menu.file_prompt_sequence",
+        "ligand-smiles": "menu.file_prompt_ligand_smiles",
+        "ligand-ccd": "menu.file_prompt_ligand_ccd",
+    }
+
+    def _file_menu(self) -> None:
+        """One input file in, one AF3 JSON per entry out.
+
+        The workflow is three questions: what the file holds, which file, and
+        which folder. The base job is the source of truth and is never
+        modified — every written configuration is that base plus one entity of
+        the chosen kind — and nothing is kept in an in-memory list afterwards,
+        so running the same job again starts from the same base.
         """
         while True:
             project = self._project()
             if project is None:
                 return
-            self._say(_banner(_text("menu.ligand_title"), self._width))
+            self._say(_banner(_text("menu.file_title"), self._width))
             self._say()
-            self._say(_text("menu.ligand_description"))
+            self._say(_text("menu.file_description"))
             self._say()
             self._say(
-                _text("menu.ligand_base_job")
-                % project.configuration.metadata.name
+                _text("menu.file_base_job") % project.configuration.metadata.name
             )
             self._say(
-                _text("menu.ligand_base_entities")
+                _text("menu.file_base_entities")
                 % len(project.configuration.records)
             )
             self._say()
-            self._say(_text("menu.ligand_actions"))
+            self._say(_text("menu.file_actions"))
             self._say()
             self._say(_text("menu.back"))
             choice = self._select()
             if choice in ("0", "q", "quit", "exit", "back"):
                 return
             if choice == "1":
-                self._generate_ligand_file()
+                self._generate_from_file()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
-    def _generate_ligand_file(self) -> None:
-        """Read the ligand file, show what it holds, then write the batch.
+    def _generate_from_file(self) -> None:
+        """Ask what the file holds, read it, show it, then write the batch.
 
-        The preview is the service's own read-only check, so the count, the
-        entries and any refusal (a bad line, a duplicate molecule, an empty
+        The kind question comes **first** and its answer is the only thing that
+        decides how the file is read: an arbitrary ``.txt`` does not identify
+        an entity type, and content heuristics (``MVT`` is also a valid SMILES
+        atom soup to nobody, ``ATP`` is also a CCD code) would silently
+        reinterpret a user's file. Choosing the kind is the user's decision,
+        and the service refuses anything the chosen kind cannot read instead of
+        guessing back to another one.
+
+        After that the preview is the service's own read-only check, so the
+        count, the entries and any refusal (a bad line, a duplicate, an empty
         file) are known before a folder is even chosen. The write is one
         service call — plan and execute share the desktop's pipeline, so the
         two front ends cannot produce different files — and the report lists
-        the files that were actually written, never the ones that were
-        merely planned.
+        the files that were actually written, never the ones that were merely
+        planned.
         """
+        entries = [(_text(label_key), token) for label_key, token in self.FILE_KINDS]
+        kind = self._numbered_choice(_text("menu.file_kinds_title"), entries)
+        if kind is None:
+            return
         self._say()
-        path = self._pick_path("menu.ligand_file_prompt")
+        path = self._pick_path(self._FILE_PROMPTS[kind])
         if not path:
             self._say(_text("menu.save_cancelled"))
             return
-        preview = self._services.variants.inspect_batch_file(path, family="ligand")
+        preview = self._services.variants.inspect_input_file(path, kind)
         if not preview.ok:
             self._say(
-                _text("menu.ligand_refused")
+                _text("menu.file_refused")
                 % (preview.message or _text("menu.unknown_error"))
             )
             return
         self._say()
-        self._say(_text("menu.ligand_preview_title") % ((preview.planned or 0), path))
+        self._say(_text("menu.file_preview_title") % ((preview.planned or 0), path))
         for entry in preview.entries:
-            self._say(_text("menu.ligand_preview_entry") % entry)
+            self._say(_text("menu.file_preview_entry") % entry)
         self._say()
-        self._say(_text("menu.ligand_preview_note"))
-        default = os.path.join(os.getcwd(), "ligand_configurations")
-        root = self._ask_destination("menu.ligand_output_root", default)
+        self._say(
+            _text("menu.file_preview_note") % _text(self._kind_noun_key(kind))
+        )
+        default = os.path.join(os.getcwd(), "generated_configurations")
+        root = self._ask_destination("menu.file_output_root", default)
         if not root:
             self._say(_text("menu.save_cancelled"))
             return
         self._say()
-        self._say(_text("menu.ligand_generating"))
+        self._say(_text("menu.file_generating"))
         # The project's own policies, passed explicitly, exactly as the save
         # and the desktop routes do: a plan made without them would fall back
         # to overwriting, and existing files must never be replaced silently.
         defaults = self._services.generation.output_defaults()
-        outcome = self._services.generation.generate_ligand_batch(
+        outcome = self._services.generation.generate_input_batch(
             path,
             root,
+            kind,
             overwrite_policy=defaults["overwrite"],
             path_policy=defaults["path"],
         )
@@ -1661,25 +1699,35 @@ class MenuApp:
         if plan is not None and not plan.ok:
             if plan.failure_reason == FailureReason.VALIDATION_BLOCKED:
                 findings = tuple(plan.findings)
-                self._say(_text("menu.ligand_blocked") % len(findings))
+                self._say(_text("menu.file_blocked") % len(findings))
                 for finding in findings:
                     self._say("  - %s" % finding.user_message)
             else:
                 self._say(
-                    _text("menu.ligand_refused")
+                    _text("menu.file_refused")
                     % (plan.message or _text("menu.unknown_error"))
                 )
             for conflict in plan.conflicts:
                 self._say(_text("menu.export_conflict") % conflict)
             return
         for error in outcome.errors:
-            self._say(_text("menu.ligand_refused") % error)
+            self._say(_text("menu.file_refused") % error)
         for written in outcome.written:
-            self._say(_text("menu.ligand_written") % written)
+            self._say(_text("menu.file_written") % written)
         if outcome.ok and outcome.written:
-            self._say(_text("menu.ligand_summary") % (len(outcome.written), root))
+            self._say(_text("menu.file_summary") % (len(outcome.written), root))
         elif not outcome.written and not outcome.errors:
-            self._say(_text("menu.ligand_nothing_written"))
+            self._say(_text("menu.file_nothing_written"))
+
+    @staticmethod
+    def _kind_noun_key(kind: str) -> str:
+        """The registry key of the noun a kind's entities are called.
+
+        The family labels already exist for the entity lists, so the preview
+        note reuses them instead of adding a second set of words for the same
+        four families.
+        """
+        return _FAMILY_LABEL_KEYS[kind.split("-", 1)[0]]
 
     # -- view helpers ------------------------------------------------------
 

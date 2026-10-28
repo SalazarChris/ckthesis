@@ -41,6 +41,16 @@ __all__ = [
     "VariantService",
 ]
 
+#: The input kind each entity family reads through, for callers that still speak
+#: in families. The kinds themselves are ``batch_variants.INPUT_KINDS``; this is
+#: a translation, not a second vocabulary.
+_KIND_FOR_FAMILY = {
+    "protein": "protein-sequence",
+    "dna": "dna-sequence",
+    "rna": "rna-sequence",
+    "ligand": "ligand-smiles",
+}
+
 
 class ChoiceError(Exception):
     """A UI-facing choice payload is unusable (bad table shape, unknown
@@ -1091,88 +1101,170 @@ class VariantService:
             return entries, (), str(error)
         return entries, specs, None
 
-    def inspect_batch_file(self, path: str, family: str = "protein"):
-        """Preview a batch input file without creating anything.
+    #: How each input kind is described when its file is empty. One sentence per
+    #: reader, because "no entries" and "no sequences" are the user's own words
+    #: for what they thought they wrote.
+    _EMPTY_MESSAGES = {
+        "protein-sequence": "the sequence file contains no sequences (only blank lines)",
+        "dna-sequence": "the sequence file contains no sequences (only blank lines)",
+        "rna-sequence": "the sequence file contains no sequences (only blank lines)",
+        "ligand-smiles": (
+            "the ligand file contains no entries (only blank lines or comments)"
+        ),
+        "ligand-ccd": (
+            "the CCD code file contains no entries (only blank lines or comments)"
+        ),
+    }
 
-        The reader is selected by the family the batch would use — the same
-        choice ``generate_from_file`` makes — so the preview shows exactly
-        the entries that commit would turn into variants. Ligand files are
-        SMILES lists; protein and DNA files are one sequence per line. RNA
-        has no batch builder yet and refuses in those terms.
+    def input_file_specs(self, path: str, kind: str = "ligand-smiles"):
+        """Read one batch input file of ``kind`` and build its specs, uncommitted.
 
-        The preview also *checks* what it read the way the commit will: the
-        prospective specs are built against a throwaway clone of the project's
-        registry (the same construction ``generate_from_file`` uses), so an
-        invalid alphabet, a duplicate entry or a key that already exists is
-        reported **before** the user commits, with the offending file line.
-        Nothing is added to the project and no identifier is reserved in the
-        base: the clone is discarded.
+        Returns ``(entries, specs, None)`` or ``(entries, (), message)``, with
+        ``entries`` exactly as the kind's reader read them (so a front end can
+        show what would be processed even when the file is refused). The specs
+        are ``base + AddRecord`` pairs built against a **throwaway clone** of
+        the base registry: the project never claims an identifier, the base
+        configuration is not touched, and a refused file leaves both as they
+        were.
+
+        ``kind`` is the user's explicit choice (``batch_variants.INPUT_KINDS``),
+        never a guess from the file's extension or contents: a ``.txt`` of
+        amino-acid codes is a protein batch only because someone said so.
         """
-        from configbuilder.persistence import PersistenceError, read_sequence_file
-
-        if family == "ligand":
-            # The ligand preview is the *same* spec construction the one-step
-            # generation uses: the entries' own names become the keys, so the
-            # count, the names and any refusal are known before a file is
-            # written. Nothing is committed and no identifier is reserved.
-            entries, specs, problem = self.ligand_file_specs(path)
-            shown = ["%s  %s" % (name, smiles) for _line, name, smiles in entries]
-            if problem is not None:
-                return FilePreview(ok=False, message=problem, entries=shown)
-            return FilePreview(ok=True, entries=shown, planned=len(specs))
-        elif family in ("protein", "dna"):
-            try:
-                reader = read_sequence_file(path)
-            except PersistenceError as error:
-                return FilePreview(ok=False, message=str(error))
-            if not reader:
-                return FilePreview(
-                    ok=False,
-                    message="the sequence file contains no sequences (only blank lines)",
-                )
-            pairs = [(line_number, text) for line_number, text in reader]
-        else:
-            return FilePreview(
-                ok=False,
-                message="a batch file can contain protein, DNA or ligand entries; "
-                "%r is not supported" % (family,),
-            )
-        return self._check_batch_pairs(pairs, family)
-
-    def _check_batch_pairs(self, pairs, family):
-        """The entries as read, plus what committing them would produce.
-
-        Read-only by construction: ``batch_specs_for_sequences`` is handed a
-        **clone** of the base identity registry, exactly as the commit does,
-        so the identifiers it allocates while building the prospective specs
-        never reach the project. Nothing is added to the variant collection.
-        """
-        entries = [text for _line_number, text in pairs]
-        project = self._projects._require_project()
-        if project is None:
-            # No job to build against: the entries are still worth showing.
-            return FilePreview(ok=True, entries=entries)
         from configbuilder.app.batch_variants import (
             BatchError,
-            batch_specs_for_sequences,
+            INPUT_KINDS,
+            specs_for_entries,
         )
         from configbuilder.model import SequenceTextError
+        from configbuilder.persistence import (
+            PersistenceError,
+            read_code_file,
+            read_sequence_file,
+        )
 
+        if kind not in INPUT_KINDS:
+            return (), (), "%r is not an input type this builder reads" % (kind,)
+        if kind == "ligand-smiles":
+            # The SMILES reading is unchanged and shared: one implementation of
+            # ``name SMILES`` for the preview, the console and the page.
+            return self.ligand_file_specs(path)
+        project = self._projects._require_project()
+        if project is None:
+            return (), (), "no project is open"
         try:
-            specs = batch_specs_for_sequences(
-                pairs, project.configuration.identity.clone(), family=family
-            )
+            if kind == "ligand-ccd":
+                entries = read_code_file(path)
+            else:
+                entries = read_sequence_file(path)
+        except PersistenceError as error:
+            return (), (), str(error)
+        if not entries:
+            return (), (), self._EMPTY_MESSAGES.get(kind, "the file contains no entries")
+        try:
+            # Preserve direct VariantService callers that were constructed
+            # without ConfigurationService; this legacy API uses the original
+            # pure record builders. UI wiring supplies the normal constructor,
+            # including the DNA duplex behavior, for file-based generation.
+            if self._configuration is None:
+                specs = specs_for_entries(
+                    entries, project.configuration.identity.clone(), kind
+                )
+            else:
+                family = {
+                    "protein-sequence": "protein",
+                    "dna-sequence": "dna",
+                    "rna-sequence": "rna",
+                }.get(kind)
+                sequence_record_factory = (
+                    self._batch_records_for_family(family)
+                    if family is not None
+                    else None
+                )
+                specs = specs_for_entries(
+                    entries,
+                    project.configuration.identity.clone(),
+                    kind,
+                    sequence_record_factory=sequence_record_factory,
+                )
         except (BatchError, SequenceTextError) as error:
-            return FilePreview(ok=False, message=str(error), entries=entries)
+            return entries, (), str(error)
+        return entries, specs, None
+
+    def _batch_records_for_family(self, family):
+        """Build one line's records through normal entity construction.
+
+        Protein and RNA each add one record. DNA follows the same default
+        duplex/reverse-complement behavior as ConfigurationService.add_record;
+        one file line remains one independent batch specification, with both
+        strands grouped in that specification.
+        """
+        def build(registry, sequence):
+            records, failure = self._configuration._build_records(
+                family, sequence, "", 1, registry
+            )
+            if failure is not None:
+                raise BatchError(failure.message or "invalid %s sequence" % family)
+            return records
+
+        from configbuilder.app.batch_variants import BatchError
+
+        return build
+
+    def inspect_input_file(self, path: str, kind: str = "ligand-smiles"):
+        """Preview one batch input file of ``kind`` without creating anything.
+
+        The preview is the service's own read-only check against the same spec
+        construction the write uses, so the count, the entries and any refusal
+        (a bad line, a duplicate, an unreadable path, an unknown kind) are known
+        before a folder is chosen. Nothing is added to the project and no
+        identifier is reserved in the base: the clone is discarded.
+        """
+        entries, specs, problem = self.input_file_specs(path, kind)
+        if kind == "ligand-smiles":
+            shown = ["%s  %s" % (name, smiles) for _line, name, smiles in entries]
+        else:
+            shown = [text for _line, text in entries]
+        if problem is not None:
+            return FilePreview(ok=False, message=problem, entries=shown)
+        return FilePreview(ok=True, entries=shown, planned=len(specs))
+
+    def inspect_batch_file(self, path: str, family: str = "protein"):
+        """Preview a batch input file by **entity family**, commit-accurate.
+
+        Kept for callers that think in families (the older service surface and
+        its tests): the family is translated to the input kind the front ends
+        offer, and the same read-only check runs. Unlike
+        :meth:`inspect_input_file`, this preview also reports a key the project
+        already holds, because its caller is the **committing** path
+        (``generate_from_file``) where such a key would be refused at commit
+        time. The one-step file workflow commits nothing, so its preview has no
+        collision question — reporting one there would refuse a rerun that is
+        perfectly writable.
+        """
+        kind = _KIND_FOR_FAMILY.get(family)
+        if kind is None:
+            return FilePreview(
+                ok=False,
+                message="a batch file can contain protein, DNA, RNA or ligand "
+                "entries; %r is not supported" % (family,),
+            )
+        entries, specs, problem = self.input_file_specs(path, kind)
+        if kind == "ligand-smiles":
+            shown = ["%s  %s" % (name, smiles) for _line, name, smiles in entries]
+        else:
+            shown = [text for _line, text in entries]
+        if problem is not None:
+            return FilePreview(ok=False, message=problem, entries=shown)
         collisions = [spec.key for spec in specs if self._find(spec.key) is not None]
         if collisions:
             return FilePreview(
                 ok=False,
                 message="a variant keyed %r already exists; rename or remove it first"
                 % collisions[0],
-                entries=entries,
+                entries=shown,
             )
-        return FilePreview(ok=True, entries=entries, planned=len(specs))
+        return FilePreview(ok=True, entries=shown, planned=len(specs))
 
     def generate_from_file(self, path: str, family: str = "protein") -> MutationOutput:
         """Batch-generate one independent variant per entry in a file.

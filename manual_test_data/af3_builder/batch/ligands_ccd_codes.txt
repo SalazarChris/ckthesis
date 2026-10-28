@@ -1,0 +1,9 @@
+# Ligands given as CCD component codes: one ligand per line. Several codes on
+# one line are the components of a single multi-component ligand (the contract's
+# glycan/ion-mix form), not several ligands — so this file is three ligands.
+#
+# `#` lines are comments only in a code file; a sequence file has no comment
+# syntax, because a `#` line there is simply an invalid sequence.
+ATP
+ZN
+NAG NAG BMA MAN MAN

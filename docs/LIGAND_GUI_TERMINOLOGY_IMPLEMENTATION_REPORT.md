@@ -1,6 +1,6 @@
 # GUI terminology report — no variant interface, and one clear file action
 
-**Date:** 2026-10-26 · Companion to
+**Original verification date:** 2026-10-26 · Companion to
 `docs/LIGAND_VARIANT_GENERATION_IMPLEMENTATION_REPORT.md`.
 
 The requirement was narrow and absolute: **the desktop window must contain no
@@ -28,11 +28,11 @@ be caught.
 | Where | Text |
 |---|---|
 | Sidebar | `Overview` · `Entities` · `Generate` — three destinations, nothing else |
-| Entities, action row | **`Generate ligand configurations…`** with the tooltip *"Open a file of ligands or small molecules and write one AF3 JSON per entry. The base job itself is not modified."* |
-| Entities, beside it | a hint: *"Each entry is added to the base job as a new ligand entity; nothing on this screen changes."* |
-| Review box | *Review the ligand file* — `N ligand entries read:`, each `name  SMILES`, `Output folder: …`, `N AF3 JSON file(s) will be written`, *"Each entry is added to the base job as a new ligand entity; the base itself is not modified."*, buttons **Generate** / **Cancel** (Cancel is the default) |
-| Result box | *Ligand configurations* — `N file(s) written:` + the paths, or *"Nothing was written: <reason>"* with the plan's findings/conflicts |
-| Status bar | `Wrote N file(s) for the ligand file.` |
+| Entities, action row | **`Generate configurations from file…`** — select one of the supported input kinds (protein, DNA, RNA, SMILES or CCD), choose a file and destination, review and generate. The open base job is not modified. |
+| Entities, beside it | a hint: *"Each entry is added to the base job as one entity of the selected input type; nothing on this screen changes."* |
+| Review box | *Review input file* — selected type and its parsed entries, output folder and file count, with a note that each entry becomes one additional entity while the base itself is not modified; buttons **Generate** / **Cancel** (Cancel is the default) |
+| Result box | *Generated configurations* — `N file(s) written:` + the paths, or *"Nothing was written: <reason>"* with the plan's findings/conflicts |
+| Status bar | `Wrote N file(s) for the input file.` |
 | Generate page | step 1 is a sentence, not a picker: `One AF3 JSON file. No manifest.` — the page writes the open job's own file |
 
 ## 3. Registry changes (`configbuilder/ui/present/strings.py`)
@@ -59,25 +59,26 @@ be caught.
 `gui.ligand_result_{title,written,errors,skipped,refused,nothing}`,
 `gui.ligand_notice`, plus the console's `menu.ligand_*` block.
 
-The console's job menu entry is `7. Generate ligand configurations from a file`;
-its screen is
-`LIGAND CONFIGURATION GENERATION` with *Base job / Base entities*, the one action
-and `0. Back`.
+The console's job menu entry is `7. Generate configurations from a file (sequences or ligands)`;
+its screen is `CONFIGURATION GENERATION FROM A FILE` with *Base job / Base entities*,
+one action and `0. Back`. A following input-kind menu explicitly distinguishes
+protein, DNA, RNA, SMILES and CCD-code files.
 
 ## 4. Wording rules applied
 
 - **One word for the thing:** *entity* in the window (`Entity`, `Entities`, *Add
   Entity* is spelled as the existing *Add Protein / Add Ligand* family actions),
-  *ligand entry* for one line of a ligand file, *configuration* for an output
-  file. "Variant" appears nowhere on screen.
+  *input entry* for one file record, *configuration* for an output file. The
+  selected kind determines whether that entry is a sequence, SMILES notation
+  or a CCD component code. "Variant" appears nowhere on screen.
 - **The base is named as protected:** every screen of the workflow says the base
   job is not modified, because that is the property users worry about.
 - **The write is named honestly:** the report lists the files that were written,
   and a refusal says `Nothing was written: …` — never a success message for a run
   that wrote nothing.
-- **No ellipsis-only labels:** *Generate ligand configurations…* opens a dialog
-  flow, so it keeps the ellipsis; *Generate* in the review box commits the run and
-  has none.
+- **No ellipsis-only labels:** *Generate configurations from file…* opens a
+  dialog flow, so it keeps the ellipsis; *Generate* in the review box commits the
+  run and has none.
 - **Sentence case for prose, title case for destinations**, as before; the new
   strings follow the existing registry style.
 
@@ -104,16 +105,17 @@ write"). No registry key contains `variant`.
 | `tests/gui/test_mockup_shell.py::test_the_sidebar_holds_the_three_destinations_in_order` | the sidebar's own labels |
 | `tests/gui/test_workflow_simplification.py::test_no_page_manages_an_in_memory_variant_list` | `variants_page` does not exist, `GuiState` has no `specs`/`add_spec_with_edit`, `gui.tab_variants` is not a key, and no key starts with `gui.variants_` |
 | `...::test_the_ligand_file_action_lives_on_the_entities_page` | the button's text/tooltip are the registered ones, it is enabled and inside Entities, and no other button on that page says "generate" |
-| `tests/gui/test_ligand_file_generation.py::test_the_only_entry_point_is_an_action_on_the_entities_page` | no visible button in the whole window contains "variant" |
+| `tests/gui/test_file_generation.py::test_the_only_entry_point_is_an_action_on_the_entities_page` | no visible button in the whole window contains "variant" |
 | `tests/unit/ui/test_string_registry.py` | the registry meta-tests: every key is referenced where it is used, and no dangling key survives |
 | `tests/gui/test_workflow_simplification.py::test_generate_offers_no_second_kind_of_output` | the Generate page has no variant picker, no `choose_scope`, and plans `scope="base"` only |
 
 ## 7. Console ↔ window parity
 
-Both front ends call `GenerationService.generate_ligand_batch(path, root,
+Both front ends call `GenerationService.generate_input_batch(path, root, kind,
 <project overwrite policy>, <project path policy>)`, so they cannot disagree on
-what is written. The differences that remain are interaction-only and stated
-here:
+the selected reader, entity kind or output; the SMILES-only wrapper remains
+available for callers that need only that case. The differences that remain are
+interaction-only and stated here:
 
 | Step | Console | Window |
 |---|---|---|
@@ -136,8 +138,10 @@ Neither front end keeps a variant list, and neither offers a second entry point.
 
 ## 9. Verification
 
-- `QT_QPA_PLATFORM=offscreen python -m pytest tests/gui -o addopts="" -q --basetemp=.pytest-tmp`
-  → **267 passed**.
+**Historical result at the original cleanup commit:**
+`QT_QPA_PLATFORM=offscreen python -m pytest tests/gui -o addopts="" -q --basetemp=.pytest-tmp`
+→ **267 passed**. Current suite counts and the explicit-kind extension are
+recorded in `docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14.
 - `grep -ri variant configbuilder/ui` → internal identifiers and docstrings only.
 - `grep -n "gui.variants_" configbuilder/ui/present/strings.py` → no matches.
 

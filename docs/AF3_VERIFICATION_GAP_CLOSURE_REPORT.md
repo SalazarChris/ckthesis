@@ -24,9 +24,9 @@ that was executed in this checkout on 2026-10-27.
 
 | Suite | Command | Result |
 |---|---|---|
-| Core (everything but the GUI) | `python -m pytest tests --ignore=tests/gui -p no:randomly` | **1285 passed, 1 skipped**, exit 0 (188.9 s) |
-| GUI, offscreen Qt | `QT_QPA_PLATFORM=offscreen python -m pytest tests/gui -p no:cacheprovider --basetemp=.pytest-tmp -o addopts="" -q` | **270 passed**, exit 0 (58.7 s) |
-| Batch subsystem | `python -m pytest tests/unit/app/test_batch_variants.py tests/e2e/test_variant_cli_subprocess.py tests/e2e/test_entity_batch_cli_subprocess.py tests/gui/test_ligand_file_generation.py -p no:cacheprovider -o addopts="" -q` | **60 passed**, exit 0 (14.6 s) |
+| Core (everything but the GUI), historical run | `python -m pytest tests --ignore=tests/gui -p no:randomly` | **1285 passed, 1 skipped**, exit 0 (188.9 s); current-tree result appears in the 2026-10-28 addendum below |
+| GUI, offscreen Qt, historical run | `QT_QPA_PLATFORM=offscreen python -m pytest tests/gui -p no:cacheprovider --basetemp=.pytest-tmp -o addopts="" -q` | **270 passed**, exit 0 (58.7 s); current-tree result appears in the 2026-10-28 addendum below |
+| Batch subsystem (historical, 2026-10-27) | `python -m pytest tests/unit/app/test_batch_variants.py tests/e2e/test_variant_cli_subprocess.py tests/e2e/test_entity_batch_cli_subprocess.py tests/gui/test_ligand_file_generation.py -p no:cacheprovider -o addopts="" -q` | **60 passed**, exit 0 (14.6 s); current follow-up counts are recorded in `docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14 |
 
 ### Why the counts differ from the recorded baseline
 
@@ -43,26 +43,25 @@ assumed:
   `tests/e2e/test_template_cli_subprocess.py`, …). Collection was checked for
   double-counting: 1286 node ids collected, 1286 unique, 1285 passed + 1
   skipped.
-* **GUI: 270 now.** Two different predecessors explain it. The audit's **306**
-  predates the approved retirement of the variant surface:
-  `tests/gui/test_variants_batch.py` was deleted in `a4a488c`, and
-  `test_ligand_file_generation.py`, `test_template_attachment.py` and
-  `test_manual_test_data_gui.py` were added in that refactor, which the reports
-  from the previous commit already record as **267**. This turn adds three
-  collected cases on top of those 267: the packaged-dialog button-click test and
-  the sequence-file refusal in the ligand module, and the parametrised
-  malformed-template refusal. So 267 → 270 is new coverage, and 306 → 270 is the
-  retired variant page. Nothing is suppressed: the run reports 270 collected,
-  270 passed, 0 skipped (the only skips declared in the GUI suite are for a
-  missing PySide6 or missing fixtures; both are present here).
-* **Batch: 60 rather than 70.** The audit's command named
-  `tests/gui/test_variants_batch.py`, which no longer exists, and
-  `tests/unit/persistence/test_sequence_files.py`, which was left out of the
-  re-run above because it is not part of the ligand path.
+* **GUI counts are historical in this section.** The earlier 270 run predates
+  the explicit-kind batch additions; the current GUI suite is 279 tests and
+  passes in full with `QT_QPA_PLATFORM=offscreen python -m pytest tests/gui
+  -p no:cacheprovider --basetemp=.pytest-tmp -o addopts='' -q`. The current
+  result, including the Windows temp-path workaround, is recorded in §14 of
+  `docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md`. The older count
+  explains the prior report only and is not a claim about the current tree.
+**Historical batch result: 60.** The command at the time used the old GUI test
+path and did not include `tests/unit/persistence/test_sequence_files.py`; those
+counts describe the 2026-10-27 report run. The current follow-up focused result
+includes persistence, batch builders, real CLI subprocesses and the Qt Entities
+workflow, and is recorded in §14 of
+`docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md`.
 
-**No test was deleted, skipped or weakened to make these runs pass.** The
-working-tree diff removes seven test *functions* and adds seventeen, and every
-removal has a named replacement asserting the new behaviour: e.g.
+**No test was deleted, skipped or weakened to make the 2026-10-27 runs pass.**
+The later current-tree test results are recorded separately in the follow-up
+addendum. The historical working-tree diff removed seven test *functions* and
+added seventeen, and every removal had a named replacement asserting the new
+behaviour: e.g.
 `test_a_malformed_template_is_accepted_and_that_is_a_known_limitation` →
 `test_a_template_that_is_not_a_structure_is_refused_and_leaves_the_job_alone`;
 `test_a_ccd_code_in_a_file_is_stored_as_smiles_text` →
@@ -201,43 +200,32 @@ console test drives end to end: `[Na+].[Cl-]`, `C%10CCCCCC%10`, `[2H]C([2H])…`
 
 ---
 
-## 4. Protein, DNA and RNA batch generation: what the interfaces offer
+## 4. Protein, DNA and RNA batch generation: historical decision and current status
 
-**Status: unsupported by design at the interfaces** (service-level construction
-for protein/DNA is present and unit-tested; RNA has no builder at all).
+**Historical status when this report was first written (2026-10-27):** D2 had
+narrowed that earlier workflow to ligands, so the sequence kinds were not exposed
+in its UI. That was the accurate state at that time.
 
-This was investigated rather than assumed, because "batch generation" exists at
-three layers and only one of them is what a user can reach.
+**Current status (2026-10-28 follow-up):** the user explicitly requested the
+actual CLI and GUI paths for protein and DNA and asked to establish RNA support.
+The shared batch service now exposes Protein sequence, DNA sequence, RNA sequence,
+SMILES ligand and CCD-code ligand as five explicit input kinds. `.txt` content is
+never auto-detected. The console and Qt Entities page route all five through
+`GenerationService.generate_input_batch` and the same parser/build/validate/write
+pipeline. The current support matrix is in
+`manual_test_data/af3_builder/batch/README.md`.
 
-* **Service layer.** `app/batch_variants.BATCH_RECORD_BUILDERS` maps
-  `protein` → `FamilyARecord`, `dna` → `FamilyCRecord`, `ligand` →
-  `ComponentRecord`. There is **no `rna` entry**; asking for one is refused
-  rather than guessed. `batch_specs_for_sequences` is still reachable through
-  `VariantService.inspect_batch_file` / `generate_from_file`, which remain
-  unit-tested.
-* **Interfaces.** No CLI or GUI action offers a sequence batch. The console's
-  only file action is the ligand screen
-  (`ui/render/menus.py::_ligand_menu` → `_generate_ligand_file` →
-  `inspect_batch_file(family="ligand")` → `GenerationService.generate_ligand_batch`),
-  and `generate_from_file` is no longer called from any menu — the GUI has no
-  equivalent action either.
-* **Why.** Decision **D2** of the approved refactor restricts this workflow to
-  ligands and small molecules, and **D1** retired the manual variation entry
-  point. Building a protein/DNA/RNA batch UI now would add a feature the plan
-  explicitly excluded, so it was not done.
+The added builder maps protein → `FamilyARecord`, DNA → `FamilyCRecord`, and RNA
+→ `FamilyBRecord`, preserving the model's family-specific JSON representation.
+SMILES uses `ByNotation` and standard CCD uses `ByCode`. Custom CCD definitions
+remain job-wide base state, not a candidate-list input. The console subprocess
+tests and offscreen Qt tests inspect the generated files; the Qt suite also
+clicks the production button and drives the packaged dialogs. These are automated
+GUI checks, not a human-operated session.
 
-### Evidence that the refusal is real, not cosmetic
-
-`tests/e2e/test_entity_batch_cli_subprocess.py` parametrises over
-`proteins_valid.txt`, `proteins_wrapped_fasta.txt`, `dna_sequences.txt`,
-`rna_sequences.txt`, `invalid_sequence.txt` and `empty.txt` and drives the real
-console for each. Every run must exit 0, print a refusal naming the reason (the
-offending text for a sequence, "no entries" for the empty file), write **no**
-document, and not create the output folder. A further test asserts the ligand
-screen contains no `protein`/`dna`/`rna`/`variant` wording and exactly one
-action. `tests/gui/test_ligand_file_generation.py` makes the same check through
-the shipped Qt action: a sequence file is refused through the real button and the
-job's entities are unchanged.
+FASTA is still unsupported (one sequence per non-empty line). The minimal
+protein fixture tests parser and serialization behavior only; it does not imply
+biological adequacy or useful AF3 predictions. No AF3 inference was run.
 
 So a sequence file cannot be mistaken for a ligand file in either front end, and
 no interface claims a capability it does not have.
@@ -254,7 +242,7 @@ nothing in the project requires it, and the support matrix in
 
 **Status: verified working within a defined scope.**
 
-`tests/gui/test_ligand_file_generation.py` includes a test that replaces none of
+`tests/gui/test_file_generation.py` includes a test that replaces none of
 the page's modal seams: it clicks the shipped button with `QTest.mouseClick`, so
 the click→handler connection is real; it answers the two native `QFileDialog`
 statics; and it presses the review box's own *Generate* button, so the box's
@@ -290,11 +278,14 @@ normally, and the same launch succeeds with a repo-local log path.
 
 ## 6. Regression results
 
-All three suites above passed with exit code 0 on the final working tree. In
-addition, the affected focused modules were run first
+All three suites in the table above passed with exit code 0 on the 2026-10-27
+working tree. The statements in §§1, 6, 7, and 8 are historical snapshots from
+that run; current follow-up suite results and support status are in §14 of
+`docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md`. In addition, the
+affected focused modules were run first
 (`tests/e2e/test_template_cli_subprocess.py`,
 `tests/gui/test_template_attachment.py`,
-`tests/gui/test_ligand_file_generation.py`,
+`tests/gui/test_file_generation.py`,
 `tests/e2e/test_entity_batch_cli_subprocess.py`,
 `tests/unit/app/test_reference_validation.py`,
 `tests/unit/app/test_batch_variants.py`,
@@ -362,7 +353,7 @@ are accepted, at the same `0:0` mapping as before.
 `tests/e2e/test_entity_batch_cli_subprocess.py`,
 `tests/e2e/test_variant_cli_subprocess.py`, `tests/e2e/test_manual_test_data.py`,
 `tests/gui/test_template_attachment.py`,
-`tests/gui/test_ligand_file_generation.py` (updated).
+`tests/gui/test_file_generation.py` (renamed and updated).
 
 **Docs** — this report, plus status notes in
 `docs/LIGAND_VARIANT_GENERATION_AUDIT.md`,
@@ -382,15 +373,38 @@ are accepted, at the same `0:0` mapping as before.
 | A grammatical notation that denotes no molecule is written | consequence of the above; stated in the pack README and in the probe's docstring |
 | Template **mappings** are not derived or verified biologically; chain identity, residue numbering and unresolved residues are the user's input | **out of scope by design** — a structure check cannot decide it |
 | Template's residues are not read to compute sequence identity or bounds | **unsupported** |
-| Protein / DNA batch through a front end | **unsupported by decision D2**; service-level code retained and unit-tested |
-| RNA batch anywhere | **unsupported by design**; no builder, refused explicitly |
+| Protein / DNA / RNA batch through a front end | **Implemented and verified** through explicit-kind CLI subprocesses and the PySide6 Entities workflow; the current suite results and support matrix are in `docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14 and `manual_test_data/af3_builder/batch/README.md` |
 | A human-operated GUI session (native dialogs, DPI, focus on a real display) | **unverified — environment**; offscreen automated coverage only |
-| `%TEMP%` writes from the `.venv-gui` interpreter | **environment restriction**; documented, worked around with `--basetemp=.pytest-tmp` |
+| `%TEMP%` writes from the `.venv-gui` interpreter | **environment restriction, worked around for verification** with `--basetemp=.pytest-tmp`; full GUI suite passed with that option |
 | AF3 inference / prediction quality | **never attempted** — this project builds inputs |
 
 ---
 
-## 9. Manual check for a person at the keyboard
+## 9. Current-tree addendum (2026-10-28)
+
+These checks were re-run in the current checkout after explicit input-kind
+selection and support for protein, DNA, RNA, SMILES and CCD-code batches were
+integrated. Counts below supersede §1's historical figures where relevant.
+
+| Check | Executed result |
+|---|---|
+| Focused sequence/batch/CLI/GUI path | **97 passed, 1 skipped** across sequence persistence, batch record construction, CLI subprocesses, legacy SMILES CLI and GUI/manual-pack GUI tests |
+| Full core (all except GUI) | **1,297 passed, 1 skipped**, with one Matplotlib/PyParsing deprecation warning |
+| Full GUI (PySide6 offscreen) | **280 passed**; used repository-local pytest basetemp for this Windows environment |
+| Official AF3 parser corpus | **PASS**: 13/13 positive examples accepted, 8/8 corruptions rejected, 33 corpus documents accepted, 2 custom-CCD documents unverified, 13/13 round trips accepted |
+| Direct CLI protein smoke | Four written JSON outputs inspected; each preserves base settings/entities and adds only its matching protein sequence. With a temporary base copy omitting only `userCCD`, all four were accepted by the official AF3 parser; the original userCCD base correctly yields UNVERIFIED because the harness stubs AF3's compiled CIF parser. |
+
+The focused, core, GUI and parser-corpus results are recorded with their full
+commands in `docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14.
+The direct smoke used a temporary base document without custom CCD so AF3's
+parser could independently validate all four outputs. The separate direct run
+with the original base did not pass that check: it was UNVERIFIED at AF3's
+compiled `cif_dict` extension, as expected and documented. Neither run tests
+AF3 inference or biological usefulness of these short sequences.
+
+---
+
+## 10. Manual check for a person at the keyboard
 
 Templates (expect the malformed and no-record files to be refused):
 
@@ -402,14 +416,16 @@ Templates (expect the malformed and no-record files to be refused):
 3. Repeat with `template_unresolved_residues.cif` and query `DEFG`, pairs
    `0:3,1:4,2:5,3:6`; save the job and check the `templates` block in §2's table.
 
-Ligands (expect one document per entry, a refusal for a sequence file):
+Input batches (one document per entry; each input kind is explicit):
 
 1. `python af3builder.py` → `2` Open a JSON file →
    `manual_test_data/af3_builder/batch/base_job_custom_ccd.json` → `7` Generate
-   ligand configurations from a file → `1` → `batch/ligands_named.smiles` → the
-   default folder, or your own.
-2. Check the three documents appear with the entry names in their file names,
-   each containing the base's four definitions plus exactly one added ligand, and
-   `manual_test_data` itself unchanged.
-3. Run it again on `batch/proteins_valid.txt`: expect a refusal naming the
-   sequence, and **no** output folder created.
+   configurations from a file → `1` → choose the kind, e.g. `4` SMILES →
+   `batch/ligands_named.smiles` → choose the destination.
+2. Check the three ligand documents carry the unchanged base and one added
+   ligand apiece. Repeat with Protein sequences (`1`) and
+   `batch/proteins_minimal.txt`: four output JSONs should each carry the base
+   plus exactly one of MVT/MVS/MVY/TEST. Each run also writes its manifest.
+3. Open a sequence file in SMILES mode: expect a clear refusal with kind advice,
+   no destination write, and the base job unchanged. Confirm the fixture pack
+   itself remains unchanged.

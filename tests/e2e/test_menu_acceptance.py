@@ -229,7 +229,7 @@ def test_the_job_menu_numbering_is_stable_across_states():
         "4. Custom CCD management",
         "5. Post-translational modification management",
         "6. Save and show summary",
-        "7. Generate ligand configurations from a file",
+        "7. Generate configurations from a file (sequences or ligands)",
         "0. Return to main menu",
     ):
         assert label in bare, label
@@ -465,7 +465,7 @@ def test_a_ligand_file_writes_one_configuration_per_entry(tmp_path):
     output = tmp_path / "out"
     status, out, services = run(
         protein_job()
-        + ["7", "1", str(listing), str(output)]   # file, then folder
+        + ["7", "1", "4", str(listing), str(output)]   # kind, file, then folder
         + ["0"]                                   # back to the job menu
         + LEAVE_CLEAN
     )
@@ -499,7 +499,7 @@ def test_a_refused_ligand_file_writes_nothing(tmp_path):
     listing.write_text("one CCO\ntwo CCO\n", encoding="utf-8")
     output = tmp_path / "out"
     status, out, services = run(
-        protein_job() + ["7", "1", str(listing), str(output), "0"] + LEAVE_CLEAN
+        protein_job() + ["7", "1", "4", str(listing), str(output), "0"] + LEAVE_CLEAN
     )
     assert status == 0
     assert "duplicate ligand entries" in out
@@ -508,12 +508,12 @@ def test_a_refused_ligand_file_writes_nothing(tmp_path):
     assert len(services.projects.project.configuration.records) == 1
 
 
-def test_the_ligand_workflow_offers_only_its_one_action():
+def test_the_file_workflow_offers_only_its_one_action():
     """The manual variant editor is not reachable from the job menu."""
     status, out, _ = run(protein_job() + ["7", "0"] + LEAVE_DIRTY)
     assert status == 0
-    assert "LIGAND CONFIGURATION GENERATION" in out
-    assert "1. Open ligand input file and generate configurations" in out
+    assert "CONFIGURATION GENERATION FROM A FILE" in out
+    assert "1. Load an input file and generate configurations" in out
     for obsolete in (
         "Vary the entities in this job",
         "Set variant job name",

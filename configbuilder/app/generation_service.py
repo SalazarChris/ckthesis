@@ -611,19 +611,30 @@ class GenerationService:
             reviewed=planned,
         )
 
-    # -- the file-driven ligand workflow -----------------------------------------
+    # -- the file-driven input workflow ------------------------------------------
 
-    def plan_ligand_batch(
-        self, path: str, output_root: str, overwrite_policy=None, path_policy=None
+    def plan_input_batch(
+        self,
+        path: str,
+        output_root: str,
+        kind: str = "ligand-smiles",
+        overwrite_policy=None,
+        path_policy=None,
     ) -> GenerationPlan:
-        """One ligand file → one planned file per entry. Nothing is written.
+        """One input file of ``kind`` → one planned file per entry.
 
-        The whole planning half of the workflow: read the file through the
-        persistence reader, build one independent ``base + AddRecord`` spec
-        per entry (the entry's own name becoming the key, and so the file
-        name) against a throwaway registry clone, validate the base and every
-        variant through the full catalogue, then run the same
-        transform/plan/manifest sequence as any other variant run.
+        Nothing is written. The whole planning half of the workflow: read the
+        file through the kind's persistence reader, build one independent
+        ``base + AddRecord`` spec per entry against a throwaway registry clone,
+        validate the base and every variant through the full catalogue, then
+        run the same transform/plan/manifest sequence as any other variant
+        run.
+
+        ``kind`` is what the user said the file holds
+        (``batch_variants.INPUT_KINDS``) — protein, DNA or RNA sequences,
+        SMILES ligands, or CCD-coded ligands — and it selects both the reader
+        and the record builder, so a sequence can never be serialised as a
+        ligand or the reverse.
 
         No spec is committed to the project. A second run of the same file
         therefore does not refuse over keys that already exist; the only
@@ -671,7 +682,7 @@ class GenerationService:
         if refused is not None:
             return refused
 
-        _entries, specs, problem = self._variants.ligand_file_specs(path)
+        _entries, specs, problem = self._variants.input_file_specs(path, kind)
         if problem is not None:
             return GenerationPlan(
                 ok=False,
@@ -682,7 +693,7 @@ class GenerationService:
             return GenerationPlan(
                 ok=False,
                 failure_reason=FailureReason.EMPTY_EXPANSION,
-                message="the ligand file contains no usable entries",
+                message="the file contains no usable entries",
             )
 
         try:
@@ -709,19 +720,38 @@ class GenerationService:
             variants, detail, output_root, overwrite, path_choice
         )
 
-    def generate_ligand_batch(
+    def plan_ligand_batch(
         self, path: str, output_root: str, overwrite_policy=None, path_policy=None
-    ):
-        """Plan and write one ligand file in a single step.
+    ) -> GenerationPlan:
+        """The SMILES-ligand case of :meth:`plan_input_batch`.
 
-        Returns a ``LigandBatchOutput``: the reviewed plan, what was written,
-        what was skipped, and any write errors. ``ok`` is True only when the
-        plan succeeded **and** every file was written — a refusal writes
-        nothing at all (the plan is all-or-nothing), and an execution error
-        is reported per file rather than turned into a success message.
+        Kept because it names the case exactly: a caller that only ever reads
+        ``name SMILES`` files does not have to know the kind vocabulary to say
+        so, and it can never accidentally plan a different kind.
         """
-        plan = self.plan_ligand_batch(
-            path, output_root, overwrite_policy, path_policy
+        return self.plan_input_batch(
+            path, output_root, "ligand-smiles", overwrite_policy, path_policy
+        )
+
+    def generate_input_batch(
+        self,
+        path: str,
+        output_root: str,
+        kind: str = "ligand-smiles",
+        overwrite_policy=None,
+        path_policy=None,
+    ):
+        """Plan and write one input file of ``kind`` in a single step.
+
+        Returns a ``LigandBatchOutput`` (the same outcome type every batch
+        uses): the reviewed plan, what was written, what was skipped, and any
+        write errors. ``ok`` is True only when the plan succeeded **and** every
+        file was written — a refusal writes nothing at all (the plan is
+        all-or-nothing), and an execution error is reported per file rather
+        than turned into a success message.
+        """
+        plan = self.plan_input_batch(
+            path, output_root, kind, overwrite_policy, path_policy
         )
         if not plan.ok:
             return LigandBatchOutput(plan=plan, message=plan.message)
@@ -733,6 +763,14 @@ class GenerationService:
             errors=result.errors,
             ok=result.ok and not result.errors,
             message=result.message or "",
+        )
+
+    def generate_ligand_batch(
+        self, path: str, output_root: str, overwrite_policy=None, path_policy=None
+    ):
+        """The SMILES-ligand case of :meth:`generate_input_batch`."""
+        return self.generate_input_batch(
+            path, output_root, "ligand-smiles", overwrite_policy, path_policy
         )
 
     # -- execution (§15: writes only) --------------------------------------------

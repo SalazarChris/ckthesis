@@ -59,7 +59,7 @@ MENU_ACTIONS = (
     "4. Custom CCD management",
     "5. Post-translational modification management",
     "6. Save and show summary",
-    "7. Generate ligand configurations from a file",
+    "7. Generate configurations from a file (sequences or ligands)",
 )
 
 
@@ -274,7 +274,7 @@ MENU_ACTIONS = (
     "4. Custom CCD management",
     "5. Post-translational modification management",
     "6. Save and show summary",
-    "7. Generate ligand configurations from a file",
+    "7. Generate configurations from a file (sequences or ligands)",
 )
 
 

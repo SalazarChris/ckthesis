@@ -1,8 +1,11 @@
 # Ligand configuration generation — implementation report
 
-**Date:** 2026-10-26 · **Branch:** `main` · Supersedes the plan in
-`docs/LIGAND_VARIANT_GENERATION_AUDIT.md` (Phase 2 of that audit, decisions
-D1–D4 approved).
+**Original implementation:** 2026-10-26 · **Current follow-up verification:** 2026-10-28
+
+This report records the approved Phase 2 refactor (D1–D4). Subsequent changes
+extended its file action to protein, DNA, RNA, SMILES and CCD-code input kinds;
+the current tests, output checks and support matrix are recorded in
+`docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14.
 
 ---
 
@@ -11,9 +14,11 @@ D1–D4 approved).
 The variant-generation service used to be a **variant manager**: a list of
 in-memory specifications the user created, named, edited and finally exported.
 Opening a file of molecules was one menu step among eight, and the write was a
-second one. The approved decision was to make the service do one thing — *a file
-of ligands in, one independent AF3 configuration per entry out* — and to stop
-exposing variant management in either front end.
+second one. The approved Phase 2 decision was to simplify the UI around file-based
+configuration generation and stop exposing variant management in either front
+end. The original approved scope was ligand-focused; a later follow-up extended the
+same one-step workflow to explicitly selected protein, DNA, RNA, SMILES and CCD
+input kinds.
 
 That is what was implemented:
 
@@ -21,9 +26,9 @@ That is what was implemented:
 - the desktop window lost its **Variants & Batch** destination entirely and
   gained one action on **Entities**;
 - both front ends call the **same** application method
-  (`GenerationService.generate_ligand_batch`), which plans, validates and writes
+  (`GenerationService.generate_input_batch`), which plans, validates and writes
   in a single call, reusing the existing parser, spec builder, validator and
-  writer;
+  writer; the SMILES-only convenience method remains as a wrapper;
 - the documented `name SMILES` column is now honoured: the name becomes the
   output file's name and the summary label instead of being discarded;
 - a saved job whose external files were copied beside it can be reopened and
@@ -50,9 +55,11 @@ Console, job menu `7` (was *Create variants based on this JSON*):
 | 7 Generate the variants to a folder | folded into the single action |
 | 8 View all variants | removed; the run reports the files it wrote |
 
-The job menu entry is now `7. Generate ligand configurations from a file`, which
-opens a screen showing the base job, its entity count, one action
-(`1. Open ligand input file and generate configurations`) and `0. Back`.
+The job menu entry is now `7. Generate configurations from a file (sequences or ligands)`,
+which opens a screen showing the base job, its entity count, one action
+(`1. Load an input file and generate configurations`) and `0. Back`. The next
+menu explicitly asks whether the file contains protein, DNA, RNA, SMILES, or
+CCD-code entries; `.txt` alone is never used to guess.
 
 Desktop: the **Variants & Batch** page (`pages/variants.py`), its dialogs
 (`dialogs/variant_forms.py`), the variant list model, the sidebar destination and
@@ -65,56 +72,56 @@ Generate**.
 
 **Console**
 
-```
-job menu 7  →  LIGAND CONFIGURATION GENERATION
-               Base job: <name>   Base entities: <n>
-               1. Open ligand input file and generate configurations
-               0. Back
-```
-
-After `1`: the input file path → a preview of the entries (count, each entry, or
-the refusal) → the output folder → generation → one `Wrote <path>` line per file
-and a total.
+The job menu's file-generation action opens one simple screen, then the user
+selects one of five explicit input kinds before choosing the file: Protein
+sequence, DNA sequence, RNA sequence, SMILES ligand or CCD-coded ligand. The
+service previews and validates records, asks for an output folder, then writes
+one independent AF3 configuration per entry and reports actual paths. The
+`.txt` extension never determines the type.
 
 **Desktop**
 
-Entities → **Generate ligand configurations…** →
+Entities → **Generate configurations from file…** → choose input kind → native
+file picker → review the selected kind and entries → choose/confirm the output
+folder → generate → result dialog listing actual written files or actionable
+errors.
 
-1. the native open dialog (ligand lists, or all files);
-2. a review box: how many entries were read, each `name  SMILES` pair, the output
-   folder, how many files will be written, and the statement that the base job is
-   not modified;
-3. the folder picker;
-4. the result box: the files actually written, or the refusal with its findings.
-
-The action is disabled for nothing in particular — it reads the open job and
-writes files; it never changes the job.
+The shared application method is `GenerationService.generate_input_batch`; the
+open base is never modified. A custom CCD definition is not a batch-input kind:
+it is job-wide `userCCD` / `userCCDPath` state retained from the base.
 
 ---
 
 ## 4. Input formats actually supported
 
-The workflow accepts **ligand/small-molecule lists only** (decision D2):
+The file-generation action supports five **explicitly selected** kinds. The
+syntax is documented in
+`manual_test_data/af3_builder/batch/README.md` and each kind uses one shared
+reader/builder path:
 
-| Syntax | Meaning |
+| Kind | Format / output |
 |---|---|
-| `name SMILES` | first whitespace splits them; the name names the output file |
-| `SMILES` | auto-named `ligand_N`, so the file is `…__ligand-N.json` |
-| blank line, line starting `#` | ignored |
+| Protein sequence | One protein sequence per non-empty line → `protein.sequence` |
+| DNA sequence | One DNA sequence per non-empty line → the input strand and its reverse-complement `dna` strand in one output, through the normal Add DNA record constructor |
+| RNA sequence | One RNA sequence per non-empty line → `rna.sequence` |
+| SMILES ligand | `name SMILES` or bare SMILES → `ligand.smiles`; names are safe, deterministic output keys/summary labels, not AF3 fields |
+| Standard CCD ligand | One or more CCD component codes per line → `ligand.ccdCodes` |
 
-`persistence.read_smiles_file` reads it; nothing else was added, and no new file
-format exists. At the time of this report SMILES were **not** validated at all,
-and a CCD code typed as an entry was stored as SMILES text. That changed on
-2026-10-27: SMILES **grammar** is now checked (`validation/smiles.py`, wired as
-`BundledChemistryProbe`), so a CCD code, a sequence or a sentence is refused
-with its line number, while chemistry (valence, aromaticity) is still the
-external parser's business and is not claimed. See
+No FASTA headers/wrapping or custom-CCD definition files are batch formats. The
+user's explicit kind, not a `.txt` extension or content heuristic, selects the
+reader. The misrouted sequence/SMILES case is refused with an actionable hint;
+there is no automatic reinterpretation.
+
+SMILES entries are checked by the project's notation grammar (`validation/smiles.py`)
+for characters, brackets, ring closures and allowed unbracketed atoms. This is
+not chemical validation: no dependency or inference run establishes valence,
+aromaticity or whether a grammatical string denotes a real molecule. A CCD code
+or sequence entered in SMILES mode is refused with its line number. See
 `docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §3 and
 `manual_test_data/af3_builder/batch/README.md`.
 
-Protein and DNA sequence batches remain implemented in
-`VariantService.generate_from_file(family=…)` for API compatibility and unit
-coverage, but **no front end offers them**; RNA has no batch reader and refuses.
+Custom CCD remains job-wide: definitions are provided on the base as
+`userCCD` / `userCCDPath` and retained in every output; they are not per-entry.
 
 ---
 
@@ -129,8 +136,8 @@ One file, N entries → N configuration files plus `manifest.json`, all under
 ```
 
 - **Add, not replace.** Each configuration is the base job plus exactly one new
-  ligand entity — the semantics the audit found established and recommended
-  keeping. Nothing is substituted into an existing ligand slot.
+  entity of the explicitly selected input kind. Nothing is substituted into an
+  existing entity slot.
 - **Independent.** No configuration contains another entry's molecule; each is
   expanded from the same unchanged base.
 - **Identifiers** are allocated for the whole file up front from a throwaway
@@ -155,7 +162,7 @@ One file, N entries → N configuration files plus `manifest.json`, all under
 
 Structural, not defensive:
 
-- `batch_variants.ligand_specs_for_entries` allocates identities from
+- `batch_variants.specs_for_entries` allocates identities from
   `configuration.identity.clone()` — the project's registry never claims an id no
   record holds;
 - `variants.expand(configuration, specs)` applies every spec to **the same base
@@ -182,8 +189,8 @@ Structural, not defensive:
 | `configbuilder/ui/render/menus.py` | the one-screen ligand menu + one-step generation; variant submenu deleted |
 | `configbuilder/ui/present/strings.py` | `menu.ligand_*`, `gui.ligand_*`, `gui.action_ligand_file*` added; ~470 lines of variant/scope/picker strings removed |
 | `configbuilder/ui/present/labels.py` | variant labels removed |
-| `configbuilder/ui/render/qt/pages/entities.py` | the action, its four modal seams and `generate_ligand_file()` |
-| `configbuilder/ui/render/qt/dialogs/ligand_batch.py` | **new**: file picker, folder picker, review box, result box |
+| `configbuilder/ui/render/qt/pages/entities.py` | the action, its modal seams and `generate_from_file()` |
+| `configbuilder/ui/render/qt/dialogs/batch_input.py` | file-kind/file/folder pickers, review box, result box |
 | `configbuilder/ui/render/qt/pages/generate.py` | base-only scope; stale handler and scope picker removed |
 | `configbuilder/ui/render/qt/state.py` | `inspect_ligand_file`, `generate_ligand_configurations`; all variant wrappers removed |
 | `configbuilder/ui/render/qt/windows/main_window.py` | three destinations; stale `_variants.refresh()` removed |
@@ -236,17 +243,17 @@ window was driven offscreen through its real widgets and saved files inspected.
 
 ---
 
-## 10. Manual testing procedure (a file of several small molecules)
+## 10. Manual testing procedure
 
 1. `python af3builder.py` (console) or `python gui.py` (window).
 2. Open a base job: the pack's
    `manual_test_data/af3_builder/batch/base_job_custom_ccd.json`
    (console `2` + path; window **Open**). Expect `Entities: 4` / four rows.
-3. Console: `7` → `1` → the path to
-   `manual_test_data/af3_builder/batch/ligands_named.smiles` →
-   a scratch output folder.
-   Window: **Entities** → **Generate ligand configurations…** → the same file →
-   the same folder → review → **Generate**.
+3. Console: `7` → `1` → `4` (SMILES) → the path to
+   `manual_test_data/af3_builder/batch/ligands_named.smiles` → a scratch output
+   folder. The `4` selects SMILES from the five-kind menu.
+   Window: **Entities** → **Generate configurations from file…** → **Ligands by
+   SMILES** → the same file → review and select a scratch folder → **Generate**.
 4. Expect **three** configuration files named `…__ethanol.json`,
    `…__acetic-acid.json`, `…__ligand-1.json` plus `manifest.json`, and the report
    listing exactly those paths.
@@ -261,12 +268,27 @@ window was driven offscreen through its real widgets and saved files inspected.
 8. Confirm the job on screen is unchanged afterwards (still four entities) and
    that `git status` shows the pack untouched.
 
+### Protein sequence regression
+
+Use a minimal base with one protein entity, choose Protein sequences (`1` in the
+console or **Protein sequences** in the window), and select
+`manual_test_data/af3_builder/batch/proteins_minimal.txt`. Four outputs should be
+written, each preserving the base and adding exactly one protein sequence:
+`MVT`, `MVS`, `MVY`, or `TEST`. Inspect each `protein.sequence`; none of these
+records should be serialized under `ligand.smiles` or `ligand.ccdCodes`. These
+short strings verify parsing and serialization only, not biological usefulness
+or AF3 prediction quality. The equivalent real CLI and offscreen-Qt flows are
+automated in the batch tests listed in §9 and their results in
+`docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14.
+
 ---
 
 ## 11. Remaining limitations
 
-- Ligand files are SMILES lists: no CCD codes, custom CCDs, ions, MSA, templates
-  or PTMs per entry; those are base-job properties and are preserved.
+- The shared file action supports explicit protein, DNA, RNA, SMILES and
+  standard CCD-code input kinds. Custom CCD definitions, ions, MSA, templates
+  and PTMs are job-wide base properties preserved in each output, not per-entry
+  file formats.
 - ~~No chemistry validation: malformed SMILES are stored with an advisory, and a
   CCD-looking token becomes a SMILES string.~~ **Partly closed 2026-10-27:**
   notation that is not SMILES grammar (including a CCD-looking token) is now
@@ -278,9 +300,15 @@ window was driven offscreen through its real widgets and saved files inspected.
   into one folder collide — caught as a conflict, never overwritten.
 - A `manifest.json` is written beside the configurations (the generation
   pipeline's own summary of the run). It is not an AF3 input file.
-- Protein/DNA batch remains service-only; RNA batch does not exist.
-- AlphaFold 3 was not *run*, but its own input parser was: every document this
-  workflow wrote from a base without `userCCD` is `ACCEPTED` by
-  `folding_input.Input.from_json` (`docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md`
-  §12). Documents from the custom-CCD base come back UNVERIFIED because AF3
-  parses `userCCD` with a compiled extension the validation tool stubs out.
+- Protein, DNA, RNA, SMILES and CCD batches are now available in both CLI and GUI
+  and are exercised through end-to-end test paths. The GUI tests run the real Qt
+  widgets offscreen; no human-operated interactive session was performed.
+  FASTA and per-entry custom-CCD definitions remain unsupported; SMILES grammar
+  checks are not chemical validation. See the current matrix and input contract
+  in `manual_test_data/af3_builder/batch/README.md`.
+- AlphaFold 3 inference was not run, but its own input parser was: the builder
+  corpus currently reports 33 documents ACCEPTED and 2 custom-CCD documents
+  UNVERIFIED by `folding_input.Input.from_json` because AF3 parses `userCCD`
+  with a compiled extension the validation tool stubs out. Current test counts
+  and parser results are recorded in
+  `docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14.

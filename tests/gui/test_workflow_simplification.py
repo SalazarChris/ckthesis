@@ -177,19 +177,19 @@ def test_no_page_manages_an_in_memory_variant_list(reviewed):
     assert not any(key.startswith("gui.variants_") for key in STRINGS)
 
 
-def test_the_ligand_file_action_lives_on_the_entities_page(reviewed):
+def test_the_file_generation_action_lives_on_the_entities_page(reviewed):
     """One button, beside Add/Edit/Delete, and it is the only entry point."""
     page = reviewed.entities_page
-    assert page.ligand_file_button.text() == _text("gui.action_ligand_file")
-    assert page.ligand_file_button.toolTip() == _text("gui.action_ligand_file_hint")
-    assert page.ligand_file_button.isEnabled()
-    assert page.isAncestorOf(page.ligand_file_button)
+    assert page.batch_file_button.text() == _text("gui.action_file_generation")
+    assert page.batch_file_button.toolTip() == _text("gui.action_file_generation_hint")
+    assert page.batch_file_button.isEnabled()
+    assert page.isAncestorOf(page.batch_file_button)
     generating = {
         button.text()
         for button in page.findChildren(QPushButton)
         if "generate" in button.text().lower()
     }
-    assert generating == {_text("gui.action_ligand_file")}
+    assert generating == {_text("gui.action_file_generation")}
 
 
 # -- generate ----------------------------------------------------------------

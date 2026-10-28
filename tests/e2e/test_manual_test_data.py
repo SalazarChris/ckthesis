@@ -12,11 +12,13 @@ Two properties are pinned here beyond "the feature works":
 * the pack is **read-only** — every generated file goes to ``tmp_path``, and
   the fixture tree is compared before and after;
 * **RNA is not protein** — its MSA is one field, one path, never a paired
-  side, and the batch reader does not support it at all.
+  side; the explicitly selected RNA batch kind builds `FamilyBRecord` entities.
 
-Nothing here runs AlphaFold 3, and no assertion is evidence that AF3 accepts a
-document; see ``docs/AF3_MANUAL_TEST_DATA_AND_RNA_MSA_REPORT.md`` for what is
-builder-verified versus runtime-unverified.
+The tests do not run AF3 inference. The serialized input corpus is separately
+checked against AF3's own parser by ``tools/af3_validation/run_all.py``; custom
+CCD documents remain unverified in that harness because the compiled CIF parser
+is stubbed. See ``docs/AF3_MANUAL_TEST_DATA_AND_RNA_MSA_REPORT.md`` for the
+builder/runtime verification boundary.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from configbuilder.persistence import (
     read_sequence_file,
     read_smiles_file,
 )
-from configbuilder.model import SingleProvided
+from configbuilder.model import FamilyBRecord, SingleProvided
 from configbuilder.output.policies import PathPolicy
 from configbuilder.transform import to_wire
 from configbuilder.ui.render.console import ScriptedConsole
@@ -138,20 +140,40 @@ def test_wrapped_fasta_is_not_a_batch_format_and_is_refused_whole():
     assert services.variants.specs() == []
 
 
-def test_rna_has_no_batch_reader_and_both_front_ends_say_so():
-    """RNA is a first-class entity family but *not* a batch family."""
+def test_rna_batch_is_one_family_record_per_entry():
+    """RNA is a batch family: the records are ``FamilyBRecord``, not protein.
+
+    The ``rna`` representation, its ``ACGU`` alphabet and the ``rna``
+    serialisation all already existed for single entities, so the batch needs
+    no second implementation — this pins that the shared builder produces the
+    right family and refuses the wrong alphabet.
+    """
     services = _services("batch-rna")
     preview = services.variants.inspect_batch_file(
         _pack("batch", "rna_sequences.txt"), family="rna"
     )
-    assert not preview.ok
-    assert "'rna' is not supported" in preview.message
+    assert preview.ok, preview.message
+    assert preview.planned == 2
+    assert preview.entries == ("ACGUACGUACGU", "GGGCCCAAAUUU")
 
     outcome = services.variants.generate_from_file(
         _pack("batch", "rna_sequences.txt"), family="rna"
     )
-    assert not outcome.ok
-    assert services.variants.specs() == []
+    assert outcome.ok, outcome.message
+    assert [spec.key for spec in services.variants.specs()] == ["batch_01", "batch_02"]
+    expanded = services.variants.expand()
+    assert expanded.ok, expanded.message
+    for variant in expanded.variants:
+        added = variant.configuration.records[-1]
+        assert isinstance(added, FamilyBRecord), added
+        assert added.sequence.family == "rna"
+
+    # The alphabets are the model's: ``T`` is DNA, never RNA.
+    wrong = services.variants.inspect_batch_file(
+        _pack("batch", "dna_sequences.txt"), family="rna"
+    )
+    assert not wrong.ok
+    assert "outside its alphabet" in wrong.message
 
 
 def test_dna_batch_commits_one_variant_per_entry():
@@ -531,8 +553,9 @@ def test_console_ligand_file_writes_one_configuration_per_entry(tmp_path):
             QUERY_PROTEIN,
             "1",
             "n",
-            "7",  # ligand configuration generation
+            "7",  # configuration generation from a file
             "1",  # open the file and generate
+            "4",  # what it holds: SMILES ligands
             _pack("batch", "ligands_valid.smiles"),
             output,
             "0",

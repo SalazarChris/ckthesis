@@ -303,6 +303,15 @@ Findings from walking the workflow through both front ends against the example:
 
 ## 11. Limitations and remaining gaps
 
+**Historical status note (2026-10-28):** this report describes the earlier
+variant-refocus implementation. Its statements below about SMILES validation and
+RNA batch availability predate the later verification follow-ups and are not the
+current behavior. SMILES notation grammar is checked (chemistry is not), and
+protein/DNA/RNA plus SMILES/CCD batch input kinds are available through the
+current file-generation workflow. See
+`manual_test_data/af3_builder/batch/README.md` and
+`docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14.
+
 * **One strategy per action.** A single selection cannot mix families, because a
   strategy belongs to a family. Selecting the protein and a ligand with one
   strategy shows *"1 of 2 selected entities cannot take this change"* and names
@@ -319,9 +328,12 @@ Findings from walking the workflow through both front ends against the example:
 * **No docking, enumeration or optimisation** is offered or implied. The ligand
   operations are exactly "replace the representation (SMILES)", "change the copy
   count" and "remove the entity".
-* **RNA batch generation is still unsupported** (no batch reader); the variant
-  table does offer per-entity RNA changes (sequence, modifications, MSA,
-  removal), which is a different operation.
+* **Historical limitation (superseded 2026-10-28):** this report predates RNA
+  batch support. RNA now has an explicit one-sequence-per-line input kind,
+  built as `FamilyBRecord` and verified through CLI, Qt Entities and AF3 input
+  parsing. See the current support matrix in
+  `manual_test_data/af3_builder/batch/README.md`. The variant table's per-entity
+  RNA edits remain a separate operation.
 * **AF3 runtime acceptance is unverified.** Everything here is about the
   builder's input contract, validation, JSON shape, asset handling and file
   writing. No inference was run.

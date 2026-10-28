@@ -1,10 +1,10 @@
 # AF3 Builder — Manual Test Data and RNA MSA Audit
 
-**Date:** 2026-10-25
-**Repository:** `main` at `347620f` (unchanged by this task)
-**Deliverables:** `manual_test_data/af3_builder/` (fixtures + README + inventory),
-`tests/e2e/test_manual_test_data.py`, `tests/gui/test_manual_test_data_gui.py`,
-two console wording fixes with regression tests, and this report.
+**Original audit:** 2026-10-25 · **Current status:** 2026-10-28 follow-up
+
+The original MSA audit and its fixtures remain useful; batch support and tests
+have since been expanded. The dated follow-up entries below and in §10 supersede
+historic batch-availability claims.
 
 ---
 
@@ -12,14 +12,15 @@ two console wording fixes with regression tests, and this report.
 
 | Item | Value |
 |---|---|
-| Branch / HEAD | `main` at `347620f` — “Make MSA and template inputs complete and validated” |
-| State inherited | the **gate-recovery implementation from the preceding task**, still uncommitted: 21 modified files (`configbuilder/app`, `configbuilder/validation`, `configbuilder/ui`, `.gitignore`, `pyproject.toml`) plus untracked `tests/`, `docs/`, `fixtures/`, `.github/` and the specification documents |
+| Branch / HEAD (historical) | `main` at `347620f` — “Make MSA and template inputs complete and validated”; current verification results are in `docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14 |
+| State inherited (historical) | the **gate-recovery implementation from the preceding task**, still uncommitted at the time; not a description of the current working tree |
 | Protection | no `reset`, `clean`, `checkout`, `restore`, `stash`, rebase, amend or formatting sweep was run; nothing was committed or pushed |
-| What this task changed in existing files | four targeted edits only: three console strings and two menu call sites (see §7), plus a short pointer section in `RUNNING_THE_APPLICATION.md` |
+| What the original audit changed in existing files | four targeted edits: console wording/menu call sites plus a pointer in `RUNNING_THE_APPLICATION.md`; later follow-up changes are documented separately in §10 and the current end-to-end report |
 | AF3 inference / network | none. No cluster, no server, no download |
 
-Everything else this task added is new: the fixture pack, two test modules and
-this report.
+The remainder of this report records the original audit. Current batch fixtures,
+syntax and test results are maintained in the batch README and the current
+end-to-end report.
 
 ---
 
@@ -271,9 +272,10 @@ listed below as a decision the reviewer may want to revisit.
 Full steps, prompts and expected JSON are in
 `manual_test_data/af3_builder/README.md` §4. Short form:
 
-- [ ] Console: new job → protein → MSA *files* → templates `n` → Variants `5` →
-      `Protein` → `batch/proteins_valid.txt` → “3 variants”.
-- [ ] Console: same, ligand batch from `batch/ligands_valid.smiles` → 3 variants.
+- [ ] Console: open a base job → job menu `7` → choose Protein sequences
+      (`1`) → `batch/proteins_minimal.txt` → four independent protein outputs.
+- [ ] Console: choose SMILES (`4`) → ligand batch from
+      `batch/ligands_valid.smiles` → three independent ligand outputs.
 - [ ] Console: protein with `msa/protein/unpaired-query.a3m` (blank paired side)
       → `unpairedMsaPath` + `pairedMsa: ""`.
 - [ ] Console: protein with both A3M files → both path fields.
@@ -285,17 +287,24 @@ Full steps, prompts and expected JSON are in
 - [ ] Window: Entities → Add RNA → Change alignment → Provided + inline text,
       then Provided + file (spaces) → same two JSON shapes.
 - [ ] Window: confirm **Edit templates…** is absent/refused for RNA.
-- [ ] Window: Variants → Create variants from a file → Input type has no RNA;
-      protein batch previews 3 rows, creates 3 variants.
+- [ ] Window: Entities → Generate configurations from file… → choose Protein
+      sequences → `batch/proteins_minimal.txt`; verify four output files and one
+      protein sequence added per output. RNA is offered as its own explicit kind.
 - [ ] Window: Generate → Base job only → Copy into the output folder → Preview
       plan → Generate → `assets/rna-query.a3m` exists and the JSON points at it.
 - [ ] Repeat with *Use the paths exactly as entered*: no `assets/`, path as given.
 - [ ] Delete a configured `.a3m` and press Save → blocked with `R-MSA-006`.
-- [ ] Choose `batch/proteins_wrapped_fasta.txt` → refused, line 1 named.
+- [ ] Choose `batch/proteins_wrapped_fasta.txt` in Protein sequence mode →
+      refused, line 1 named; FASTA/wrapped input is unsupported.
 
 ---
 
 ## 10. Limitations and decisions needed
+
+RNA batch is implemented as an explicit input kind and verified through the
+real CLI and PySide6 Entities workflow. Current syntax and evidence are in
+`manual_test_data/af3_builder/batch/README.md` and
+`docs/TEMPLATE_AND_ENTITY_BATCH_END_TO_END_TEST_REPORT.md` §14.
 
 1. ~~**SMILES parsing still does not exist.** `batch/ligands_unchecked_syntax.smiles`
    is accepted. Making invalid SMILES blocking needs a parser dependency
@@ -307,20 +316,21 @@ Full steps, prompts and expected JSON are in
    `openbabel`. Still not checked, and still not claimed: chemistry — valence,
    aromaticity and perception stay with AF3's own parser. See
    `docs/AF3_VERIFICATION_GAP_CLOSURE_REPORT.md` §3.
-2. **RNA batch generation remains unsupported.** No front end offers it (there is
-   no RNA batch family anywhere in either menu), and the service refuses the
-   family in its own words. If batch RNA is wanted, it is an additive
-   `BATCH_RECORD_BUILDERS["rna"]` entry plus a
-   menu/combo entry — a feature decision, not this audit.
+2. **RNA batch:** implemented as an explicit supported input kind, builds the
+   model's RNA entity representation, and is covered by the real CLI and
+   PySide6 Entities tests plus AF3 input-parser validation. Current syntax and
+   scope are in `manual_test_data/af3_builder/batch/README.md`. This does not
+   claim AF3 inference quality.
 3. **RNA content advisories are protein-documented.** AF3 documents “first row =
    query” and “rectangular after removing insertions” under the protein section.
    The builder applies them to RNA as warnings. Decision: keep, or scope them to
    protein.
 4. **No inline MSA in the console.** The GUI can paste A3M; the console can only
    take a path. Adding a paste prompt is a small UI change if desired.
-5. **Template fixtures are synthetic and unverified.** Only path handling,
-   serialization and copying are proven. Validating mmCIF would require an mmCIF
-   parser (or the AF3 runtime).
+5. **Template fixtures are deterministic test structures.** Content parsing,
+   structure presence and residue-index mappings are covered by the template
+   validation and attachment tests; they are not experimental structures or
+   evidence of prediction quality.
 6. **RNA inline MSA text can be mistaken for a path by AF3** when it is shorter
    than 256 characters and names an existing file (see §4.4). The builder cannot
    detect this; the README does not encourage such content.

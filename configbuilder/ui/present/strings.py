@@ -85,7 +85,7 @@ STRINGS = {
         "4. Custom CCD management\n"
         "5. Post-translational modification management\n"
         "6. Save and show summary\n"
-        "7. Generate ligand configurations from a file"
+        "7. Generate configurations from a file (sequences or ligands)"
     ),
     "menu.job_back": "0. Return to main menu",
     "menu.leave_title": "Save before leaving?",
@@ -330,30 +330,43 @@ STRINGS = {
     "menu.pick_hint": "Type a number to open or choose, a full path, or '..' to go up. 0 cancels.",
     "menu.pick_cannot_list": "Cannot list this directory.",
 
-    # -- ligand configuration generation ----------------------------------
-    "menu.ligand_title": "LIGAND CONFIGURATION GENERATION",
-    "menu.ligand_description": (
-        "Load a file of ligands or small molecules. Each valid entry becomes "
+    # -- configuration generation from a file ------------------------------
+    "menu.file_title": "CONFIGURATION GENERATION FROM A FILE",
+    "menu.file_description": (
+        "Choose what the file holds, then load it. Each valid entry becomes "
         "one independent AF3 JSON configuration: this base job plus that "
-        "ligand."
+        "entity."
     ),
-    "menu.ligand_base_job": "Base job: %s",
-    "menu.ligand_base_entities": "Base entities: %d",
-    "menu.ligand_actions": "1. Open ligand input file and generate configurations",
-    "menu.ligand_file_prompt": "Ligand input file (.smiles or .txt): ",
-    "menu.ligand_preview_title": "%d entries read from %s:",
-    "menu.ligand_preview_entry": "  - %s",
-    "menu.ligand_preview_note": (
-        "Each entry is added to the base job as a new ligand entity; the base "
+    "menu.file_base_job": "Base job: %s",
+    "menu.file_base_entities": "Base entities: %d",
+    "menu.file_actions": "1. Load an input file and generate configurations",
+    "menu.file_kinds_title": "What does the file contain?",
+    "menu.file_kind_protein": "Protein sequences, one per line",
+    "menu.file_kind_dna": "DNA sequences, one per line",
+    "menu.file_kind_rna": "RNA sequences, one per line",
+    "menu.file_kind_ligand_smiles": (
+        "Ligands by SMILES, one per line, with an optional name first"
+    ),
+    "menu.file_kind_ligand_ccd": (
+        "Ligands by CCD code, one ligand per line (several codes make one "
+        "multi-component ligand)"
+    ),
+    "menu.file_prompt_sequence": "Sequence file (.txt, one sequence per line): ",
+    "menu.file_prompt_ligand_smiles": "Ligand file (.smiles or .txt): ",
+    "menu.file_prompt_ligand_ccd": "CCD code file (.txt, one ligand per line): ",
+    "menu.file_preview_title": "%d entries read from %s:",
+    "menu.file_preview_entry": "  - %s",
+    "menu.file_preview_note": (
+        "Each entry is added to the base job as one new %s entity; the base "
         "job itself is not modified, and existing files are never replaced."
     ),
-    "menu.ligand_output_root": "Output folder for the configurations [%s]: ",
-    "menu.ligand_generating": "Generating configurations...",
-    "menu.ligand_written": "Wrote %s",
-    "menu.ligand_summary": "Wrote %d file(s) under %s",
-    "menu.ligand_refused": "Nothing was written: %s",
-    "menu.ligand_blocked": "Nothing was written; %d blocking finding(s):",
-    "menu.ligand_nothing_written": (
+    "menu.file_output_root": "Output folder for the configurations [%s]: ",
+    "menu.file_generating": "Generating configurations...",
+    "menu.file_written": "Wrote %s",
+    "menu.file_summary": "Wrote %d file(s) under %s",
+    "menu.file_refused": "Nothing was written: %s",
+    "menu.file_blocked": "Nothing was written; %d blocking finding(s):",
+    "menu.file_nothing_written": (
         "Nothing was written: every planned file already exists with the same "
         "content."
     ),
@@ -444,45 +457,51 @@ STRINGS = {
         "the Edit button above."
     ),
     "gui.entity_partner_label": "Reverse-complement partner",
-    # The ligand file workflow: an action on Entities, its two path pickers,
-    # the review before writing, and the report of what was written.
-    "gui.action_ligand_file": "Generate ligand configurations...",
-    "gui.action_ligand_file_hint": (
-        "Open a file of ligands or small molecules and write one AF3 JSON per "
-        "entry. This job is the base and is not modified."
+    # Generation from a file: an action on Entities, the input-type question,
+    # two path pickers, the review before writing, and the report of what was
+    # written. Entity-neutral, because every supported kind goes through it.
+    "gui.action_file_generation": "Generate configurations from file...",
+    "gui.action_file_generation_hint": (
+        "Load a file of protein, DNA or RNA sequences, or of ligands, and "
+        "write one AF3 JSON per entry. This job is the base and is not "
+        "modified."
     ),
-    "gui.entity_ligand_note": (
+    "gui.entity_file_note": (
         "One file in, one configuration per entry out; existing files are "
         "never replaced."
     ),
-    "gui.ligand_file_dialog": "Choose a ligand input file",
-    "gui.ligand_file_filter": "Ligand lists (*.smiles *.txt);;All files (*)",
-    "gui.ligand_folder_dialog": (
+    "gui.batch_kind_title": "Input type",
+    "gui.batch_kind_prompt": "What does the file contain?",
+    "gui.batch_file_dialog": "Choose an input file",
+    "gui.batch_file_filter_sequences": "Sequence lists (*.txt);;All files (*)",
+    "gui.batch_file_filter_ligands": "Ligand lists (*.smiles *.txt);;All files (*)",
+    "gui.batch_folder_dialog": (
         "Choose the folder for the generated configurations"
     ),
-    "gui.ligand_preview_title": "Review the ligand file",
-    "gui.ligand_preview_entries": "%d ligand entries read:",
-    "gui.ligand_preview_row": "  - %s",
-    "gui.ligand_preview_more": "...and %d more",
-    "gui.ligand_preview_destination": "Output folder: %s",
-    "gui.ligand_preview_files": (
+    "gui.batch_preview_title": "Review the input file",
+    "gui.batch_preview_entries": "%d entries read:",
+    "gui.batch_preview_kind": "Input type: %s",
+    "gui.batch_preview_row": "  - %s",
+    "gui.batch_preview_more": "...and %d more",
+    "gui.batch_preview_destination": "Output folder: %s",
+    "gui.batch_preview_files": (
         "%d configuration file(s) plus a manifest will be written."
     ),
-    "gui.ligand_preview_note": (
+    "gui.batch_preview_note": (
         "Existing files are never replaced. The job open now is the base for "
         "every file and is not modified."
     ),
-    "gui.ligand_preview_accept": "Generate",
-    "gui.ligand_result_title": "Ligand configurations",
-    "gui.ligand_result_written": "%d file(s) written:",
-    "gui.ligand_result_errors": "These could not be written:",
-    "gui.ligand_result_skipped": (
+    "gui.batch_preview_accept": "Generate",
+    "gui.batch_result_title": "Generated configurations",
+    "gui.batch_result_written": "%d file(s) written:",
+    "gui.batch_result_errors": "These could not be written:",
+    "gui.batch_result_skipped": (
         "%d planned file(s) already existed with the same content and were "
         "left alone."
     ),
-    "gui.ligand_result_refused": "Nothing was written: %s",
-    "gui.ligand_result_nothing": "Nothing was written.",
-    "gui.ligand_notice": "Wrote %d file(s) for the ligand file.",
+    "gui.batch_result_refused": "Nothing was written: %s",
+    "gui.batch_result_nothing": "Nothing was written.",
+    "gui.batch_notice": "Wrote %d file(s) for the input file.",
     "gui.menu_file": "File",
     "gui.action_quit": "Quit",
     "gui.value_unset": "not set",

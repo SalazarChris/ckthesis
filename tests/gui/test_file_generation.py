@@ -1,27 +1,29 @@
-"""The ligand-file workflow, driven through the real Entities page.
+"""Generation from a file, driven through the real Entities page.
 
-The workflow is one action on **Entities**: choose a file of ligands, review
-what was read, choose the folder, generate. These tests drive
-``EntitiesPage.generate_ligand_file`` over the page's four assignable modal
+The workflow is one action on **Entities**: say what the file holds, choose
+it, review what was read, choose the folder, generate. These tests drive
+``EntitiesPage.generate_from_file`` over the page's five assignable modal
 seams and then read the files the application service actually wrote, so a
 page that only rendered a label would fail here.
 
-Two of them go one link further and use the *packaged* dialogs instead of the
-seams: the real button is clicked (so the click-to-handler connection is
-exercised), ``QFileDialog``'s two statics answer with the file and folder, and
-the review box's own ``exec`` is driven to press the button it built (so the
-box's text and its ``clickedButton`` answer are the shipped ones). No human
-operated the GUI in either case.
+Three of them go one link further and use the *packaged* dialogs instead of
+the seams: the real button is clicked (so the click-to-handler connection is
+exercised), the packaged input-type box and review box drive their own
+buttons, and ``QFileDialog``'s two statics answer with the file and folder. No
+human operated the GUI in these cases.
 
 What is pinned:
 
 - the action is the only entry point, and there is no variant page or list;
+- **the kind is asked for, never guessed**: the same four-line protein file
+  writes four protein configurations when the protein kind is chosen and is
+  refused, with advice, when the SMILES kind is chosen;
 - a cancelled picker, an empty file, a duplicate entry and a refused base all
   write nothing and change nothing;
-- a protein, DNA or RNA sequence file is refused the same way, naming the line:
-  this action reads ligand notation, and no interface offers a sequence batch;
-- every entry becomes its **own** configuration — base + exactly one ligand —
-  named after the entry's own name where it has one;
+- every entry becomes its **own** configuration — base + exactly one entity of
+  the chosen kind — named after the entry's own name where it has one;
+- protein, DNA, RNA, SMILES and CCD-code files each write their own entity
+  representation (``protein``/``dna``/``rna``/``smiles``/``ccdCodes``);
 - an existing file with different content stops the whole run (all-or-nothing)
   and is never replaced;
 - the report lists the files that were actually written, not the planned ones.
@@ -45,12 +47,13 @@ from PySide6.QtWidgets import (  # noqa: E402
 )
 
 from configbuilder.ui.present.strings import text as _text  # noqa: E402
-from configbuilder.ui.render.qt.dialogs import ligand_batch  # noqa: E402
+from configbuilder.ui.render.qt.dialogs import batch_input  # noqa: E402
 from configbuilder.ui.render.qt.dialogs import (  # noqa: E402
-    choose_ligand_file,
+    choose_batch_file,
+    choose_batch_kind,
     choose_output_folder,
-    confirm_ligand_preview,
-    report_ligand_run,
+    confirm_batch_preview,
+    report_batch_run,
 )
 
 PROTEIN = "ACDEFGHIKLMNPQRSTVWY"
@@ -104,42 +107,57 @@ def _records(window):
 
 
 class _Run:
-    """The four seam answers plus what the reporter was handed."""
+    """The five seam answers plus what the page asked and was handed.
 
-    def __init__(self, page, path, root, accept=True):
+    ``kind`` is the answer the input-type seam would give, and the file seam
+    records the kind it was asked for — that pairing is the point: the file
+    question cannot happen before the kind question, and the kind cannot change
+    between them.
+    """
+
+    def __init__(self, page, path, root, accept=True, kind="ligand-smiles"):
         self.page = page
         self.path = path
         self.root = root
         self.accept = accept
+        self.kind = kind
         self.previews = []
         self.reports = []
         self.folders = []
-        page.ligand_file_chooser = self._choose_file
-        page.ligand_folder_chooser = self._choose_folder
-        page.ligand_previewer = self._preview
-        page.ligand_reporter = self._report
+        self.kinds = []
+        self.file_kinds = []
+        page.batch_kind_chooser = self._choose_kind
+        page.batch_file_chooser = self._choose_file
+        page.batch_folder_chooser = self._choose_folder
+        page.batch_previewer = self._preview
+        page.batch_reporter = self._report
 
-    def _choose_file(self, parent, start=""):
+    def _choose_kind(self, parent):
+        self.kinds.append(True)
+        return self.kind
+
+    def _choose_file(self, parent, kind=""):
+        self.file_kinds.append(kind)
         return self.path
 
     def _choose_folder(self, parent, start=""):
         self.folders.append(True)
         return self.root
 
-    def _preview(self, parent, preview, output_root):
-        self.previews.append((preview, output_root))
+    def _preview(self, parent, preview, output_root, kind=""):
+        self.previews.append((preview, output_root, kind))
         return self.accept
 
     def _report(self, parent, output):
         self.reports.append(output)
 
     def generate(self):
-        self.page.generate_ligand_file()
+        self.page.generate_from_file()
         return self.reports[-1] if self.reports else None
 
 
-def _run(page, path, root, accept=True):
-    return _Run(page, path, root, accept=accept).generate()
+def _run(page, path, root, accept=True, kind="ligand-smiles"):
+    return _Run(page, path, root, accept=accept, kind=kind).generate()
 
 
 # -- the entry point ---------------------------------------------------------
@@ -147,15 +165,16 @@ def _run(page, path, root, accept=True):
 
 def test_the_only_entry_point_is_an_action_on_the_entities_page(base_job):
     page = base_job.entities_page
-    assert page.ligand_file_button.text() == _text("gui.action_ligand_file")
-    assert page.isAncestorOf(page.ligand_file_button)
+    assert page.batch_file_button.text() == _text("gui.action_file_generation")
+    assert page.isAncestorOf(page.batch_file_button)
     # The dialogs are the packaged ones until a test replaces them, and the
     # page owns the whole sequence: no second page, no list, no variant wording
     # anywhere the user can see.
-    assert page.ligand_file_chooser is choose_ligand_file
-    assert page.ligand_folder_chooser is choose_output_folder
-    assert page.ligand_previewer is confirm_ligand_preview
-    assert page.ligand_reporter is report_ligand_run
+    assert page.batch_file_chooser is choose_batch_file
+    assert page.batch_folder_chooser is choose_output_folder
+    assert page.batch_kind_chooser is choose_batch_kind
+    assert page.batch_previewer is confirm_batch_preview
+    assert page.batch_reporter is report_batch_run
     texts = {
         button.text().lower()
         for button in base_job.findChildren(QPushButton)
@@ -222,22 +241,27 @@ def test_the_review_box_lists_the_entries_and_the_destination(
     """The real dialog text, with only its modal loop stood in for."""
     path = _write_ligands(tmp_path, "ethanol CCO\nacetone CC(=O)C\n")
     page = base_job.entities_page
-    preview = base_job.state.inspect_ligand_file(path)
+    preview = base_job.state.inspect_input_file(path)
     shown = []
     monkeypatch.setattr(
         QMessageBox, "exec", lambda self: shown.append(self.text()) or 0
     )
 
     work = tmp_path / "out"
-    accepted = confirm_ligand_preview(page, preview, str(work))
+    accepted = confirm_batch_preview(page, preview, str(work), "ligand-smiles")
 
     assert accepted is False, "an un-pressed box is a cancel"
     assert len(shown) == 1
     text = shown[0]
-    assert _text("gui.ligand_preview_entries") % 2 in text
+    assert _text("gui.batch_preview_entries") % 2 in text
+    # The kind is stated in the box, from the shipped label.
+    assert (
+        _text("gui.batch_preview_kind") % _text("menu.file_kind_ligand_smiles")
+        in text
+    )
     assert "ethanol  CCO" in text
     assert "acetone  CC(=O)C" in text
-    assert _text("gui.ligand_preview_destination") % str(work) in text
+    assert _text("gui.batch_preview_destination") % str(work) in text
     assert list(tmp_path.glob("out")) == []
 
 
@@ -248,9 +272,10 @@ def test_cancelling_the_review_writes_nothing(base_job, tmp_path):
 
     assert run.generate() is None
     assert len(run.previews) == 1, "the review was shown"
-    preview, root = run.previews[0]
+    preview, root, kind = run.previews[0]
     assert preview.ok and len(preview.entries) == 2
     assert root == str(tmp_path / "out")
+    assert kind == "ligand-smiles"
     assert not (tmp_path / "out").exists()
 
 
@@ -341,7 +366,7 @@ def test_the_report_lists_exactly_the_files_on_disk(base_job, tmp_path):
     assert sorted(outcome.written) == on_disk
     assert len(outcome.written) == len(outcome.plan.entries)
     # The status bar says how many files were written, from the same outcome.
-    assert base_job.statusBar().currentMessage() == _text("gui.ligand_notice") % len(
+    assert base_job.statusBar().currentMessage() == _text("gui.batch_notice") % len(
         outcome.written
     )
 
@@ -359,21 +384,21 @@ def test_the_repair_report_never_claims_a_write_that_did_not_happen(
     monkeypatch.setattr(
         QMessageBox, "exec", lambda self: shown.append(self.text()) or 0
     )
-    report_ligand_run(page, outcome)
+    report_batch_run(page, outcome)
 
-    assert shown and _text("gui.ligand_result_written") % len(outcome.written) in shown[0]
+    assert shown and _text("gui.batch_result_written") % len(outcome.written) in shown[0]
 
-    blocked = base_job.state.generate_ligand_configurations(
+    blocked = base_job.state.generate_input_configurations(
         path, str(tmp_path / "again")
     )
     assert blocked.ok, "identical content is not a conflict"
 
     page.state.services.projects.new("empty-again")
-    refused = base_job.state.generate_ligand_configurations(
+    refused = base_job.state.generate_input_configurations(
         path, str(tmp_path / "refused")
     )
     shown.clear()
-    report_ligand_run(page, refused)
+    report_batch_run(page, refused)
     assert shown and "Nothing was written" in shown[0]
     assert not (tmp_path / "refused").exists()
 
@@ -499,20 +524,27 @@ def _answer_with_file_dialog(monkeypatch, path, root):
     )
 
 
-def _drives_boxes(monkeypatch, label_key, seen):
+def _drives_boxes(monkeypatch, label_keys, seen):
     """Drive each packaged ``QMessageBox.exec`` by pressing one of its buttons.
 
-    The boxes are the shipped ones — their text, buttons and ``clickedButton``
-    answers are their own. Only the human's mouse is stood in for, because
-    nothing in this process can move one.
+    ``label_keys`` are tried in order for each box: the input-type box answers
+the first label it has, the review box the next, and a box with none of them
+    (the result report) is left unpressed, exactly as a user closing it would
+    leave it. The boxes are the shipped ones — their text, buttons and
+    ``clickedButton`` answers are their own. Only the human's mouse is stood in
+    for, because nothing in this process can move one.
     """
+    remaining = list(label_keys)
 
     def fake_exec(box):
         seen.append(box.text())
-        for button in box.buttons():
-            if button.text() == _text(label_key):
-                button.click()
-                break
+        for index, label_key in enumerate(remaining):
+            wanted = _text(label_key)
+            for button in box.buttons():
+                if button.text() == wanted:
+                    button.click()
+                    del remaining[index]
+                    return 0
         return 0
 
     monkeypatch.setattr(QMessageBox, "exec", fake_exec)
@@ -523,37 +555,48 @@ def test_the_real_button_click_writes_the_files_through_the_packaged_dialogs(
 ):
     """Click → handler → service → files, with the shipped dialogs in place.
 
-    The other tests in this file replace the page's four modal seams; this one
+    The other tests in this file replace the page's five modal seams; this one
     replaces none of them. It clicks the real button (so the click-to-handler
-    connection is exercised), answers the two native file-dialog statics, and
-    presses the review box's own *Generate* button, so the box's text and its
-    ``clickedButton`` answer are the shipped ones too.
+    connection is exercised), presses the packaged input-type box's *SMILES*
+    button and the review box's own *Generate* button, and answers the two
+    native file-dialog statics — so every box's text and its ``clickedButton``
+    answer are the shipped ones.
     """
     page = base_job.entities_page
     path = _write_ligands(tmp_path, "ethanol CCO\nbenzene c1ccccc1\n")
     root = tmp_path / "out"
     boxes = []
     _answer_with_file_dialog(monkeypatch, path, str(root))
-    _drives_boxes(monkeypatch, "gui.ligand_preview_accept", boxes)
+    _drives_boxes(
+        monkeypatch,
+        ["menu.file_kind_ligand_smiles", "gui.batch_preview_accept"],
+        boxes,
+    )
 
-    assert page.ligand_file_chooser is choose_ligand_file
-    assert page.ligand_folder_chooser is choose_output_folder
-    assert page.ligand_previewer is confirm_ligand_preview
-    assert page.ligand_reporter is report_ligand_run
+    assert page.batch_kind_chooser is choose_batch_kind
+    assert page.batch_file_chooser is choose_batch_file
+    assert page.batch_folder_chooser is choose_output_folder
+    assert page.batch_previewer is confirm_batch_preview
+    assert page.batch_reporter is report_batch_run
 
-    QTest.mouseClick(page.ligand_file_button, Qt.LeftButton)
+    QTest.mouseClick(page.batch_file_button, Qt.LeftButton)
 
     documents = _documents(root)
     assert sorted(documents) == [
         "ligand-base__benzene.json",
         "ligand-base__ethanol.json",
     ]
-    # The review box, then the result box: two shipped boxes, in that order.
-    assert len(boxes) == 2
-    assert _text("gui.ligand_preview_entries") % 2 in boxes[0]
-    assert str(root) in boxes[0]
+    # The input-type box, the review box, then the result box, in that order.
+    assert len(boxes) == 3
+    assert boxes[0] == _text("gui.batch_kind_prompt")
+    assert _text("gui.batch_preview_entries") % 2 in boxes[1]
+    assert (
+        _text("gui.batch_preview_kind") % _text("menu.file_kind_ligand_smiles")
+        in boxes[1]
+    )
+    assert str(root) in boxes[1]
     # Two configurations plus the run's own manifest.json.
-    assert _text("gui.ligand_result_written") % 3 in boxes[1]
+    assert _text("gui.batch_result_written") % 3 in boxes[2]
     for document in documents.values():
         # The base's protein and CCD ligand, plus exactly one new ligand.
         assert len(_ligands(document)) == 2
@@ -563,30 +606,225 @@ def test_the_real_button_click_writes_the_files_through_the_packaged_dialogs(
     ] == ["A", "B"]
 
 
-def test_a_sequence_file_is_refused_through_the_real_action(base_job, tmp_path):
-    """No interface offers a sequence batch, and this action says why.
+def test_the_real_button_and_packaged_dialogs_generate_protein_sequences(
+    base_job, tmp_path, monkeypatch
+):
+    """The reported four-line file also traverses the shipped dialogs."""
+    page = base_job.entities_page
+    path = os.path.join(PACK, "proteins_minimal.txt")
+    root = tmp_path / "protein-out"
+    boxes = []
+    _answer_with_file_dialog(monkeypatch, path, str(root))
+    _drives_boxes(
+        monkeypatch,
+        ["menu.file_kind_protein", "gui.batch_preview_accept"],
+        boxes,
+    )
 
-    ``proteins_valid.txt`` is the pack's protein fixture: the ligand action
-    reads notation, so every line is refused with the offending text, before
-    the folder question and before anything is written. A protein/DNA/RNA
-    batch has no entry point by decision (D2), so the honest behaviour here is
-    the refusal, never a configuration whose "ligand" is a sequence.
+    QTest.mouseClick(page.batch_file_button, Qt.LeftButton)
+
+    documents = _documents(root)
+    assert len(documents) == 4, sorted(documents)
+    found = set()
+    for document in documents.values():
+        sequences = document["sequences"]
+        assert len(sequences) == 3
+        assert sequences[0]["protein"]["sequence"] == PROTEIN
+        assert sequences[1]["ligand"] == {"id": "B", "ccdCodes": ["ATP"]}
+        added = sequences[-1]
+        assert list(added) == ["protein"]
+        assert set(added["protein"]) == {"id", "sequence"}
+        found.add(added["protein"]["sequence"])
+    assert found == {"MVT", "MVS", "MVY", "TEST"}
+    assert len(boxes) == 3
+    assert boxes[0] == _text("gui.batch_kind_prompt")
+    assert _text("menu.file_kind_protein") in boxes[1]
+    assert str(root) in boxes[1]
+    assert _text("gui.batch_result_written") % 5 in boxes[2]
+    assert [record.ids.primary.value for record in base_job.state.configuration.records] == ["A", "B"]
+
+
+# -- the input kinds the action offers ----------------------------------------
+
+PACK = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "manual_test_data",
+    "af3_builder",
+    "batch",
+)
+
+
+def test_the_kind_is_asked_for_before_the_file(base_job, tmp_path):
+    """Kind first, then file: the file cannot be read without the answer.
+
+    ``.txt`` alone identifies nothing, so the page must not open a file before
+    the user has said what is in it — and the kind the file question receives
+    is the kind the preview and the write use.
     """
     page = base_job.entities_page
-    pack = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "manual_test_data",
-        "af3_builder",
-        "batch",
-        "proteins_valid.txt",
-    )
-    run = _Run(page, pack, str(tmp_path / "out"))
+    path = _write_ligands(tmp_path, "ethanol CCO\n")
+    run = _Run(page, path, str(tmp_path / "out"), kind="ligand-ccd")
+
+    assert run.generate() is not None
+    assert run.kinds == [True], "the kind was asked for"
+    assert run.file_kinds == ["ligand-ccd"], "and passed to the file question"
+    assert [kind for _preview, _root, kind in run.previews] == ["ligand-ccd"]
+
+
+def test_a_cancelled_kind_question_touches_nothing(base_job, tmp_path):
+    page = base_job.entities_page
+    before = base_job.state.configuration
+    run = _Run(page, _write_ligands(tmp_path, "ethanol CCO\n"), "", kind="")
 
     assert run.generate() is None
+    assert run.file_kinds == [], "no file question after a cancelled kind"
     assert run.folders == []
+    assert base_job.state.configuration is before
+
+
+def test_four_protein_sequences_write_four_protein_configurations(base_job, tmp_path):
+    """The reported problem, fixed: ``MVT/MVS/MVY/TEST`` as proteins.
+
+    The same file in SMILES mode is refused (the test below); here the kind is
+    protein, so each line becomes its own configuration whose added entity is
+    a ``protein`` with that sequence — never a ligand, and never in ``smiles``
+    or ``ccdCodes``.
+    """
+    page = base_job.entities_page
+    path = os.path.join(PACK, "proteins_minimal.txt")
+    work = tmp_path / "out"
+
+    outcome = _run(page, path, str(work), kind="protein-sequence")
+
+    assert outcome is not None and outcome.ok, outcome.errors
+    documents = _documents(work)
+    assert len(documents) == 4, sorted(documents)
+    added = {}
+    for document in documents.values():
+        sequences = document["sequences"]
+        # The base's protein and CCD ligand, plus exactly one new protein.
+        assert len(sequences) == 3
+        assert sequences[0]["protein"]["id"] == "A"
+        assert sequences[1]["ligand"] == {"id": "B", "ccdCodes": ["ATP"]}
+        new = sequences[2]
+        assert list(new) == ["protein"], new
+        assert set(new["protein"]) == {"id", "sequence"}
+        added[new["protein"]["id"]] = new["protein"]["sequence"]
+    assert sorted(added.values()) == ["MVS", "MVT", "MVY", "TEST"]
+    assert len(set(added)) == 4, "one identifier per entry"
+    # The base job is the same job afterwards, with the same records.
+    assert [
+        record.ids.primary.value for record in base_job.state.configuration.records
+    ] == ["A", "B"]
+
+
+def test_dna_and_rna_files_write_their_own_entity_representation(base_job, tmp_path):
+    """DNA is ``dna``, RNA is ``rna``: the family follows the chosen kind."""
+    page = base_job.entities_page
+    for kind, fixture, family, sequences in (
+        ("dna-sequence", "dna_sequences.txt", "dna", ["ATGCATGC", "GGCCTTAA"]),
+        (
+            "rna-sequence",
+            "rna_sequences.txt",
+            "rna",
+            ["ACGUACGUACGU", "GGGCCCAAAUUU"],
+        ),
+    ):
+        work = tmp_path / kind
+        outcome = _run(page, os.path.join(PACK, fixture), str(work), kind=kind)
+
+        assert outcome is not None and outcome.ok, outcome.errors
+        documents = _documents(work)
+        assert len(documents) == len(sequences), sorted(documents)
+        written = []
+        for document in documents.values():
+            if family == "dna":
+                strands = document["sequences"][-2:]
+                assert [list(entry) for entry in strands] == [["dna"], ["dna"]]
+                first, second = (entry["dna"]["sequence"] for entry in strands)
+                assert second == first[::-1].translate(str.maketrans("ATGC", "TACG"))
+                written.append(first)
+            else:
+                new = document["sequences"][-1]
+                assert list(new) == [family], new
+                written.append(new[family]["sequence"])
+        assert sorted(written) == sorted(sequences)
+
+
+@pytest.mark.parametrize(
+    "payload,kind,expected_text",
+    (
+        ("AC1T\n", "protein-sequence", "outside its alphabet"),
+        ("MVT\nMVT\n", "protein-sequence", "duplicate"),
+        ("ACGT\nAC1T\n", "dna-sequence", "outside its alphabet"),
+        ("", "rna-sequence", "no sequences"),
+    ),
+)
+def test_invalid_empty_and_duplicate_sequences_are_refused(
+    base_job, tmp_path, payload, kind, expected_text
+):
+    page = base_job.entities_page
+    input_path = tmp_path / "sequence-input.txt"
+    input_path.write_text(payload, encoding="utf-8")
+    output_root = tmp_path / "out"
+    run = _Run(page, str(input_path), str(output_root), kind=kind)
+
+    assert run.generate() is None
+    assert run.folders == [], "invalid sequence input must be refused before asking for an output folder"
+    assert expected_text.lower() in base_job.last_problem_text().lower()
+    assert not output_root.exists()
+    assert [record.ids.primary.value for record in base_job.state.configuration.records] == ["A", "B"]
+
+
+def test_a_ccd_code_file_writes_ccd_codes_not_smiles(base_job, tmp_path):
+    """The identifier form: ``ccdCodes``, and several codes are one ligand."""
+    page = base_job.entities_page
+    path = os.path.join(PACK, "ligands_ccd_codes.txt")
+    work = tmp_path / "out"
+
+    outcome = _run(page, path, str(work), kind="ligand-ccd")
+
+    assert outcome is not None and outcome.ok, outcome.errors
+    documents = _documents(work)
+    assert sorted(documents) == [
+        "ligand-base__atp.json",
+        "ligand-base__nag-nag-bma-man-man.json",
+        "ligand-base__zn.json",
+    ]
+    codes = {}
+    for name, document in documents.items():
+        new = document["sequences"][-1]["ligand"]
+        assert set(new) == {"id", "ccdCodes"}, name
+        codes[name] = new["ccdCodes"]
+    assert codes["ligand-base__atp.json"] == ["ATP"]
+    assert codes["ligand-base__zn.json"] == ["ZN"]
+    assert codes["ligand-base__nag-nag-bma-man-man.json"] == [
+        "NAG",
+        "NAG",
+        "BMA",
+        "MAN",
+        "MAN",
+    ]
+
+
+def test_a_sequence_file_in_smiles_mode_is_refused_with_advice(base_job, tmp_path):
+    """Not silently reinterpreted: refused, and told which kind would read it.
+
+    ``MVT``/``MVY`` are the reported file. In SMILES mode every line is refused
+    with its reason, then the refusal names the kinds that would take them — and
+    nothing is written, no folder is asked for, and the job is unchanged.
+    """
+    page = base_job.entities_page
+    path = os.path.join(PACK, "proteins_minimal.txt")
+    run = _Run(page, path, str(tmp_path / "out"), kind="ligand-smiles")
+
+    assert run.generate() is None
+    assert run.folders == [], "no folder question after a refusal"
     message = base_job.last_problem_text()
     assert "not SMILES notation" in message
-    assert "MKTAYIAKQRQISFVKSHFSRQ" in message
+    assert "'MVT'" in message and "'TEST'" in message
+    assert "may be protein sequences rather than SMILES" in message
+    assert "protein sequence input type" in message
     assert run.reports == []
     assert not os.path.exists(str(tmp_path / "out"))
     assert [

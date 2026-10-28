@@ -296,6 +296,22 @@ def test_picker_bad_number_recovers(tmp_path, monkeypatch):
     assert app._pick_path("menu.ask_import_path").endswith("s.txt")
 
 
+def test_the_file_kind_menu_lists_exactly_the_supported_input_types():
+    """The console's kind table is the services' kind table, token for token.
+
+    ``MenuApp.FILE_KINDS`` promises that a test compares it with
+    ``batch_variants.INPUT_KINDS``: a sixth kind would advertise a construction
+    no service builds, and a missing one would hide a working kind. The prompt
+    table is checked at the same time, because a kind whose prompt key is absent
+    raises ``KeyError`` the moment a user picks it.
+    """
+    from configbuilder.app.batch_variants import INPUT_KINDS
+
+    tokens = tuple(token for _label_key, token in menus_module.MenuApp.FILE_KINDS)
+    assert tokens == INPUT_KINDS
+    assert set(menus_module.MenuApp._FILE_PROMPTS) == set(INPUT_KINDS)
+
+
 def test_blocking_generation_names_the_findings():
     """A generation refusal carries the blocking findings for the UI."""
     services = build_services()

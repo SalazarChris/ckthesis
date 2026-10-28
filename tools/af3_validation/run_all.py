@@ -368,6 +368,40 @@ def _variants(services, configuration, refusals, directory):
     _apply("batch variants", services.variants.generate_from_file(seqs), refusals)
 
 
+def _input_batches(services, configuration, refusals, directory):
+    """The file-driven workflow's input kinds, one step per kind.
+
+    These are the files a user picks in the console's and the Entities page's
+    "generate from a file" action — protein, DNA and RNA sequence lists and a
+    CCD code list — each run through the same one-step service call those front
+    ends make, so the documents AF3's parser judges here are the documents the
+    workflow actually writes. The protein list is the four-line minimal fixture
+    (``MVT``/``MVS``/``MVY``/``TEST``) that used to be refused as SMILES.
+    """
+    os.makedirs(directory, exist_ok=True)
+    configuration.add_record("protein", PROT)
+    defaults = services.generation.output_defaults()
+    lists = (
+        ("protein-sequence", "proteins.txt", "MVT\nMVS\nMVY\nTEST\n"),
+        ("dna-sequence", "dna.txt", "ATGCATGC\nGGCCTTAA\n"),
+        ("rna-sequence", "rna.txt", "ACGUACGUACGU\nGGGCCCAAAUUU\n"),
+        ("ligand-ccd", "codes.txt", "ATP\nZN\nNAG NAG BMA MAN MAN\n"),
+    )
+    for kind, name, payload in lists:
+        path = os.path.join(directory, name)
+        with io.open(path, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+        outcome = services.generation.generate_input_batch(
+            path,
+            os.path.join(directory, kind),
+            kind,
+            overwrite_policy=defaults["overwrite"],
+            path_policy=defaults["path"],
+        )
+        if not outcome.ok:
+            refusals.append("%s: %s" % (kind, outcome.message or "refused"))
+
+
 CASES = [
     ("protein_only", _protein, False),
     ("protein_multicopy", _protein_multicopy, False),
@@ -390,6 +424,7 @@ CASES = [
     ("version_v3", _version(3), False),
     ("version_v4", _version(4), False),
     ("variants_batch", _variants, True),
+    ("input_batches", _input_batches, False),
 ]
 
 

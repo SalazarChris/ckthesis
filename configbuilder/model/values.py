@@ -35,6 +35,7 @@ __all__ = [
     "DnaComplementError",
     "reverse_complement",
     "fold_resource",
+    "split_component_codes",
 ]
 
 _FORBIDDEN_PREFIX = "CCD_"
@@ -298,6 +299,20 @@ class ComponentCode:
 
     def __repr__(self) -> str:
         return "ComponentCode(%r)" % self._value
+
+
+def split_component_codes(text: str) -> "tuple[str, ...]":
+    """The component codes in ``text``, in the order written.
+
+    Whitespace, commas and semicolons separate the components of one
+    multi-component ligand (a glycan, an ion/water group), so the entity form
+    and the file reader must read the same text the same way: this is that one
+    tokenizer, and validation of each token stays ``ComponentCode``'s.
+
+    Returns the raw tokens (empty tuple for empty text); callers keep their own
+    wording for "nothing typed" and for a token the code type refuses.
+    """
+    return tuple(text.replace(",", " ").replace(";", " ").split())
 
 
 class PathSpec:

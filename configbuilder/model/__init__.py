@@ -90,13 +90,15 @@ from configbuilder.model.values import (
     ValueTypeError,
     fold_resource,
     reverse_complement,
+    split_component_codes,
 )
 
 __all__ = [
     # presence
     "ExplicitEmpty", "Present", "Unset", "PresenceError", "fold_presence", "is_presence",
     # values
-    "ComponentCode", "External", "IndexPair", "Inline", "PathSpec", "Position",
+    "ComponentCode", "split_component_codes",
+    "External", "IndexPair", "Inline", "PathSpec", "Position",
     "ResidueRef", "Seed", "SequenceText", "ValueTypeError", "SequenceTextError",
     "ResourceRefError", "DnaComplementError", "reverse_complement", "fold_resource",
     # alignment

@@ -171,6 +171,31 @@ def test_identifiers_are_registry_owned_and_unique_across_the_batch(tmp_path):
     assert len(seen_new) == len(set(seen_new))
 
 
+def test_dna_batch_factory_uses_the_normal_duplex_record_constructor(tmp_path):
+    from configbuilder.app.batch_variants import INPUT_KINDS, specs_for_entries
+
+    projects, configuration, _variants, _ = _services()
+    projects.new("DNA Batch")
+    configuration.set_format_target(version=3, evidence="PIN-001")
+    base_registry = projects.project.configuration.identity.clone()
+    normal_add_records, failure = configuration._build_records(
+        "dna", "ATGC", "", 1, base_registry
+    )
+    assert failure is None
+    specs = specs_for_entries(
+        ((1, "ATGC"),),
+        projects.project.configuration.identity.clone(),
+        "dna-sequence",
+        sequence_record_factory=lambda registry, sequence: configuration._build_records(
+            "dna", sequence, "", 1, registry
+        )[0],
+    )
+    added_records = [edit._record for edit in specs[0].edits]
+    assert len(INPUT_KINDS) == 5
+    assert added_records == list(normal_add_records)
+    assert [record.sequence.text for record in added_records] == ["ATGC", "GCAT"]
+
+
 def test_existing_dna_duplex_rides_through_untouched(tmp_path):
     projects, configuration, variants, _ = _services()
     configuration.add_record("dna", "ATGC")
@@ -306,12 +331,25 @@ def test_inspect_batch_file_previews_the_family_reader(tmp_path):
     assert projects._specs() == ()
 
 
-def test_inspect_batch_file_refuses_an_unsupported_family(tmp_path):
+def test_inspect_batch_file_reads_rna_and_refuses_an_unknown_family(tmp_path):
+    """RNA is a batch family now; a family no reader has still refuses.
+
+    ``FamilyBRecord`` and the ``rna`` serialisation already existed for single
+    entities, so a file of RNA sequences was the same "one independent
+    configuration per entry" problem — the builder is the shared one, not a
+    second implementation.
+    """
     projects, configuration, variants, _ = _services()
-    path = _write(tmp_path, "ACGU\n")
+    path = _write(tmp_path, "ACGU\nGGGC\n")
     preview = variants.inspect_batch_file(path, family="rna")
-    assert not preview.ok
-    assert "not supported" in preview.message
+    assert preview.ok, preview.message
+    assert preview.entries == ("ACGU", "GGGC")
+    assert preview.planned == 2
+    assert projects._specs() == ()
+
+    unknown = variants.inspect_batch_file(path, family="lipid")
+    assert not unknown.ok
+    assert "'lipid' is not supported" in unknown.message
     assert projects._specs() == ()
 
 

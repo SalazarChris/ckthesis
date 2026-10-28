@@ -16,8 +16,10 @@ from configbuilder.persistence.schema import (
     upgrade,
 )
 from configbuilder.persistence.sequences import (
+    parse_code_text,
     parse_sequence_text,
     parse_smiles_text,
+    read_code_file,
     read_sequence_file,
     read_smiles_file,
 )
@@ -32,8 +34,10 @@ __all__ = [
     "PROJECT_EXTENSION",
     "Project",
     "load",
+    "parse_code_text",
     "parse_sequence_text",
     "parse_smiles_text",
+    "read_code_file",
     "read_sequence_file",
     "read_smiles_file",
     "save",

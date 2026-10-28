@@ -181,18 +181,19 @@ def test_the_pack_ligand_file_generates_one_configuration_per_entry(window, tmp_
     before = sorted(str(path) for path in PACK.rglob("*") if path.is_file())
     work = tmp_path / "generated"
 
-    page.ligand_file_chooser = lambda parent, start="": _pack(
+    page.batch_kind_chooser = lambda parent: "ligand-smiles"
+    page.batch_file_chooser = lambda parent, kind="": _pack(
         "batch", "ligands_valid.smiles"
     )
-    page.ligand_folder_chooser = lambda parent, start="": str(work)
+    page.batch_folder_chooser = lambda parent, start="": str(work)
     seen = []
-    page.ligand_previewer = (
-        lambda parent, preview, root: seen.append((preview, root)) or True
+    page.batch_previewer = (
+        lambda parent, preview, root, kind="": seen.append((preview, root)) or True
     )
     reports = []
-    page.ligand_reporter = lambda parent, output: reports.append(output)
+    page.batch_reporter = lambda parent, output: reports.append(output)
 
-    page.generate_ligand_file()
+    page.generate_from_file()
 
     assert len(seen) == 1
     preview, root = seen[0]

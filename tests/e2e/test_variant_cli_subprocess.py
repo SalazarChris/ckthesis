@@ -64,8 +64,9 @@ def _open_example(tmp_path, output):
     return [
         "2",                # main menu: open a JSON file
         str(FIXTURE),       # the picker takes a path
-        "7",                # job menu: generate ligand configurations
+        "7",                # job menu: generate configurations from a file
         "1",                # the one action
+        "4",                # what it holds: SMILES ligands
         str(LIGANDS),       # the ligand list
         str(output),        # the output folder
         "0",                # back to the job menu
@@ -133,6 +134,7 @@ def test_the_console_refuses_a_duplicate_entry_and_writes_nothing(tmp_path):
             str(FIXTURE),
             "7",
             "1",
+            "4",
             str(listing),
             "0",   # back from the ligand menu: the refusal returned there
             "0",
@@ -152,7 +154,7 @@ def test_the_console_refuses_an_empty_file(tmp_path):
 
     completed = _run(
         tmp_path,
-        ["2", str(FIXTURE), "7", "1", str(empty), "0", "0", "0"],
+        ["2", str(FIXTURE), "7", "1", "4", str(empty), "0", "0", "0"],
     )
 
     assert completed.returncode == 0, completed.stderr[-800:]
@@ -204,6 +206,7 @@ def test_the_console_refuses_notation_that_is_not_smiles(tmp_path):
             str(FIXTURE),
             "7",
             "1",
+            "4",
             str(malformed),
             str(output),
             "0",
