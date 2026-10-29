@@ -1,7 +1,11 @@
 # Running the AF3 JSON Builder
 
-Two small launchers in the repository root start the application. Run them
-from the repository root with the plain project interpreter.
+Two small launchers in the repository root start the application. For the
+one-click Windows setup and dependency checker, see
+[`DEPENDENCY_SETUP.md`](DEPENDENCY_SETUP.md): double-click
+`setup_windows.bat` once, then `check_dependencies.bat` whenever you want a
+readiness report. Run the launchers from the repository root with the project
+interpreter.
 
 ## The console builder
 
@@ -17,9 +21,10 @@ dependencies, so this needs nothing installed beyond Python itself
 
 ## The desktop front end (optional)
 
-The PySide6 GUI is optional and lives in its own environment, `.venv-gui`.
-`gui.py` finds that environment, runs the existing GUI module in it, and
-forwards your arguments unchanged.
+The PySide6 GUI is optional in project metadata. The Windows setup installs
+all local runtime features into `.venv`; `gui.py` prefers that environment and
+continues to fall back to a pre-existing `.venv-gui`. It runs the existing GUI
+module and forwards your arguments unchanged.
 
 ```powershell
 python gui.py                          # empty window -> "Open AF3 JSON..."
@@ -32,15 +37,16 @@ A JSON path containing spaces is fine: it is passed through as a single
 argument. The GUI always starts with the repository root as its working
 directory, even when `gui.py` is invoked by its full path from elsewhere.
 
-### First-time setup of `.venv-gui`
+### Manual GUI-only setup (optional)
 
-If `.venv-gui` does not exist yet, `python gui.py` prints the exact commands
-below and exits without starting anything (it never installs packages for
-you):
+A complete setup is available through `setup_windows.bat`. For an older or
+GUI-only checkout, if neither `.venv` nor `.venv-gui` exists, `python gui.py`
+prints the commands to create the complete local environment and exits without
+starting anything (it never installs packages for you):
 
 ```powershell
-py -3.11 -m venv .venv-gui
-.\.venv-gui\Scripts\python.exe -m pip install -e ".[gui]"
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[gui,templates]"
 ```
 
 Then `python gui.py` works.
@@ -51,13 +57,16 @@ Then `python gui.py` works.
 - the core builder has **no** runtime dependencies;
 - `PySide6>=6.6` is only in the optional `gui` extra, so the core and the
   console builder keep working with no GUI packages installed;
+- `gemmi>=0.6` is in the optional `templates` extra; the bundled lexical mmCIF
+  structural check still works without it, with Gemmi adding parser validation;
 - Python 3.10+ is the **verified** interpreter for the GUI environment. On
   3.9 the PySide6 range resolves to 6.10.3 (6.11+ requires 3.10+), which is
   installable but not the combination the GUI suite is run against.
 
-If the environment exists but cannot start the GUI (for example PySide6 is
-missing), the launcher reports the failure with the child's own diagnostic
-and its non-zero exit code — it does not fall back to another interpreter.
+If the selected environment exists but cannot start the GUI (for example
+PySide6 is missing), the launcher reports the failure with the child's own
+diagnostic and its non-zero exit code. It prefers `.venv` and only checks the
+legacy `.venv-gui` path when `.venv` is absent.
 
 ## A first tour of the desktop window
 

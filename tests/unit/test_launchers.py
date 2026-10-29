@@ -91,7 +91,7 @@ def fake_root(tmp_path):
     GUI interpreter would be, so they neither depend on ``.venv-gui`` having
     been created on this machine nor ever execute anything.
     """
-    interpreter = gui.gui_python(tmp_path)
+    interpreter = tmp_path / ".venv" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
     interpreter.parent.mkdir(parents=True, exist_ok=True)
     interpreter.write_text("", encoding="utf-8")
     return tmp_path
@@ -146,12 +146,24 @@ def test_cli_launcher_starts_the_menu_and_exits_cleanly():
 # -- gui.py: the command it builds ---------------------------------------------
 
 
+def test_gui_launcher_falls_back_to_a_legacy_gui_environment(tmp_path):
+    """Existing GUI-only environments remain usable after setup standardizes .venv."""
+    legacy = tmp_path / ".venv-gui" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text("", encoding="utf-8")
+    assert gui.gui_python(tmp_path) == legacy
+
+
 def test_gui_command_runs_the_existing_module_in_the_isolated_environment():
     root = gui.repository_root()
     interpreter = gui.gui_python(root)
     scripts = "Scripts" if os.name == "nt" else "bin"
     name = "python.exe" if os.name == "nt" else "python"
-    assert interpreter == root / ".venv-gui" / scripts / name
+    preferred = root / ".venv" / scripts / name
+    # setup_windows.bat standardises .venv; a checkout that has not run it yet
+    # must keep using the legacy GUI-only environment instead of failing.
+    expected = preferred if preferred.is_file() else root / ".venv-gui" / scripts / name
+    assert interpreter == expected
     assert gui.build_command(["job.json"], interpreter) == [
         str(interpreter),
         "-m",
@@ -227,7 +239,7 @@ def test_gui_reports_a_failed_child_with_the_install_command(
     assert gui.main([], runner=lambda *a, **k: _Completed(1)) == 1
     err = capsys.readouterr().err
     assert "exited with status 1" in err
-    assert 'pip install -e ".[gui]"' in err
+    assert 'pip install -e ".[gui,templates]"' in err
 
 
 # -- gui.py: no environment, no launch -----------------------------------------
@@ -248,9 +260,9 @@ def test_missing_environment_is_actionable_and_launches_nothing(
     captured = capsys.readouterr()
     message = captured.err + captured.out
     assert str(gui.gui_python(tmp_path)) in message
-    assert "venv .venv-gui" in message
-    assert 'pip install -e ".[gui]"' in message
-    assert not gui.gui_python(tmp_path).exists()
+    assert "venv .venv" in message
+    assert 'pip install -e ".[gui,templates]"' in message
+    assert not (tmp_path / ".venv" / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")).exists()
 
 
 def test_the_gui_launcher_imports_no_desktop_or_project_dependency():

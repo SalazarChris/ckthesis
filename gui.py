@@ -49,8 +49,11 @@ __all__ = [
 #: The existing GUI module -- launched, never duplicated.
 GUI_MODULE = "configbuilder.ui.render.qt"
 
-#: The isolated environment that holds the optional ``gui`` extra.
-VENV_DIRECTORY = ".venv-gui"
+#: Canonical complete local-builder environment created by setup_windows.bat.
+VENV_DIRECTORY = ".venv"
+
+#: Older checkouts may still have the GUI-only environment; keep it as fallback.
+LEGACY_VENV_DIRECTORY = ".venv-gui"
 
 _IS_WINDOWS = os.name == "nt"
 
@@ -76,8 +79,13 @@ def gui_python(root=None) -> Path:
     ``<root>/.venv-gui/bin/python`` elsewhere.
     """
     base = Path(root) if root is not None else repository_root()
-    scripts = base / VENV_DIRECTORY / ("Scripts" if _IS_WINDOWS else "bin")
-    return scripts / ("python.exe" if _IS_WINDOWS else "python")
+    executable = "python.exe" if _IS_WINDOWS else "python"
+    scripts_name = "Scripts" if _IS_WINDOWS else "bin"
+    canonical = base / VENV_DIRECTORY / scripts_name / executable
+    if canonical.is_file():
+        return canonical
+    legacy = base / LEGACY_VENV_DIRECTORY / scripts_name / executable
+    return legacy
 
 
 def build_command(args=(), python=None):
@@ -91,15 +99,14 @@ def build_command(args=(), python=None):
 
 
 def setup_commands(root=None) -> list:
-    """The copyable commands that create the GUI environment."""
-    base = Path(root) if root is not None else repository_root()
-    interpreter = gui_python(base)
+    """The copyable commands that create the complete local-builder environment."""
     if _IS_WINDOWS:
-        create = "py -3.11 -m venv %s" % VENV_DIRECTORY
-        install = '%s -m pip install -e ".[gui]"' % interpreter
+        create = "py -3 -m venv %s" % VENV_DIRECTORY
+        interpreter = Path(VENV_DIRECTORY) / "Scripts" / "python.exe"
     else:
         create = "python3 -m venv %s" % VENV_DIRECTORY
-        install = '%s -m pip install -e ".[gui]"' % interpreter
+        interpreter = Path(VENV_DIRECTORY) / "bin" / "python"
+    install = '%s -m pip install -e ".[gui,templates]"' % interpreter
     return [create, install]
 
 
@@ -116,7 +123,7 @@ def missing_environment_message(root=None, python=None) -> str:
             "Expected interpreter:",
             "  %s" % interpreter,
             "",
-            "Create it and install the optional desktop extra from the repository root:",
+            "Create it and install the local GUI and structural-template extras from the repository root:",
             "",
             "  %s" % create,
             "  %s" % install,
@@ -153,7 +160,7 @@ def main(argv=None, runner=None) -> int:
         create, install = setup_commands(root)
         print(
             "gui.py: the GUI process exited with status %s. If a dependency is "
-            "missing, install the desktop extra into %s:\n\n  %s\n  %s"
+            "missing, install the complete local builder into %s:\n\n  %s\n  %s"
             % (status, VENV_DIRECTORY, create, install),
             file=sys.stderr,
         )
