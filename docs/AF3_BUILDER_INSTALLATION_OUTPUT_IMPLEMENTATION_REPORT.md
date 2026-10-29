@@ -268,6 +268,12 @@ manual step (§10).
 
 ## 11. Commit
 
-See the final message of this task for the commit hash and push result; the working
-tree also contains untracked thesis documents, screenshots and scratch files that
-were deliberately left untouched and unstaged.
+- Commit `6ebb2b6` — "Keep saved jobs and generated configurations out of the
+  program folder" — on `main`.
+- Pushed to `origin` (`https://github.com/SalazarChris/ckthesis.git`),
+  `323a698..6ebb2b6`, fast-forward; `main` tracks `origin/main` with no divergence.
+- Staged explicitly, file by file. Untracked thesis documents, `docs/screenshots/`,
+  `docs/ui_referene/`, `docs/deep-research-report.md` and scratch JSON/text files
+  (`1`, `test.json`, `Untitled_job_1.json`, `vg_probe.txt`) were left untouched and
+  unstaged.
+- No force-push, no reset, no unrelated published history rewritten.
