@@ -46,7 +46,11 @@ from PySide6.QtWidgets import (  # noqa: E402
     QPushButton,
 )
 
-from configbuilder.ui.present.strings import text as _text  # noqa: E402
+from configbuilder.app.results import batch_counts  # noqa: E402
+from configbuilder.ui.present.strings import (  # noqa: E402
+    batch_summary,
+    text as _text,
+)
 from configbuilder.ui.render.qt.dialogs import batch_input  # noqa: E402
 from configbuilder.ui.render.qt.dialogs import (  # noqa: E402
     choose_batch_file,
@@ -262,6 +266,10 @@ def test_the_review_box_lists_the_entries_and_the_destination(
     assert "ethanol  CCO" in text
     assert "acetone  CC(=O)C" in text
     assert _text("gui.batch_preview_destination") % str(work) in text
+    # The shared note, and no DNA sentence for a ligand file.
+    assert _text("batch.preview_lead_ligand") in text
+    assert _text("batch.preview_tail") in text
+    assert _text("batch.preview_lead_dna") not in text
     assert list(tmp_path.glob("out")) == []
 
 
@@ -365,10 +373,68 @@ def test_the_report_lists_exactly_the_files_on_disk(base_job, tmp_path):
     )
     assert sorted(outcome.written) == on_disk
     assert len(outcome.written) == len(outcome.plan.entries)
-    # The status bar says how many files were written, from the same outcome.
-    assert base_job.statusBar().currentMessage() == _text("gui.batch_notice") % len(
-        outcome.written
+    # The status bar says how many files were written, from the same outcome,
+    # in the same sentence the console prints and the report box shows.
+    assert base_job.statusBar().currentMessage() == batch_summary(
+        batch_counts(outcome)
     )
+
+
+def test_the_report_counts_configurations_apart_from_the_manifest(
+    base_job, tmp_path, monkeypatch
+):
+    """Roles, not plan rows — the audit's inconsistent-total finding.
+
+    Two entries write two configurations *and* one manifest. The report must
+    state three output files with two of them configurations, and the detail
+    list underneath still names every file on disk.
+    """
+    path = _write_ligands(tmp_path, "ethanol CCO\nacetone CC(=O)C\n")
+    page = base_job.entities_page
+    outcome = _Run(page, path, str(tmp_path / "out")).generate()
+    assert outcome.ok
+
+    shown = []
+    monkeypatch.setattr(
+        QMessageBox, "exec", lambda self: shown.append(self.text()) or 0
+    )
+    report_batch_run(page, outcome)
+
+    assert shown
+    text = shown[0]
+    assert (
+        "Generated 2 AF3 configurations. Wrote 1 manifest. "
+        "Total output files: 3." in text
+    )
+    assert "Wrote 3 file(s) written" not in text
+    assert _text("gui.batch_result_written") % len(outcome.written) in text
+    counts = batch_counts(outcome)
+    assert (counts.configurations, counts.manifests, counts.total) == (2, 1, 3)
+
+
+def test_the_preview_explains_the_dna_duplex_and_the_overwrite_policy(
+    base_job, tmp_path, monkeypatch
+):
+    """One DNA record is one configuration holding two strands, and a single
+    differently-sized existing file refuses the whole batch."""
+    path = tmp_path / "dna.txt"
+    path.write_text("ATGC\n", encoding="utf-8")
+    page = base_job.entities_page
+    preview = base_job.state.inspect_input_file(str(path), "dna-sequence")
+    assert preview.ok
+
+    shown = []
+    monkeypatch.setattr(
+        QMessageBox, "exec", lambda self: shown.append(self.text()) or 0
+    )
+    confirm_batch_preview(page, preview, str(tmp_path / "out"), "dna-sequence")
+
+    assert shown
+    text = shown[0]
+    assert _text("batch.preview_lead_dna") in text
+    assert "reverse-complement" in text, "one record, two strands, one file"
+    assert _text("batch.preview_tail") in text
+    assert "whole batch is refused" in text
 
 
 def test_the_repair_report_never_claims_a_write_that_did_not_happen(

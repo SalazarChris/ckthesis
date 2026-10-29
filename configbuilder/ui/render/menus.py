@@ -30,10 +30,14 @@ from configbuilder.model.records import (
 
 from configbuilder.app.configuration_service import ReferenceInput
 from configbuilder.app.reference_validation import file_issue, parse_pair_text
-from configbuilder.app.results import FailureReason
+from configbuilder.app.results import FailureReason, batch_counts
 from configbuilder.app.status import FieldState
 from configbuilder.ui.present.sequence import residue_at
-from configbuilder.ui.present.strings import text as _text
+from configbuilder.ui.present.strings import (
+    batch_preview_note,
+    batch_summary,
+    text as _text,
+)
 
 __all__ = ["MenuApp", "MINIMUM_WIDTH"]
 
@@ -1674,9 +1678,8 @@ class MenuApp:
         for entry in preview.entries:
             self._say(_text("menu.file_preview_entry") % entry)
         self._say()
-        self._say(
-            _text("menu.file_preview_note") % _text(self._kind_noun_key(kind))
-        )
+        self._say(batch_preview_note(kind))
+        self._say()
         default = os.path.join(os.getcwd(), "generated_configurations")
         root = self._ask_destination("menu.file_output_root", default)
         if not root:
@@ -1715,19 +1718,13 @@ class MenuApp:
         for written in outcome.written:
             self._say(_text("menu.file_written") % written)
         if outcome.ok and outcome.written:
-            self._say(_text("menu.file_summary") % (len(outcome.written), root))
+            # The shared counter, not the length of the written list: that
+            # list is configurations *and* the manifest, so counting it
+            # called one manifest an extra configuration (audit finding).
+            self._say(batch_summary(batch_counts(outcome)))
+            self._say(_text("menu.file_summary_location") % root)
         elif not outcome.written and not outcome.errors:
             self._say(_text("menu.file_nothing_written"))
-
-    @staticmethod
-    def _kind_noun_key(kind: str) -> str:
-        """The registry key of the noun a kind's entities are called.
-
-        The family labels already exist for the entity lists, so the preview
-        note reuses them instead of adding a second set of words for the same
-        four families.
-        """
-        return _FAMILY_LABEL_KEYS[kind.split("-", 1)[0]]
 
     # -- view helpers ------------------------------------------------------
 

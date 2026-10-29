@@ -252,6 +252,73 @@ def test_duplicate_sequences_are_refused(tmp_path):
     assert projects._specs() == ()
 
 
+def test_a_fasta_header_is_diagnosed_as_fasta_not_as_invalid_letters(tmp_path):
+    """FASTA is unsupported, and the refusal says so in those words.
+
+    A header line used to be reported as a sequence containing characters
+    outside its alphabet — true, and useless: every letter of
+    ``>sp|P1|NAME`` is outside it. The reader is line-based on purpose, so the
+    file is still refused whole; what changed is that the message names FASTA,
+    states the supported shape, and says what to do.
+    """
+    projects, configuration, variants, _ = _services()
+    path = _write(
+        tmp_path, ">sp|P69905|HBA_HUMAN Hemoglobin\nMVLSPADKTNVKAAWGKVGA\n"
+    )
+
+    outcome = variants.generate_from_file(path)
+
+    assert not outcome.ok
+    assert "FASTA" in outcome.message
+    assert "line 1" in outcome.message
+    assert "'>'" in outcome.message
+    assert "one complete sequence per line" in outcome.message
+    assert "outside its alphabet" not in outcome.message
+    assert projects._specs() == ()
+
+
+def test_the_fasta_diagnostic_names_the_first_header_line(tmp_path):
+    projects, configuration, variants, _ = _services()
+    path = _write(tmp_path, "MSTNPKP\n\n>header on line 3\nMVS\n")
+
+    outcome = variants.generate_from_file(path)
+
+    assert not outcome.ok
+    assert "line 3" in outcome.message
+    assert ">header on line 3" in outcome.message
+    assert projects._specs() == ()
+
+
+def test_the_protein_alphabet_is_uppercase_letters_like_the_af3_parser(tmp_path):
+    """A–Z is the accepted protein alphabet, and that is verified, not assumed.
+
+    AF3's own chain constructor checks ``re.fullmatch(r'[A-Z]*', sequence)``
+    (``alphafold3/common/folding_input.py``): every uppercase letter passes,
+    and anything else is refused. The builder accepts exactly that set, so it
+    cannot accept a symbol the downstream parser rejects, and it does not
+    narrow the set either. Letters outside the twenty standard residues are
+    legal input; AF3 maps them to ``UNK``, which is AF3's business.
+    """
+    from string import ascii_uppercase
+
+    from configbuilder.model import SequenceText
+
+    # The upstream check, expressed the same way: every uppercase letter.
+    accepted = [
+        letter for letter in ascii_uppercase if SequenceText(letter, "protein")
+    ]
+    assert accepted == list(ascii_uppercase)
+
+    # The reported minimal test records stay valid.
+    for text in ("MVT", "MVS", "MVY", "TEST"):
+        assert SequenceText(text, "protein").text == text
+
+    # Characters the upstream regex refuses are refused here too.
+    for text in ("mvT", "MVT1", "MV T", "MVT-", "MVT*"):
+        with pytest.raises(Exception):
+            SequenceText(text, "protein")
+
+
 def test_missing_file_gives_a_clear_error(tmp_path):
     projects, configuration, variants, _ = _services()
     outcome = variants.generate_from_file(os.path.join(str(tmp_path), "absent.txt"))

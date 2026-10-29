@@ -10,10 +10,23 @@ caller.
 
 The file's *content* is judged by ``persistence.mmcif`` (an established
 mmCIF parser when one is installed, the bundled lexical scan otherwise): a
-file that is not a structure is refused here, before it is attached. The
-mapping is still the user's own — the template's own residues are never read
-here, so template-chain length is not knowable and is deliberately not
-guessed. Only the target sequence's length and the pair syntax are checked.
+file that is not a structure is refused here, before it is attached.
+
+The mapping is the user's own, and is checked in the three ways that are
+knowable without grading biology:
+
+- both arrays are present, parallel, and hold non-negative whole numbers;
+- every query index addresses a residue of the target protein sequence;
+- every template index addresses a residue of the template's **full polymer
+  sequence**, the one that counts residues without atom coordinates, and no
+  query residue is mapped twice (AF3 builds its mapping with
+  ``dict(zip(queryIndices, templateIndices))``, so a duplicate query index
+  silently loses a pair there — it is refused here instead).
+
+The last check needs the parser's residue list, so it runs when gemmi is
+installed and is reported as unavailable otherwise rather than guessed at from
+atom coordinates (``mmcif.index_check_available``). Amino-acid identity is
+never compared: a homology template legitimately substitutes residues.
 """
 
 from __future__ import annotations
@@ -21,11 +34,17 @@ from __future__ import annotations
 import os
 
 from configbuilder.model import IndexPair
-from configbuilder.persistence.mmcif import template_structure_problem
+from configbuilder.persistence.mmcif import (
+    index_check_available,
+    mapping_problem,
+    template_mapping_problem,
+    template_structure_problem,
+)
 
 __all__ = [
     "ReferenceIssue",
     "file_issue",
+    "index_check_available",
     "parse_pair_text",
     "validate_reference",
 ]
@@ -47,6 +66,10 @@ _PAIRS_INVALID = (
 _PAIR_SHAPE = "%r is not query:template with non-negative whole numbers"
 _PAIR_RANGE = (
     "query index %d is outside the target sequence (length %d; valid 0-%d)"
+)
+_DUPLICATE_QUERY = (
+    "query index %d is mapped more than once; AF3 keeps only one mapping per "
+    "query residue, so the duplicate pair would be dropped"
 )
 
 
@@ -176,12 +199,37 @@ def _validate_pairs(pairs, sequence_length: int):
     return tuple(validated), None
 
 
+def _mapping_issue(pairs, sequence_length: int, path, inline):
+    """The mapping's own problems: duplicates, then bounds against the file.
+
+    A duplicate query index is refused for every source, because AF3's
+    ``dict(zip(...))`` would drop one of the pairs without saying so. Bounds
+    are left to :mod:`configbuilder.persistence.mmcif`, which answers only when
+    it can actually read the template's residues.
+    """
+    display = _pairs_label(pairs)
+    seen = set()
+    for pair in pairs:
+        if pair.query in seen:
+            return _pairs_invalid(display, _DUPLICATE_QUERY % pair.query)
+        seen.add(pair.query)
+    problem = None
+    if path:
+        problem = template_mapping_problem(path, pairs, sequence_length)
+    elif inline:
+        problem = mapping_problem(inline, pairs, sequence_length)
+    if problem is not None:
+        return _pairs_invalid(display, problem)
+    return None
+
+
 def validate_reference(entry, sequence_length: int):
     """Validate one front-end reference input.
 
     Returns ``(IndexPair tuple, None)`` or ``(None, ReferenceIssue)``.
     ``entry`` is an app ``ReferenceInput``; its ``pairs`` may be a tuple of
-    ``(query, template)`` values or raw comma-separated pair text.
+    ``(query, template)`` values or raw comma-separated pair text, and its
+    structure travels either as ``external_path`` or as ``inline_text``.
     """
     path = getattr(entry, "external_path", None)
     if path:
@@ -190,5 +238,14 @@ def validate_reference(entry, sequence_length: int):
             return None, issue
     pairs = getattr(entry, "pairs", ())
     if isinstance(pairs, str):
-        return parse_pair_text(pairs, sequence_length)
-    return _validate_pairs(pairs, sequence_length)
+        pairs, issue = parse_pair_text(pairs, sequence_length)
+    else:
+        pairs, issue = _validate_pairs(pairs, sequence_length)
+    if issue is not None:
+        return None, issue
+    issue = _mapping_issue(
+        pairs, sequence_length, path, getattr(entry, "inline_text", None)
+    )
+    if issue is not None:
+        return None, issue
+    return pairs, None

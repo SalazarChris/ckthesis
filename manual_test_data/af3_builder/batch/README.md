@@ -48,9 +48,17 @@ the family's own alphabet (`configbuilder.model.SequenceText`): an empty file,
 an invalid residue symbol, a `#` line (sequences have **no** comment syntax) or a
 duplicate sequence refuses the whole run with the offending line numbers. No
 record is ever dropped silently, and a sequence is never reinterpreted as a
-ligand (or the reverse). FASTA is **not** a supported batch format: a wrapped
-record would be read as several entries, so `proteins_wrapped_fasta.txt` exists
-as a refusal fixture.
+ligand (or the reverse).
+
+FASTA is **not** a supported batch format, and the refusal now says so: a line
+starting with `>` stops the whole file with *"this looks like a FASTA file,
+which the line-based sequence reader does not support: line 1 starts with '>'
+… Write one complete sequence per line with no header lines…"* instead of the
+old wall of "characters outside its alphabet" complaints (every letter of a
+header is outside it). `proteins_wrapped_fasta.txt` is the refusal fixture.
+Headerless *wrapping* is still the trap it always was: each wrapped row is a
+separate record, so one sequence can become several — write one complete
+sequence per line.
 
 **The `.txt` extension decides nothing.** `MVT`/`MVS`/`MVY`/`TEST` are valid
 protein sequences *and* invalid SMILES, so which one they become is the user's
@@ -132,7 +140,7 @@ implementation and end-to-end reports. No RNA inference-quality claim is made.
 | `ligands_duplicate_names.smiles` | `kinase-inhibitor CCO`, `kinase-inhibitor c1ccccc1` | 2 configurations: `…__kinase-inhibitor`, `…__kinase-inhibitor-2` |
 | `ligands_duplicate_entries.smiles` | `first CCO`, `second CCO` | Refused: *"the file contains duplicate ligand entries: CCO..."*; nothing written, no folder created |
 | `ligands_empty.smiles` | comments only | Refused: *"the ligand file contains no entries (only blank lines or comments)"* |
-| `ligands_ccd_lookalike.smiles` | `atp ATP`, `zinc ZN` | **Refused**: *"2 of 2 ligand entries are invalid … 'ATP' is not SMILES notation"*; nothing written |
+| `ligands_ccd_lookalike.smiles` | `atp ATP`, `zinc ZN` | **Refused**: *"2 of 2 ligand entries are invalid … 'ATP' is not SMILES notation"*; nothing written. The codes are never stored as notation — no output ever carries `"smiles": "ATP"` |
 | `ligands_notation_edges.smiles` | aspirin, `[Na+].[Cl-]`, `C%10CCCCCC%10`, alanine, `[2H]C([2H])([2H])[2H]`, `[13CH4]` | 6 configurations, one per entry — the positive control for the notation check |
 | `base_job_custom_ccd.json` | not a batch file — the base job | Protein `A`, ATP×2 (`B`,`E`), ZN (`C`), aspirin (`D`), inline `userCCD`, seeds `[7]`, version 3 |
 
@@ -146,7 +154,7 @@ implementation and end-to-end reports. No RNA inference-quality claim is made.
 | `ligands_ccd_lookalike.smiles` | `atp ATP`, `zinc ZN` | CCD-looking values deliberately selected as **SMILES**; refused rather than reinterpreted. |
 | `proteins_minimal.txt` | `MVT`, `MVS`, `MVY`, `TEST` | Four minimal protein records. In **Protein sequence** mode, generates four independent protein configurations; these are parser/serialization fixtures, not evidence of biological utility. |
 | `proteins_valid.txt` | 3 longer protein sequences | Protein sequence-mode coverage through CLI and GUI. |
-| `proteins_wrapped_fasta.txt` | FASTA header and wrapped sequence | FASTA/wrapping is not supported in batch mode; the header fails sequence validation rather than being silently discarded. |
+| `proteins_wrapped_fasta.txt` | FASTA header and wrapped sequence | FASTA/wrapping is not supported in batch mode. The header is **diagnosed as FASTA** (naming the line, the supported format and how to proceed) and the file is refused whole; no header is ever stripped or silently discarded. |
 | `dna_sequences.txt` | `ATGCATGC`, `GGCCTTAA` | Two DNA input records in **DNA sequence** mode; each becomes one independent output containing its DNA duplex (the input strand plus the reverse complement), matching normal Add DNA construction. |
 | `rna_sequences.txt` | `ACGUACGUACGU`, `GGGCCCAAAUUU` | Two RNA records in **RNA sequence** mode. |
 | `invalid_sequence.txt` | `ACDEFGHIK`, `AC1DEFG`, `AC-GU` | Invalid sequence entries: the entire batch is refused with line numbers. |
@@ -192,9 +200,17 @@ another entry's molecule.
   batch outputs preserve the base's definition. No custom CCD input-file kind
   is advertised.
 * **The output folder may already exist; existing paths are checked before the
-  write.** A collision with different content stops the whole run before any
-  batch file is written (all-or-nothing). The writer may safely report
-  byte-identical planned files as already satisfied under the existing policy.
+  write.** A collision with a *different* content stops the whole run before
+  any batch file is written (all-or-nothing), so one stale file can refuse a
+  whole batch: choose another output folder, or delete/rename that one file.
+  A file whose bytes are already identical is not a conflict — it is rewritten
+  with the same bytes (the review shows the action), so byte-identical plans
+  never stop a run.
+* **A write that fails part-way leaves nothing of its own behind.** Files the
+  run created are removed again, and the directories it made are removed when
+  empty. A file that *already existed* and was being replaced is kept (its
+  previous bytes cannot be restored) and the error says how many were left as
+  rewritten. Nothing ever deletes a file that existed before the run.
 * **The name is not in the JSON.** AF3 has no per-entity name field, so the name
   appears in the file name and the summary only.
 * **The base job is never modified.** Each output is independently built from
@@ -214,9 +230,12 @@ Console (`python af3builder.py`):
 3. Choose an input kind (`1` Protein, `2` DNA, `3` RNA, `4` SMILES, `5` CCD),
    then provide the corresponding file path. The preview names the selected
    kind and lists what will be added to the base.
-4. Provide a scratch output folder. Three ligand entries produce four written
-   files including the manifest; four protein lines produce five files including
-   the manifest.
+4. Provide a scratch output folder. The closing summary counts roles, not
+   rows: *"Generated 3 AF3 configurations. Wrote 1 manifest. Total output
+   files: 4."* for the three ligand entries, and *"Generated 4 AF3
+   configurations. Wrote 1 manifest. Total output files: 5."* for four protein
+   lines. Copied assets (an external template, MSA or custom-CCD file) are
+   named separately and counted in the total.
 5. `0`, `0`, `0`.
 6. Inspect the JSONs: the base entities/settings and `userCCD` are preserved,
    and each file adds exactly one entity using the chosen AF3 representation.

@@ -67,6 +67,8 @@ from configbuilder.ui.render.qt.dialogs import (
     confirm_entity_delete,
     report_batch_run,
 )
+from configbuilder.app.results import batch_counts
+from configbuilder.ui.present.strings import batch_summary
 from configbuilder.ui.render.qt.models import EntityTableModel
 from configbuilder.ui.render.qt.style import (
     heading_label,
@@ -382,7 +384,9 @@ class EntitiesPage(QWidget):
         outcome = self._state.generate_input_configurations(path, root, kind)
         self.batch_reporter(self, outcome)
         if outcome.ok:
-            self._notify(_text("gui.batch_notice") % len(outcome.written))
+            # The same sentence the console prints and the report box shows,
+            # so the status line cannot disagree with the dialog.
+            self._notify(batch_summary(batch_counts(outcome)))
 
     # -- reading the details pane back --------------------------------------
 

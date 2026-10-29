@@ -21,7 +21,12 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from configbuilder.ui.present.strings import text as _text
+from configbuilder.app.results import batch_counts
+from configbuilder.ui.present.strings import (
+    batch_preview_note,
+    batch_summary,
+    text as _text,
+)
 
 __all__ = [
     "choose_batch_file",
@@ -112,7 +117,10 @@ def confirm_batch_preview(parent, preview, output_root: str, kind: str = "") -> 
             "",
             _text("gui.batch_preview_destination") % output_root,
             _text("gui.batch_preview_files") % len(entries),
-            _text("gui.batch_preview_note"),
+            # The console's own note, so the two front ends explain the
+            # entries, the base and the overwrite policy in one voice (and
+            # say what a DNA entry becomes in the same words).
+            batch_preview_note(kind) if kind else "",
         ]
     )
     box = QMessageBox(parent)
@@ -151,13 +159,18 @@ def report_batch_run(parent, output) -> None:
         for finding in plan.findings:
             lines.append("  - %s" % finding.user_message)
     elif output.written:
+        # Roles, not rows: configurations and the manifest are counted
+        # apart here exactly as the console counts them, and copied assets
+        # are named rather than folded into the file total.
+        lines.append(batch_summary(batch_counts(output)))
+        lines.append("")
         lines.append(_text("gui.batch_result_written") % len(output.written))
         lines.extend(output.written)
         if output.errors:
             lines.append("")
             lines.append(_text("gui.batch_result_errors"))
             lines.extend(output.errors)
-        skipped = len(plan.entries) - len(output.written) if plan is not None else 0
+        skipped = len(output.skipped)
         if skipped > 0:
             lines.append("")
             lines.append(_text("gui.batch_result_skipped") % skipped)

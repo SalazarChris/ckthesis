@@ -69,7 +69,7 @@ never chooses the input kind.
 | `msa/protein/paired-query.a3m` | A second A3M for the paired side of the `both` mode. |
 | `msa/rna/query-rna.a3m` | RNA A3M whose first row is the query `ACGUACGU`. |
 | `msa/with spaces/rna query.a3m` | The same RNA A3M under a directory **and** file name containing spaces. |
-| `templates/minimal_template.cif` | A synthetic one-residue mmCIF for the template path workflow. Not a biological template. |
+| `templates/minimal_template.cif` | A synthetic two-residue mmCIF (`AG`, with polymer records) for the template path workflow. Not a biological template. |
 | `templates/with spaces/template with spaces.cif` | The same file with spaces in both the directory and the file name. |
 | `templates/template_fully_resolved.cif` | Fixture A: six-residue polymer `ACDEFG`, coordinates for all six. Query `ACDEFG` → `0:0…5:5`. |
 | `templates/template_unresolved_residues.cif` | Fixture B: seven-residue polymer `ACQDEFG`, coordinates only for `DEFG`. Query `DEFG` → `queryIndices [0,1,2,3]`, `templateIndices [3,4,5,6]`. |

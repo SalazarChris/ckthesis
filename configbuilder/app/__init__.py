@@ -14,15 +14,18 @@ from configbuilder.app.configuration_service import ConfigurationService
 from configbuilder.app.generation_service import GenerationService
 from configbuilder.app.project_service import ProjectService
 from configbuilder.app.results import (
+    BatchCounts,
     FailureReason,
     GenerationPlan,
     LoadOutput,
     PlanOutput,
+    batch_counts,
 )
 from configbuilder.app.validation_service import ValidationService
 from configbuilder.app.variant_service import VariantService
 
 __all__ = [
+    "BatchCounts",
     "ConfigurationService",
     "FailureReason",
     "GenerationPlan",
@@ -32,4 +35,5 @@ __all__ = [
     "ProjectService",
     "ValidationService",
     "VariantService",
+    "batch_counts",
 ]

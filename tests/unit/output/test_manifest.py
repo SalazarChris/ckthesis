@@ -112,6 +112,44 @@ def test_manifest_json_round_trips_stably():
     assert encode(restored) == encode(manifest.data)
 
 
+def test_the_manifest_schema_is_exactly_the_documented_fields():
+    """The module says which fields are written; the file must match.
+
+    ``manifest.py``'s docstring lists them, and ``run_info`` is documented as
+    not written. The audit found the prose claiming a per-run block that the
+    file never contained — a manifest that disagreed with its own description.
+    """
+    manifest = build_manifest(
+        project_name="P",
+        base_fingerprint="ab" * 32,
+        format_version=3,
+        variants=_variants(),
+        seed_set=[1],
+        path_policy=PathPolicy("CopyIntoAssets"),
+        overwrite_policy=OverwritePolicy("Fail"),
+    )
+    written = json.loads(encode(manifest.data).decode("utf-8"))
+
+    assert sorted(written) == [
+        "base_fingerprint",
+        "builder_version",
+        "contract_pin_record",
+        "format_version",
+        "overwrite_policy",
+        "path_policy",
+        "project_name",
+        "schema_version",
+        "seed_set",
+        "validation_summary",
+        "variants",
+    ]
+    # run_info is available to callers and deliberately absent from the file.
+    assert set(manifest.run_info) == {"timestamp", "host", "user", "platform", "pid"}
+    assert "run_info" not in written
+    assert "timestamp" not in written
+    assert "host" not in written
+
+
 def test_run_info_is_isolated_and_time_varying():
     info = run_info()
     assert set(info) == {"timestamp", "host", "user", "platform", "pid"}

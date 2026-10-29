@@ -1,10 +1,21 @@
 """The generation manifest (IMPLEMENTATION_PLAN.md §13.6, MAP-015).
 
 Project-side report of one generation run — never consumed by the external
-system. Everything except ``run_info`` is a deterministic function of the
-project and the plan, so two runs over the same inputs produce
-byte-identical manifests apart from ``run_info`` (plan §13.7, tested in
-§18.6). Time-varying data (timestamps, host, user) lives only there.
+system. **The file that is written contains only deterministic data**: it is
+a function of the project and the plan, so two runs over the same inputs
+produce byte-identical ``manifest.json`` files (plan §13.7, tested in §18.6).
+
+The fields actually written are ``schema_version``, ``builder_version``,
+``project_name``, ``base_fingerprint``, ``format_version``,
+``contract_pin_record``, ``path_policy``, ``overwrite_policy``, ``seed_set``,
+``variants`` and ``validation_summary``.
+
+``run_info`` (timestamp, host, user, platform, pid) is built by this module for
+callers that want it — diagnostics, tests of the separation itself — and is
+**not** written into the manifest: a per-run timestamp in the file would make
+identical regenerations differ, which is exactly what the reproducible-output
+rule forbids. :func:`run_info` remains the one home of time-varying data if a
+future format ever needs it.
 """
 
 from __future__ import annotations
@@ -26,7 +37,8 @@ except Exception:  # pragma: no cover - running from an uninstalled checkout
 
 class ManifestData:
     """The manifest's content, separated for determinism assertions:
-    ``data`` is byte-reproducible; ``run_info`` is not."""
+    ``data`` is byte-reproducible **and is what gets written**; ``run_info``
+    is not reproducible, so it is carried alongside and never serialized."""
 
     __slots__ = ("data", "run_info")
 

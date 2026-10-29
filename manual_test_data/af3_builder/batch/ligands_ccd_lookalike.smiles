@@ -1,4 +1,7 @@
-# CCD codes are NOT a batch format. These lines are stored as SMILES text,
-# so each output carries "smiles": "ATP" / "ZN" - not "ccdCodes".
+# CCD codes are NOT SMILES. This file exists to pin the refusal: loaded in
+# SMILES mode, each line is checked by the SMILES grammar (validation/smiles.py)
+# and refused, so the run writes nothing. It is never stored as notation and no
+# output ever carries "smiles": "ATP". A code entry needs the CCD code input
+# type, which writes "ccdCodes" instead (see ligands_ccd_codes.txt).
 atp ATP
 zinc ZN

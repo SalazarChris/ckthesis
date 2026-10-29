@@ -116,7 +116,11 @@ def test_template_fixture_has_no_msa_fields(tmp_path):
     generate_all(tmp_path / "run")
     protein = _entities(_base_doc(tmp_path / "run", "test03_protein_template"))[0]
     template = protein["templates"][0]
-    assert template["mmcif"].startswith(">template")
+    # ``mmcif`` is carried inline, verbatim, and is real mmCIF: the builder
+    # refuses inline content that is not a structure (a FASTA/A3M alignment
+    # used to sit here, which no AF3 parser would have accepted).
+    assert template["mmcif"].lstrip().startswith("data_")
+    assert "_entity_poly.pdbx_seq_one_letter_code ACDEFGHIKL" in template["mmcif"]
     assert template["queryIndices"] == [1, 2]
     assert template["templateIndices"] == [1, 2]
     for forbidden in ("unpairedMsa", "pairedMsa"):

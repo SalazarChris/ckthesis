@@ -744,11 +744,16 @@ class GenerationService:
         """Plan and write one input file of ``kind`` in a single step.
 
         Returns a ``LigandBatchOutput`` (the same outcome type every batch
-        uses): the reviewed plan, what was written, what was skipped, and any
-        write errors. ``ok`` is True only when the plan succeeded **and** every
-        file was written — a refusal writes nothing at all (the plan is
-        all-or-nothing), and an execution error is reported per file rather
-        than turned into a success message.
+        uses): the reviewed plan, what was written, what was skipped, the
+        assets copied for the outputs, and any write errors. ``ok`` is True
+        only when the plan succeeded **and** every file was written — a
+        refusal writes nothing at all (the plan is all-or-nothing), and an
+        execution error is reported per file rather than turned into a
+        success message.
+
+        ``copied_resources`` travels in the outcome because an asset copy is
+        an output file that is not a plan entry: a front end that sums only
+        ``written`` cannot report the run's real total.
         """
         plan = self.plan_input_batch(
             path, output_root, kind, overwrite_policy, path_policy
@@ -760,6 +765,7 @@ class GenerationService:
             plan=plan,
             written=result.written,
             skipped=result.skipped,
+            copied_resources=result.copied_resources,
             errors=result.errors,
             ok=result.ok and not result.errors,
             message=result.message or "",

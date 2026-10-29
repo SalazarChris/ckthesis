@@ -1,11 +1,31 @@
 data_synthetic_template
 #
-# Synthetic one-residue mmCIF used only to exercise the builder's template
+# Synthetic two-residue mmCIF used only to exercise the builder's template
 # path workflow. It is NOT a biological template and has never been parsed by
-# AlphaFold 3.
+# AlphaFold 3. It does carry real polymer records (_entity_poly,
+# _entity_poly_seq, _struct_asym), because the builder now reads a template's
+# full polymer sequence to check its query/template index mapping: a file with
+# atom records alone declares no residues, so no mapping can be checked
+# against it.
 #
-_entity.id 1
-_entity.type polymer
+_entry.id SYNTHETIC_TEMPLATE
+#
+_entity_poly.entity_id 1
+_entity_poly.type 'polypeptide(L)'
+_entity_poly.pdbx_strand_id A
+_entity_poly.pdbx_seq_one_letter_code AG
+#
+loop_
+_entity_poly_seq.entity_id
+_entity_poly_seq.num
+_entity_poly_seq.mon_id
+1 1 ALA
+1 2 GLY
+#
+loop_
+_struct_asym.id
+_struct_asym.entity_id
+A 1
 #
 loop_
 _atom_site.group_PDB
@@ -21,4 +41,7 @@ _atom_site.Cartn_z
 ATOM 1 N N ALA A 1 0.000 0.000 0.000
 ATOM 2 C CA ALA A 1 1.458 0.000 0.000
 ATOM 3 C C ALA A 1 2.009 1.420 0.000
+ATOM 4 N N GLY A 2 3.400 1.420 0.000
+ATOM 5 C CA GLY A 2 4.100 2.700 0.000
+ATOM 6 C C GLY A 2 5.500 2.600 0.000
 #

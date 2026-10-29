@@ -142,13 +142,13 @@ def test_reserved_device_name_is_reported_not_raised(tmp_path):
     assert result.outcomes == ()
 
 
-def test_a_later_failure_reports_the_files_already_written(tmp_path, monkeypatch):
-    """Base written, then the variant write fails: both facts are reported.
+def test_a_later_failure_removes_the_files_this_run_created(tmp_path, monkeypatch):
+    """Base written, then the variant write fails: the batch leaves nothing.
 
-    Per-file atomicity still holds (the failed file is neither partial nor
-    present), but the bytes already replaced cannot be un-replaced, so the
-    message says how many files were left in place instead of implying a
-    clean rollback.
+    Nothing existed before the run, so every file it wrote is a ``create``
+    and the rollback removes it again (with the directories it made). The
+    error still names the file that failed and says what happened, rather
+    than pretending the run never started.
     """
     planned = plan({"wt": A3M, "mut": OTHER}, str(tmp_path), "P")
     real = execute_module._atomic_write
@@ -165,6 +165,53 @@ def test_a_later_failure_reports_the_files_already_written(tmp_path, monkeypatch
 
     assert result.errors
     assert "could not write" in result.errors[0]
-    assert "already written were left in place" in result.errors[0]
-    assert [outcome for outcome in result.outcomes if outcome.written]
-    assert os.path.isfile(planned.entries[0].path), "the first file stays written"
+    assert "created by this run were removed again" in result.errors[0]
+    assert not [outcome for outcome in result.outcomes if outcome.written]
+    assert not os.path.isfile(planned.entries[0].path), "no half-written batch"
+    first_directory = os.path.dirname(os.path.dirname(planned.entries[0].path))
+    assert not os.path.isdir(first_directory), "no empty scaffolding left behind"
+
+
+def test_a_later_failure_leaves_a_pre_existing_file_as_rewritten(
+    tmp_path, monkeypatch
+):
+    """A file that existed before the run is never deleted by the rollback.
+
+    Its old bytes were replaced by design and cannot be restored, so deleting
+    it would destroy the user's file instead of undoing the run. The message
+    says that plainly, which is the honest limit of a per-file transaction.
+    """
+    # The file must exist *before* planning: the plan records what the
+    # filesystem held when it was made, and that is what the rollback honours.
+    first_path = os.path.join(str(tmp_path), "p", "p__wt", "p__wt.json")
+    os.makedirs(os.path.dirname(first_path), exist_ok=True)
+    with open(first_path, "wb") as handle:
+        handle.write(b"older bytes\n")
+    # Policy Overwrite, so the existing file is genuinely replaced rather than
+    # refused as a conflict; that is the only case a rollback must think about.
+    planned = plan(
+        {"wt": A3M, "mut": OTHER},
+        str(tmp_path),
+        "P",
+        overwrite_policy=OverwritePolicy("Overwrite"),
+    )
+    assert planned.entries[0].path == first_path
+    assert planned.entries[0].action == "overwrite"
+
+    real = execute_module._atomic_write
+    calls = {"count": 0}
+
+    def fail_on_second(path, payload):
+        calls["count"] += 1
+        if calls["count"] > 1:
+            raise OSError(28, "No space left on device")
+        return real(path, payload)
+
+    monkeypatch.setattr(execute_module, "_atomic_write", fail_on_second)
+    result = execute(planned)
+
+    assert result.errors
+    assert "could not write" in result.errors[0]
+    assert "already existed were left as rewritten" in result.errors[0]
+    assert os.path.isfile(first_path), "a pre-existing file is never deleted"
+    assert not os.path.isfile(planned.entries[1].path)

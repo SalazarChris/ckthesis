@@ -18,12 +18,14 @@ __all__ = [
     "ConfigurationOutput",
     "ExpandOutput",
     "FilePreview",
+    "BatchCounts",
     "GenerationPlan",
     "LigandBatchOutput",
     "LoadOutput",
     "MutationOutput",
     "PlanOutput",
     "VariantValidationOutput",
+    "batch_counts",
 ]
 
 
@@ -250,8 +252,10 @@ class GenerationPlan:
 
     ``conflicts`` non-empty means nothing may be written; ``warnings``
     carries path-hazard notices for the user; ``manifest_data`` is the
-    deterministic manifest payload (its ``run_info`` companion stays in
-    ``output``'s hands until execution).
+    manifest's deterministic payload — the bytes that are written, with no
+    per-run timestamp, so a regenerated manifest is byte-identical (its
+    ``run_info`` companion is available in ``output`` for diagnostics and is
+    deliberately left out of the file).
     """
 
     __slots__ = (
@@ -317,25 +321,111 @@ class GenerationPlan:
         )
 
 
+class BatchCounts:
+    """What one file-driven run produced, counted by role rather than by row.
+
+    The audit found the two front ends describing the same run with
+    different totals: the console counted every plan entry, so the manifest
+    was reported as one more "file", while the desktop could not mention
+    copied assets at all because the batch outcome did not carry them. A
+    front end that counts plan rows cannot tell a configuration from a
+    manifest; this type counts only the roles.
+
+    ``records`` is the number of input records that produced a planned
+    configuration. For DNA one record is one configuration even though the
+    entity is the supplied strand plus its reverse complement, so the count
+    matches the file the user gets, not the number of chains inside it.
+    """
+
+    __slots__ = ("records", "configurations", "manifests", "assets", "total")
+
+    def __init__(self, records=0, configurations=0, manifests=0, assets=0) -> None:
+        self.records = int(records)
+        self.configurations = int(configurations)
+        self.manifests = int(manifests)
+        self.assets = int(assets)
+        self.total = self.configurations + self.manifests + self.assets
+
+    def __repr__(self) -> str:
+        return "BatchCounts(records=%d, configurations=%d, manifests=%d, assets=%d)" % (
+            self.records,
+            self.configurations,
+            self.manifests,
+            self.assets,
+        )
+
+
+def batch_counts(output) -> "BatchCounts":
+    """Count a finished batch run's outputs by role.
+
+    Configurations and manifests are told apart by the plan entry's
+    ``variant_key`` (None is the manifest), and only files ``execute``
+    reports as written are counted — a skipped or refused file was not
+    written and must not appear in a total. Assets come from the executor's
+    own copy report, which is why the batch outcome carries them.
+    """
+    plan = getattr(output, "plan", None)
+    if plan is None or not plan.ok:
+        return BatchCounts()
+    entries = tuple(getattr(plan, "entries", ()))
+    configuration_paths = {
+        entry.path for entry in entries if getattr(entry, "variant_key", None) is not None
+    }
+    manifest_paths = {
+        entry.path for entry in entries if getattr(entry, "variant_key", None) is None
+    }
+    written = tuple(getattr(output, "written", ()))
+    configurations = sum(1 for path in written if path in configuration_paths)
+    manifests = sum(1 for path in written if path in manifest_paths)
+    assets = len(tuple(getattr(output, "copied_resources", ())))
+    return BatchCounts(
+        records=len(configuration_paths),
+        configurations=configurations,
+        manifests=manifests,
+        assets=assets,
+    )
+
+
 class LigandBatchOutput:
     """Outcome of the one-step ligand file workflow.
 
     ``plan`` is the reviewed ``GenerationPlan`` (it carries the files, their
-    actions, conflicts and warnings); ``written`` / ``skipped`` / ``errors``
-    come from ``execute``, so a front end reports what actually landed on
-    disk rather than what was planned. ``ok`` is True only when planning
-    succeeded and nothing failed to write: the flow never claims success for
-    a batch it did not write in full.
+    actions, conflicts and warnings); ``written`` / ``skipped`` /
+    ``copied_resources`` / ``errors`` come from ``execute``, so a front end
+    reports what actually landed on disk rather than what was planned.
+    ``ok`` is True only when planning succeeded and nothing failed to write:
+    the flow never claims success for a batch it did not write in full.
+
+    ``copied_resources`` (``(source, destination)`` pairs) is what makes an
+    accurate total possible: copied assets are output files that are not
+    plan entries, so a summary built only from ``written`` under-reports the
+    run.
     """
 
-    __slots__ = ("ok", "plan", "written", "skipped", "errors", "message")
+    __slots__ = (
+        "ok",
+        "plan",
+        "written",
+        "skipped",
+        "copied_resources",
+        "errors",
+        "message",
+    )
 
     def __init__(
-        self, plan=None, written=(), skipped=(), errors=(), ok=False, message=""
+        self,
+        plan=None,
+        written=(),
+        skipped=(),
+        copied_resources=(),
+        errors=(),
+        ok=False,
+        message="",
     ) -> None:
         self.plan = plan
         self.written = tuple(written)
         self.skipped = tuple(skipped)
+        self.copied_resources = tuple(copied_resources)
         self.errors = tuple(errors)
         self.ok = bool(ok)
         self.message = message or ""

@@ -452,3 +452,84 @@ def test_batch_generation_full_pipeline_writes_independent_variant_files(tmp_pat
         # of the file's sequences reached the wire exactly once overall
         seen = [text for payload in payloads.values() for text in ("MSTNPKP", "GKKIGYS", "MSTNPKK") if text in payload]
         assert sorted(seen) == ["GKKIGYS", "MSTNPKK", "MSTNPKP"]
+
+
+# -- external custom CCD resources travel with every generated configuration ----
+
+
+def test_custom_ccd_path_is_copied_into_every_generated_configuration(tmp_path):
+    """A base job's external ``userCCDPath`` follows each batch output.
+
+    The audit could not demonstrate this for ``userCCDPath`` specifically
+    (it had only been shown for MSA and structural-template resources), so
+    this pins the observed behaviour end to end: the CCD file is copied
+    into every configuration's ``assets/`` folder, the emitted path is
+    relative to that configuration's own file, the reference survives
+    moving the output directory, and ``userCCD`` stays absent (the two
+    fields are mutually exclusive).
+
+    Resource copying is *not* the point being invented here — the generic
+    §13.5 path carries ``userCCDPath`` like any other requirement. The test
+    exists because nothing else asserts that it does.
+    """
+    import json
+    import shutil
+
+    with _pin_evidenced():
+        projects, configuration, variants, validation, generation = _services()
+        projects.new("CCD Batch")
+        configuration.set_format_target(version=3, evidence="PIN-001")
+        configuration.add_record("protein", "ACDEFGHIKLMNPQRSTVWY")
+
+        ccd_source = tmp_path / "my_ccd.cif"
+        ccd_source.write_text(
+            "data_MYCCD\nloop_\n_atom_site.id\n_atom_site.type_symbol\n1 C\n",
+            encoding="utf-8",
+        )
+        # load_comp_id -> per-residue definition, keeps ``userCCDPath`` and
+        # ``userCCD`` mutually exclusive by construction (the model has one
+        # component-definition source).
+        mutation = configuration.set_component_definition(
+            external_path=str(ccd_source)
+        )
+        assert mutation.ok, mutation.message
+
+        batch_file = tmp_path / "ligands.txt"
+        batch_file.write_text("TP0\n", encoding="utf-8")
+        defaults = generation.output_defaults()
+        outcome = generation.generate_input_batch(
+            str(batch_file),
+            str(tmp_path / "out"),
+            "ligand-ccd",
+            overwrite_policy=defaults["overwrite"],
+            path_policy=defaults["path"],
+        )
+        assert outcome.ok, outcome.errors
+        configurations = [
+            path for path in outcome.written if path.endswith(".json")
+            and not path.endswith("manifest.json")
+        ]
+        assert len(configurations) == 1
+
+        document = json.loads(
+            open(configurations[0], encoding="utf-8").read()
+        )
+        assert document["userCCDPath"] == "assets/my-ccd.cif"
+        assert "userCCD" not in document
+
+        config_dir = os.path.dirname(configurations[0])
+        copied = os.path.join(config_dir, "assets", "my-ccd.cif")
+        assert os.path.exists(copied)
+        assert open(copied, encoding="utf-8").read() == ccd_source.read_text(
+            encoding="utf-8"
+        )
+        # the emitted path resolves against the configuration's own folder
+        assert os.path.exists(
+            os.path.join(config_dir, document["userCCDPath"])
+        )
+
+        # moving the whole project folder must not break the reference
+        moved = tmp_path / "moved"
+        shutil.move(os.path.join(str(tmp_path / "out"), "ccd-batch"), str(moved))
+        moved_dir = os.path.join(str(moved), os.path.basename(config_dir))
+        assert os.path.exists(os.path.join(moved_dir, "assets", "my-ccd.cif"))

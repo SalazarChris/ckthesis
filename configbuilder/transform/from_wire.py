@@ -263,8 +263,16 @@ def _import_single_alignment(entity, where: str):
 
 def _import_references(entity, where: str):
     """``templates`` → ReferenceSet (MAP-705/706): absent → SearchAllowed,
-    present list → Explicit (empty list = explicitly none). Each entry is
-    an ``mmcifPath`` plus the 0-based parallel index arrays (MAP-703/704)."""
+    present list → Explicit (empty list = explicitly none).
+
+    A template's structure travels **either** inline as ``mmcif`` text or as
+    an ``mmcifPath``; AlphaFold 3's own parser refuses a row that sets both
+    (``Only one of mmcif/mmcifPath can be set.``), so this importer refuses it
+    too, with the location in the message. Both forms are accepted: the inline
+    one is what AF3's own ``Template.to_dict`` emits, and it is the shape this
+    builder writes for a reference attached from memory, so a document must be
+    readable whichever form it carries. The ``queryIndices``/``templateIndices``
+    arrays are 0-based and parallel (MAP-703/704)."""
     rows = entity.get("templates")
     if rows is None:
         return None
@@ -272,10 +280,25 @@ def _import_references(entity, where: str):
         _reject("%s templates must be a list" % where)
     records = []
     for index, row in enumerate(rows):
-        row = _require_mapping(row, "%s template %d" % (where, index))
-        source = _resource(row.get("mmcifPath"), "%s template %d" % (where, index))
-        if source is None:
-            _reject("%s template %d has no mmcifPath" % (where, index))
+        location = "%s template %d" % (where, index)
+        row = _require_mapping(row, location)
+        inline = row.get("mmcif")
+        external = row.get("mmcifPath")
+        if inline is not None and external is not None:
+            _reject(
+                "%s sets both mmcif and mmcifPath; exactly one is allowed"
+                % location
+            )
+        if inline is not None:
+            source = _inline_field(inline, "%s mmcif" % location)
+            if source is None:
+                _reject("%s has empty mmcif text; supply the structure or a path" % location)
+        else:
+            source = _resource(external, location)
+            if source is None:
+                _reject(
+                    "%s has neither mmcif text nor an mmcifPath" % location
+                )
         queries = row.get("queryIndices")
         templates = row.get("templateIndices")
         if queries is None and templates is None:

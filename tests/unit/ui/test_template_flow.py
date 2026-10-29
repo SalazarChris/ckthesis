@@ -35,9 +35,18 @@ def _protein_script(*template_answers):
     ]
 
 
+#: A real single-chain protein template of ten residues. ``_entity_poly`` is
+#: what AF3's ``templateIndices`` address, so a stub with only an
+#: ``_atom_site`` row would (correctly) be refused as having no polymer chain.
 def _cif(path, name="template"):
     path.write_text(
-        "data_%s\n_atom_site.id 1\n_atom_site.label_asym_id A\n" % name,
+        "data_%s\n"
+        "#\n"
+        "_entity_poly.entity_id 1\n"
+        "_entity_poly.type 'polypeptide(L)'\n"
+        "_entity_poly.pdbx_strand_id A\n"
+        "_entity_poly.pdbx_seq_one_letter_code ACDEFGHIKL\n"
+        "#\n" % name,
         encoding="utf-8",
     )
     return path

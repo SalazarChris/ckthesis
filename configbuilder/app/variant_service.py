@@ -1229,12 +1229,30 @@ class VariantService:
             return FilePreview(ok=False, message=problem, entries=shown)
         return FilePreview(ok=True, entries=shown, planned=len(specs))
 
+    # -- legacy batch surface (specs, not files) ------------------------------
+    #
+    # ``inspect_batch_file`` / ``generate_from_file`` are the *commit-based*
+    # batch API: they add one variant spec per entry to the open project, where
+    # they stay visible in the variants list. No front end uses them — the
+    # user-facing workflow is ``GenerationService.plan_input_batch`` /
+    # ``generate_input_batch``, which writes independent AF3 JSON files and
+    # commits nothing. They remain because the manual-test suite and the
+    # fixture generator drive that older shape, and deleting them would mean
+    # rewriting those callers for no user-visible gain.
+    #
+    # The two surfaces are not interchangeable, and they are not meant to be:
+    # one builds files, the other builds specs. A change to the reading or the
+    # record construction belongs in ``app.batch_variants``, which both use, so
+    # a sequence can never be read one way here and another way there.
+
     def inspect_batch_file(self, path: str, family: str = "protein"):
         """Preview a batch input file by **entity family**, commit-accurate.
 
-        Kept for callers that think in families (the older service surface and
-        its tests): the family is translated to the input kind the front ends
-        offer, and the same read-only check runs. Unlike
+        **Legacy surface** (see the section note above): it previews the
+        committing path, not the file-writing workflow. Kept for callers that
+        think in families (the older service surface and its tests): the family
+        is translated to the input kind the front ends offer, and the same
+        read-only check runs. Unlike
         :meth:`inspect_input_file`, this preview also reports a key the project
         already holds, because its caller is the **committing** path
         (``generate_from_file``) where such a key would be refused at commit
@@ -1268,6 +1286,13 @@ class VariantService:
 
     def generate_from_file(self, path: str, family: str = "protein") -> MutationOutput:
         """Batch-generate one independent variant per entry in a file.
+
+        **Legacy surface, not the user-facing workflow.** This commits a
+        ``base + AddRecord`` spec per entry into the open project; the console
+        and the desktop generate files instead (``GenerationService``), and
+        neither calls this. Use ``generate_input_batch`` for user-facing
+        behaviour, or this one only when the result you want *is* a set of
+        variants in the job.
 
         ``path`` is a file containing multiple entries:
         - For protein/dna families: a sequence file (.txt) with one sequence per line

@@ -498,6 +498,25 @@ def batch_specs_for_sequences(
     if not entries:
         raise BatchError("the sequence file contains no usable sequences")
 
+    # A FASTA header is diagnosed as such, not as a sequence of invalid
+    # characters: every letter of ``>sp|P12345|NAME`` is outside the
+    # alphabet, so the generic refusal buried the one actionable fact (the
+    # header) under a wall of character complaints. The reader is line-based
+    # and deliberately stays that way — silently stripping headers would
+    # reinterpret a multi-record file as plain sequences.
+    headers = [
+        (number, text) for number, text in entries if text.startswith(">")
+    ]
+    if headers:
+        number, text = headers[0]
+        raise BatchError(
+            "this looks like a FASTA file, which the line-based sequence "
+            "reader does not support: line %d starts with '>' (%r). "
+            "Write one complete sequence per line with no header lines — "
+            "copy each sequence record into its own line and load the file "
+            "again." % (number, text[:60])
+        )
+
     builder = BATCH_RECORD_BUILDERS.get(family)
     if builder is None:
         raise BatchError("no record builder for family %r" % family)

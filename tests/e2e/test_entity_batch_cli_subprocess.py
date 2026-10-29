@@ -108,7 +108,13 @@ def test_the_console_keeps_every_base_field_and_adds_one_ligand_per_entry(tmp_pa
     assert completed.returncode == 0, completed.stderr[-800:]
     assert "Traceback" not in completed.stderr
     assert "3 entries read from" in completed.stdout
-    assert "Wrote 4 file(s) under" in completed.stdout
+    # The summary counts roles, not plan rows: three configurations plus one
+    # manifest, never "wrote 4 files" with the manifest described as one of
+    # the configurations.
+    assert (
+        "Generated 3 AF3 configurations. Wrote 1 manifest. Total output files: 4."
+        in completed.stdout
+    )
 
     documents = _documents(output)
     assert sorted(documents) == [
@@ -175,7 +181,10 @@ def test_the_protein_kind_writes_four_protein_configurations(tmp_path):
     assert completed.returncode == 0, completed.stderr[-800:]
     assert "Traceback" not in completed.stderr, completed.stderr[-800:]
     assert "4 entries read from" in completed.stdout
-    assert "Wrote 5 file(s) under" in completed.stdout
+    assert (
+        "Generated 4 AF3 configurations. Wrote 1 manifest. Total output files: 5."
+        in completed.stdout
+    )
 
     documents = _documents(output)
     assert sorted(documents) == [

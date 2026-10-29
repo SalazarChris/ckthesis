@@ -382,3 +382,146 @@ def test_empty_description_stays_explicitly_empty_for_dna_and_ligand():
     configuration, _notes = from_wire(document)
     for record in configuration.records:
         assert isinstance(record.description, ExplicitEmpty)
+
+
+# -- structural templates: inline and path forms -------------------------------
+
+#: A minimal single-chain protein template. ``_entity_poly`` declares the full
+#: polymer sequence, which is what AF3's ``templateIndices`` address.
+_INLINE_TEMPLATE = (
+    "data_TEMPLATE_A\n"
+    "#\n"
+    "_entity_poly.entity_id 1\n"
+    "_entity_poly.type 'polypeptide(L)'\n"
+    "_entity_poly.pdbx_strand_id A\n"
+    "_entity_poly.pdbx_seq_one_letter_code ACDEFGHIKL\n"
+    "#\n"
+)
+
+
+def _template_document(**template):
+    row = {"queryIndices": [0, 2], "templateIndices": [3, 5]}
+    row.update(template)
+    return _doc(
+        sequences=[
+            {
+                "protein": {
+                    "id": "A",
+                    "sequence": "ACDEFGHIKLMNP",
+                    "templates": [row],
+                }
+            }
+        ]
+    )
+
+
+def test_an_inline_template_imports_and_keeps_its_text_and_mapping():
+    """AF3 supports ``mmcif`` as inline text; it is not required to be a path."""
+    document = _template_document(mmcif=_INLINE_TEMPLATE)
+
+    configuration, notes = from_wire(document)
+
+    assert notes == ()
+    template = configuration.records[0].references.items[0]
+    assert template.source.text == _INLINE_TEMPLATE
+    assert [(pair.query, pair.template) for pair in template.index_map] == [
+        (0, 3),
+        (2, 5),
+    ]
+    # Serialising again produces the same inline form, never a fabricated path.
+    emitted = to_wire(configuration).document["sequences"][0]["protein"]["templates"]
+    assert emitted == [
+        {
+            "mmcif": _INLINE_TEMPLATE,
+            "queryIndices": [0, 2],
+            "templateIndices": [3, 5],
+        }
+    ]
+
+
+def test_the_builder_reopens_its_own_inline_template_output():
+    """The audit defect: a document this builder emits must be importable.
+
+    ``tests/fixtures/af3_pipeline/test04_protein_msa_template`` is written by
+    this project's own generation path and carries an inline template. It could
+    not be opened at all while the importer demanded ``mmcifPath``.
+    """
+    fixture = (
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    )
+    path = os.path.join(
+        fixture,
+        "fixtures",
+        "af3_pipeline",
+        "test04_protein_msa_template",
+        "test04-protein-msa-template",
+        "test04-protein-msa-template.json",
+    )
+    document = json.loads(open(path, encoding="utf-8").read())
+
+    configuration, notes = from_wire(document)
+
+    assert notes == ()
+    template = configuration.records[0].references.items[0]
+    # Inline mmCIF, carried verbatim (the fixture embeds a real structure;
+    # it used to hold a FASTA alignment, which is not what ``mmcif`` means).
+    assert template.source.text.startswith("data_template")
+    assert [(pair.query, pair.template) for pair in template.index_map] == [
+        (1, 1),
+        (2, 2),
+    ]
+
+
+def test_a_template_setting_both_mmcif_and_mmcifpath_is_refused():
+    """AF3: 'Only one of mmcif/mmcifPath can be set.' -- refused by location."""
+    document = _template_document(mmcif=_INLINE_TEMPLATE, mmcifPath="tpl.cif")
+
+    with pytest.raises(WireImportError) as raised:
+        from_wire(document)
+
+    message = str(raised.value)
+    assert "sequences[0].protein template 0" in message
+    assert "both mmcif and mmcifPath" in message
+
+
+def test_a_template_with_neither_mmcif_nor_mmcifpath_is_refused():
+    with pytest.raises(WireImportError) as raised:
+        from_wire(_template_document())
+
+    assert "neither mmcif text nor an mmcifPath" in str(raised.value)
+
+
+def test_an_empty_inline_template_is_refused_instead_of_stored():
+    with pytest.raises(WireImportError) as raised:
+        from_wire(_template_document(mmcif="   \n"))
+
+    assert "empty mmcif" in str(raised.value)
+
+
+def test_a_path_template_still_imports_as_an_external_resource():
+    """The existing path form is untouched by the inline support."""
+    configuration, notes = from_wire(_template_document(mmcifPath="assets/tpl.cif"))
+
+    assert notes == ()
+    template = configuration.records[0].references.items[0]
+    assert template.source.path.raw == "assets/tpl.cif"
+    emitted = to_wire(configuration).document["sequences"][0]["protein"]["templates"]
+    assert emitted[0]["mmcifPath"] == "assets/tpl.cif"
+    assert "mmcif" not in emitted[0]
+
+
+def test_a_failed_inline_template_import_leaves_the_open_job_unchanged(tmp_path):
+    """A refused document is not partially applied to the open project."""
+    service = ProjectService()
+    good = _write(tmp_path, _doc(name="good-job"))
+    assert service.import_json_commit(good).ok
+    before = service.project.configuration
+
+    bad = _write(
+        tmp_path,
+        _template_document(mmcif=_INLINE_TEMPLATE, mmcifPath="tpl.cif"),
+    )
+    result = service.import_json_commit(bad)
+
+    assert not result.ok
+    assert service.project.configuration is before

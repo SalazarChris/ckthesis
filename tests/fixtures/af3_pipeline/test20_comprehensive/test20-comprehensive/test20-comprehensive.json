@@ -27,7 +27,7 @@
         "pairedMsa": ">Protein_A\nACDEFGHIKL\n",
         "templates": [
           {
-            "mmcif": ">template\nACDEFGHIKL",
+            "mmcif": "data_template\n#\n# Inline structural template for the pipeline fixtures: a ten-residue protein\n# chain with coordinates for its first three residues. Real mmCIF, because\n# ``mmcif`` is mmCIF content (not a FASTA alignment), and the builder checks\n# that before attaching it: a string that is not a structure is refused.\n#\n_entity_poly.entity_id 1\n_entity_poly.type 'polypeptide(L)'\n_entity_poly.pdbx_strand_id A\n_entity_poly.pdbx_seq_one_letter_code ACDEFGHIKL\n#\nloop_\n_entity_poly_seq.entity_id\n_entity_poly_seq.num\n_entity_poly_seq.mon_id\n1 1 ALA\n1 2 CYS\n1 3 ASP\n1 4 GLU\n1 5 PHE\n1 6 GLY\n1 7 HIS\n1 8 ILE\n1 9 LYS\n1 10 LEU\n#\nloop_\n_struct_asym.id\n_struct_asym.entity_id\nA 1\n#\nloop_\n_atom_site.group_PDB\n_atom_site.id\n_atom_site.type_symbol\n_atom_site.label_atom_id\n_atom_site.label_comp_id\n_atom_site.label_asym_id\n_atom_site.label_seq_id\n_atom_site.Cartn_x\n_atom_site.Cartn_y\n_atom_site.Cartn_z\nATOM 1 C CA ALA A 1 0.000 0.000 0.000\nATOM 2 C CA CYS A 2 3.800 0.100 0.200\nATOM 3 C CA ASP A 3 7.400 -0.300 0.900\n#\n",
             "queryIndices": [
               1,
               2

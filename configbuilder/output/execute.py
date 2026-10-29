@@ -7,6 +7,18 @@ requires, and the run is all-or-nothing: any plan-level conflict, or any
 resource whose source cannot be read, aborts before the first byte is
 written. ``execute`` raises nothing for user-caused conditions; it returns
 an ``OutputResult`` describing what happened (errors included).
+
+Atomicity across the *whole* run (what a failed run leaves behind):
+
+- files the plan would ``create`` are **removed again** if a later write
+  fails, and the directories this run created are removed when empty — so a
+  refusal does not leave a half-written batch behind;
+- a file the plan would ``overwrite`` already existed before the run. Its old
+  bytes are replaced by design, and cannot be restored; it is kept and the
+  error says how many such files were left as rewritten. Nothing here ever
+  deletes a file that existed before the run;
+- per-file atomicity holds throughout: a failed file is its old content or
+  absent, never a partial write.
 """
 
 from __future__ import annotations
@@ -81,6 +93,72 @@ def _copy_atomic(source, destination) -> None:
     with open(source, "rb") as handle:
         payload = handle.read()
     _atomic_write(destination, payload)
+
+
+def _roll_back(
+    unwritten_outcomes, created_directories, copied_resources, output_root
+) -> tuple:
+    """Undo the part of a failed run that can be undone safely.
+
+    Only paths this run **created** are removed: an entry whose action was
+    ``create`` and an asset copied into a directory this run made. A file the
+    plan overwrote existed before the run and is never deleted here — the old
+    bytes are gone, so removing it would destroy the user's file instead of
+    restoring it.
+
+    Returns ``(removed_paths, kept_pre_existing_paths)`` for the error
+    message. Failures to remove are tolerated: a rollback is a courtesy after
+    a filesystem error, and a second error must not hide the first.
+    """
+    created = set(created_directories)
+    removed = []
+    kept = []
+    for outcome in unwritten_outcomes:
+        if not outcome.written:
+            continue
+        if outcome.action != "create":
+            kept.append(outcome.path)
+            continue
+        try:
+            os.remove(outcome.path)
+        except OSError:
+            kept.append(outcome.path)
+        else:
+            removed.append(outcome.path)
+    for source, destination in copied_resources:
+        if os.path.dirname(destination) not in created:
+            continue  # its directory pre-existed; the asset may have too
+        try:
+            os.remove(destination)
+        except OSError:
+            continue
+        else:
+            removed.append(destination)
+    def _remove_tree_of_empty_directories(directory) -> None:
+        """Remove ``directory`` and its now-empty ancestors, never elsewhere.
+
+            ``makedirs`` created the planned directories *and* every parent
+            that did not exist yet (``<root>/P``, not just ``<root>/P/P__k``),
+            so the rollback walks up as long as the directory is empty and
+            still under the run's own output root. It stops at the first
+            non-empty ancestor: that is where something not ours lives.
+        """
+        root = os.path.abspath(str(output_root)) if output_root else None
+        current = os.path.abspath(directory)
+        while root is not None and (
+            current == root or current.startswith(root + os.sep)
+        ):
+            if current == root:
+                return  # the output root itself is the user's, not ours
+            try:
+                os.rmdir(current)
+            except OSError:
+                return  # still holds something that was not ours to delete
+            current = os.path.dirname(current)
+
+    for directory in sorted(created, key=len, reverse=True):
+        _remove_tree_of_empty_directories(directory)
+    return tuple(removed), tuple(kept)
 
 
 def execute(plan: OutputPlan) -> OutputResult:
@@ -160,10 +238,34 @@ def execute(plan: OutputPlan) -> OutputResult:
         else:
             detail = "could not write %r: %s" % (target, reason)
         written = [outcome for outcome in outcomes if outcome.written]
-        if written:
-            # Only reachable when a later file fails after earlier ones were
-            # replaced (e.g. base written, then a variant's directory cannot
-            # be created). Say so rather than leaving the user to guess.
-            detail += "; %d file(s) already written were left in place" % len(written)
+        if written or copied_resources:
+            # Only reachable when a later write fails after earlier ones
+            # succeeded. Files this run created are removed again; files it
+            # replaced existed before and stay. Say which happened, so the
+            # user is never left to guess what a failed run left behind.
+            removed, kept = _roll_back(
+                written, created, copied_resources, plan.output_root
+            )
+            if removed:
+                detail += "; %d file(s) created by this run were removed again" % len(removed)
+            if kept:
+                detail += (
+                    "; %d file(s) that already existed were left as rewritten "
+                    "(their previous content cannot be restored)" % len(kept)
+                )
+            outcomes = [
+                WriteOutcome(outcome.path, outcome.action, False, 0)
+                if outcome.written and outcome.path in removed
+                else outcome
+                for outcome in outcomes
+            ]
+            copied_resources = [
+                pair for pair in copied_resources if pair[1] not in removed
+            ]
+            # A directory the rollback removed is no longer a directory this
+            # run created-for-you.
+            created = tuple(
+                directory for directory in created if os.path.isdir(directory)
+            )
         return OutputResult(outcomes, copied_resources, created, errors=(detail,))
     return OutputResult(outcomes, copied_resources, created)

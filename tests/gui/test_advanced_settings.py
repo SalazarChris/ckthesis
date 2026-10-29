@@ -186,10 +186,17 @@ def _msa_a3m(tmp_path, name="msa.a3m"):
 
 
 def _template_cif(tmp_path, name="template.cif"):
-    """A real, readable CIF path for service-level template validation."""
+    """A real single-chain protein template: ten residues, so the mapping
+    bounds these tests use (up to template index 9) address it."""
     path = tmp_path / name
     path.write_text(
-        "data_template\n_atom_site.id 1\n_atom_site.label_asym_id A\n",
+        "data_template\n"
+        "#\n"
+        "_entity_poly.entity_id 1\n"
+        "_entity_poly.type 'polypeptide(L)'\n"
+        "_entity_poly.pdbx_strand_id A\n"
+        "_entity_poly.pdbx_seq_one_letter_code ACDEFGHIKL\n"
+        "#\n",
         encoding="utf-8",
     )
     return str(path)

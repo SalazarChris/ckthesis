@@ -312,6 +312,48 @@ def test_the_file_kind_menu_lists_exactly_the_supported_input_types():
     assert set(menus_module.MenuApp._FILE_PROMPTS) == set(INPUT_KINDS)
 
 
+def test_the_file_menu_explains_the_duplex_and_counts_roles(tmp_path):
+    """The console's preview and summary, in the shared wording.
+
+    A DNA record is one configuration holding two strands, so the preview says
+    so; the summary then counts that one configuration and the manifest apart
+    instead of calling two written files two configurations.
+    """
+    from configbuilder.ui.present.strings import text as _text
+
+    services = build_services()
+    services.projects.new("exp")
+    services.configuration.set_format_target(version=3, evidence="PIN-001")
+    services.configuration.add_record("protein", PROTEIN_SEQUENCE)
+    dna = tmp_path / "dna.txt"
+    dna.write_text("ATGC\n", encoding="utf-8")
+    out = tmp_path / "out"
+
+    status, transcript = run(
+        [
+            "7",  # the job menu's generation action
+            "1",  # load an input file
+            "2",  # the kind table's DNA entry
+            str(dna),
+            str(out),
+            "0",  # leave the file menu
+            "0",  # leave the job menu
+        ],
+        services,
+    )
+
+    assert _text("batch.preview_lead_dna") in transcript
+    assert "reverse-complement" in transcript
+    assert _text("batch.preview_tail") in transcript
+    assert (
+        "Generated 1 AF3 configuration. Wrote 1 manifest. Total output files: 2."
+        in transcript
+    )
+    assert _text("menu.file_summary_location") % str(out) in transcript
+    written = sorted(path.name for path in out.rglob("*.json"))
+    assert written == ["exp__batch-01.json", "manifest.json"]
+
+
 def test_blocking_generation_names_the_findings():
     """A generation refusal carries the blocking findings for the UI."""
     services = build_services()

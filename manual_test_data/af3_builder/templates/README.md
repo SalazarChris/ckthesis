@@ -26,6 +26,14 @@ proves nothing about prediction quality.
 > read. A parsed template proves the file is a structure, never that a mapping
 > is biologically right.
 
+> **Why the two synthetic files carry polymer records.** `minimal_template.cif`
+> and its spaced-path copy are deliberately tiny, but they declare
+> `_entity_poly`, `_entity_poly_seq` and `_struct_asym` for a two-residue chain
+> (`AG`). The builder checks a template's index mapping against the template's
+> *full polymer sequence*, and a file with atom rows alone declares no residues
+> — so it can neither be checked nor be an AF3 template. They remain synthetic:
+> never parsed by AlphaFold 3, not biological, no coordinates worth modelling.
+
 ---
 
 ## Files
@@ -37,8 +45,8 @@ proves nothing about prediction quality.
 | `template_empty.cif` | — | none (0 bytes) | any | refused: *"the file is empty"* |
 | `template_malformed.cif` | none declared | a truncated `_atom_site` loop | any | refused: *"the loop starting at line 9 declares 3 tags, and its values do not form complete rows of that size"* |
 | `template_no_records.cif` | none declared | a `data_` block, a title, no records | any | refused: *"it has no _atom_site, _entity_poly, _struct_asym or _entity records"* |
-| `minimal_template.cif` | one residue (ALA) | ALA1 | one-residue protein | `0:0` — the original smoke-test file |
-| `with spaces/template with spaces.cif` | one residue | one | one-residue protein | `0:0` — proves a path containing spaces survives the dialogs |
+| `minimal_template.cif` | `AG` (2) | ALA1, GLY2 | protein of two or more residues | `0:0,1:1` — the original smoke-test file |
+| `with spaces/template with spaces.cif` | `AG` (2) | ALA1, GLY2 | protein of two or more residues | `0:0,1:1` — proves a path containing spaces survives the dialogs |
 
 ### Fixture A — `template_fully_resolved.cif`
 

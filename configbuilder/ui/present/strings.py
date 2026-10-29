@@ -14,7 +14,13 @@ suite, and an entry nothing uses is dead vocabulary.
 
 from __future__ import annotations
 
-__all__ = ["STRINGS", "blocking_verdict", "text"]
+__all__ = [
+    "STRINGS",
+    "batch_preview_note",
+    "batch_summary",
+    "blocking_verdict",
+    "text",
+]
 
 
 STRINGS = {
@@ -356,19 +362,14 @@ STRINGS = {
     "menu.file_prompt_ligand_ccd": "CCD code file (.txt, one ligand per line): ",
     "menu.file_preview_title": "%d entries read from %s:",
     "menu.file_preview_entry": "  - %s",
-    "menu.file_preview_note": (
-        "Each entry is added to the base job as one new %s entity; the base "
-        "job itself is not modified, and existing files are never replaced."
-    ),
     "menu.file_output_root": "Output folder for the configurations [%s]: ",
     "menu.file_generating": "Generating configurations...",
     "menu.file_written": "Wrote %s",
-    "menu.file_summary": "Wrote %d file(s) under %s",
+    "menu.file_summary_location": "Written under %s",
     "menu.file_refused": "Nothing was written: %s",
     "menu.file_blocked": "Nothing was written; %d blocking finding(s):",
     "menu.file_nothing_written": (
-        "Nothing was written: every planned file already exists with the same "
-        "content."
+        "Nothing was written: the overwrite policy skipped every planned file."
     ),
 
 
@@ -487,21 +488,40 @@ STRINGS = {
     "gui.batch_preview_files": (
         "%d configuration file(s) plus a manifest will be written."
     ),
-    "gui.batch_preview_note": (
-        "Existing files are never replaced. The job open now is the base for "
-        "every file and is not modified."
+    "batch.preview_lead_protein": (
+        "Each entry adds one new protein entity to the base job."
     ),
+    "batch.preview_lead_dna": (
+        "Each DNA entry adds one new DNA entity to the base job: the strand "
+        "you supplied plus its reverse-complement strand, in one "
+        "configuration."
+    ),
+    "batch.preview_lead_rna": "Each entry adds one new RNA entity to the base job.",
+    "batch.preview_lead_ligand": (
+        "Each entry adds one new ligand entity to the base job."
+    ),
+    "batch.preview_tail": (
+        "The base job itself is not modified, and existing files are never "
+        "replaced: if one already exists with different content the whole "
+        "batch is refused, so choose another output folder instead."
+    ),
+    "batch.summary_configurations": "Generated %d AF3 configurations.",
+    "batch.summary_one_configuration": "Generated 1 AF3 configuration.",
+    "batch.summary_manifests": "Wrote %d manifest files.",
+    "batch.summary_one_manifest": "Wrote 1 manifest.",
+    "batch.summary_assets": "Copied %d asset files.",
+    "batch.summary_one_asset": "Copied 1 asset file.",
+    "batch.summary_total": "Total output files: %d.",
     "gui.batch_preview_accept": "Generate",
     "gui.batch_result_title": "Generated configurations",
     "gui.batch_result_written": "%d file(s) written:",
     "gui.batch_result_errors": "These could not be written:",
     "gui.batch_result_skipped": (
-        "%d planned file(s) already existed with the same content and were "
-        "left alone."
+        "%d planned file(s) were left alone by the overwrite policy "
+        "(Skip); they were not rewritten."
     ),
     "gui.batch_result_refused": "Nothing was written: %s",
     "gui.batch_result_nothing": "Nothing was written.",
-    "gui.batch_notice": "Wrote %d file(s) for the input file.",
     "gui.menu_file": "File",
     "gui.action_quit": "Quit",
     "gui.value_unset": "not set",
@@ -934,6 +954,66 @@ def text(key: str) -> str:
         raise KeyError(
             "no string registered for %r; add it to ui/present/strings.py" % key
         )
+
+
+#: What one entry of each kind becomes, in the note shown before writing.
+#: A whole sentence per family rather than a noun slot: "one new DNA" is not
+#: English, and the DNA construction needs more than a noun to explain it.
+_PREVIEW_LEAD_KEYS = {
+    "protein-sequence": "batch.preview_lead_protein",
+    "dna-sequence": "batch.preview_lead_dna",
+    "rna-sequence": "batch.preview_lead_rna",
+    "ligand-smiles": "batch.preview_lead_ligand",
+    "ligand-ccd": "batch.preview_lead_ligand",
+}
+
+
+def batch_preview_note(kind: str) -> str:
+    """The note shown before a batch is written, for both front ends.
+
+    Three things the audit found under-explained live here rather than in one
+    front end: what an entry becomes (and that the base is untouched), the
+    overwrite policy's real consequence (one different existing file refuses
+    the whole batch), and — for DNA only — that one record becomes a duplex.
+    The DNA sentence states the established construction; it does not change
+    it.
+    """
+    return "\n".join(
+        [
+            text(_PREVIEW_LEAD_KEYS.get(kind, "batch.preview_lead_protein")),
+            text("batch.preview_tail"),
+        ]
+    )
+
+
+def batch_summary(counts) -> str:
+    """One sentence describing a finished batch run's outputs.
+
+    Both front ends print this, so the console and the desktop cannot
+    describe the same run with different totals. ``counts`` is
+    ``app.results.BatchCounts`` — roles, not plan rows: the manifest is
+    never called a configuration, and copied assets are reported as copies
+    rather than folded silently into the file count.
+
+    The assets sentence appears only when something was copied, so the
+    ordinary case stays the short "Generated N … Wrote 1 manifest. Total …".
+    """
+    if counts.configurations == 1:
+        parts = [text("batch.summary_one_configuration")]
+    else:
+        parts = [
+            text("batch.summary_configurations") % counts.configurations
+        ]
+    if counts.manifests == 1:
+        parts.append(text("batch.summary_one_manifest"))
+    elif counts.manifests:
+        parts.append(text("batch.summary_manifests") % counts.manifests)
+    if counts.assets == 1:
+        parts.append(text("batch.summary_one_asset"))
+    elif counts.assets:
+        parts.append(text("batch.summary_assets") % counts.assets)
+    parts.append(text("batch.summary_total") % counts.total)
+    return " ".join(parts)
 
 
 def blocking_verdict(count: int) -> str:
