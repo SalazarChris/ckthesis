@@ -190,6 +190,12 @@ class GeneratePage(QWidget):
         form = QFormLayout()
 
         self.destination = QLineEdit()
+        # Pre-filled, not just placeheld: an accepted default must be a real
+        # path. It is the shared output service's ``saved_jobs`` (or the folder
+        # the last export went to), never the process's working directory, so
+        # the same field appears whatever way the window was started. Still an
+        # ordinary editable text field — the user can type anything else.
+        self.destination.setText(self._default_destination())
         self.destination.setPlaceholderText(
             _text("gui.output_destination_placeholder")
         )
@@ -428,6 +434,13 @@ class GeneratePage(QWidget):
                 combo.blockSignals(True)
                 combo.setCurrentIndex(index)
                 combo.blockSignals(False)
+
+    def _default_destination(self) -> str:
+        """The folder this page offers first; ``""`` if none can be resolved."""
+        try:
+            return str(self._state.paths.save_directory())
+        except (OSError, ValueError):
+            return ""
 
     def _policy_name(self, combo) -> str:
         return combo.currentData() or ""
@@ -729,6 +742,10 @@ class GeneratePage(QWidget):
 
         result = self._state.execute(plan)
         self._show_result(result)
+        if result.ok:
+            # Remembered only after a successful write, and as the save/export
+            # folder this page's destination stands for.
+            self._state.paths.remember_save_directory(plan.output_root)
         self._plan = None
         self._signature = None
         self._stale = False

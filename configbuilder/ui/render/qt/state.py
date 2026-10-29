@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
+from configbuilder.app.paths import OutputPaths
 from configbuilder.ui.services import build_services
 
 __all__ = ["GuiState", "build_demo_state"]
@@ -46,6 +47,12 @@ class GuiState(QObject):
     def __init__(self, services=None, source_path="", demo=False, parent=None) -> None:
         super().__init__(parent)
         self._services = services if services is not None else build_services()
+        # Where the save and generate dialogs should open. One shared service
+        # (``app.paths``) rather than a path built per dialog, so the console
+        # and the window offer the same folder and neither depends on the
+        # process's working directory. Replaceable, which is how the tests
+        # point it at a temporary tree.
+        self.paths = OutputPaths()
         self._source_path = source_path or ""
         self._demo = bool(demo)
         # The configuration as of the last new job / open / save. The model is

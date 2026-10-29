@@ -214,7 +214,7 @@ def test_save_needs_an_open_job(window):
     assert window.last_problem_text() == _text("menu.no_project")
 
 
-def test_the_save_dialog_defaults_to_the_current_file(reviewed, tmp_path):
+def test_the_save_dialog_defaults_to_the_current_file(reviewed, tmp_path, output_root):
     window = reviewed
     destination = tmp_path / "default-name.json"
     seen = []
@@ -224,9 +224,11 @@ def test_the_save_dialog_defaults_to_the_current_file(reviewed, tmp_path):
         return str(destination), True
 
     window.save_path_chooser = remember
-    # No file is open yet: the service's own job name supplies the default.
+    # No file is open yet: the service's own job name and the shared
+    # ``saved_jobs`` folder supply the default — a full path, so accepting the
+    # dialog unchanged cannot write into the program folder.
     assert window.save_json() is True
-    assert seen == [window.state.suggested_file_name()]
+    assert seen == [str(output_root / "saved_jobs" / window.state.suggested_file_name())]
     seen.clear()
     assert window.save_json() is True  # identical bytes at the same path
     # Now the current file is the default.

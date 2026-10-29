@@ -11,6 +11,14 @@ Double-click **`check_dependencies.bat`** later to inspect the existing
 their own project directory regardless of the Explorer working directory and
 keep their final result visible until you press a key.
 
+When setup has finished, start the application with **`run_gui.cmd`** (window)
+or **`run_console.cmd`** (text menu). Both are in the same folder, both find the
+folder from their own location, and both use `.venv\Scripts\python.exe`; a
+Desktop shortcut to `run_gui.cmd` is the recommended everyday launch. Saved and
+generated files go to `Documents\AF3Builder\{saved_jobs,
+generated_configurations}` by default — outside this folder — and are unaffected
+by where the launcher is started from.
+
 ### Choosing a different Python
 
 By default the setup uses the Windows `py` launcher (`py -3`), falling back to
@@ -90,6 +98,13 @@ First run `check_dependencies.bat` and read the complete error. If you have
 confirmed you no longer need the environment, rename `.venv` to `.venv.backup`
 yourself and then rerun the setup script. Do not remove it automatically or
 before recovering any local work you need.
+
+**After moving or renaming the application folder**, run `setup_windows.bat`
+again from the new location and then `check_dependencies.bat`. The editable
+install recorded the old absolute path, so the interpreter in `.venv` would
+otherwise fail to import the package. The launchers and the setup/check scripts
+already resolve the folder from their own location; only the install record
+needs refreshing.
 
 To activate the environment manually in PowerShell:
 

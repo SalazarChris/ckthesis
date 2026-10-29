@@ -100,6 +100,33 @@ def no_modal_boxes(monkeypatch):
 
 
 @pytest.fixture(scope="session")
+def output_root(tmp_path_factory):
+    """The one output root every GUI test's defaults resolve into.
+
+    Session-scoped and outside each test's own ``tmp_path`` on purpose: a test
+    that asserts "nothing was written here" must not see the resolver's own
+    (harmless) creation of the output tree.
+    """
+    return tmp_path_factory.mktemp("output-root")
+
+
+@pytest.fixture(autouse=True)
+def isolated_output_tree(output_root, tmp_path, monkeypatch):
+    """Keep every test's output defaults inside ``tmp_path``.
+
+    The window now offers real paths (``saved_jobs`` / generated
+    configurations), so without this a test that saves would create folders in
+    the real user profile and remember them there. Pinning both the output root
+    and the preferences directory to the temporary tree also exercises the
+    environment-variable branch of the resolver, which is the branch a
+    deployment would use.
+    """
+    monkeypatch.setenv("AF3BUILDER_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("APPDATA", str(tmp_path / "appdata"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "localappdata"))
+
+
+@pytest.fixture(scope="session")
 def qapp():
     """The one ``QApplication`` for the whole session."""
     if QApplication is None:

@@ -29,6 +29,7 @@ from configbuilder.model.records import (
 )
 
 from configbuilder.app.configuration_service import ReferenceInput
+from configbuilder.app.paths import OutputPaths
 from configbuilder.app.reference_validation import file_issue, parse_pair_text
 from configbuilder.app.results import FailureReason, batch_counts
 from configbuilder.app.status import FieldState
@@ -349,10 +350,17 @@ class MenuApp:
     loop over the console it is given (a real terminal or a scripted one).
     """
 
-    def __init__(self, services, console, width: int = 80) -> None:
+    def __init__(self, services, console, width: int = 80, paths=None) -> None:
         self._services = services
         self._console = console
         self._width = max(width, MINIMUM_WIDTH)
+        # Where the offered default destinations come from. The same service
+        # the window uses, so a save or a batch started from either front end
+        # defaults to the same folder — never the terminal's own directory.
+        self._paths = OutputPaths() if paths is None else paths
+        # The output-root sentence is said once per session, not on every
+        # prompt: it describes the configuration, not the operation.
+        self._said_output_root = False
         # The JSON file the current job was last saved to / opened from —
         # offered as the default save destination.
         self._current_path = ""
@@ -465,6 +473,23 @@ class MenuApp:
         if not raw:
             return default
         return os.path.expanduser(raw)
+
+    def _say_output_root(self) -> None:
+        """Say which output tree is in force, and anything wrong with it.
+
+        Once per session: it describes where the defaults come from, not the
+        operation being performed. An unusable ``AF3BUILDER_OUTPUT_ROOT`` is
+        named here (the path service says what failed), so a configured but
+        broken override is visible instead of quietly replaced.
+        """
+        if self._said_output_root:
+            return
+        self._said_output_root = True
+        resolved = self._paths.resolve_root()
+        self._say(_text("menu.output_root_note") % resolved.path)
+        for note in resolved.diagnostics:
+            self._say(_text("menu.output_root_problem") % note)
+        self._say()
 
     def _project(self):
         project = self._services.projects.project
@@ -1523,7 +1548,14 @@ class MenuApp:
         if project is None:
             return False
         self._say_summary(project.configuration)
-        default = self._current_path or self._suggest_file_name(project.configuration)
+        self._say_output_root()
+        # The file the job came from stays the default — re-saving over it is
+        # the normal case. With no such file, the default is a full path in
+        # ``saved_jobs``, so accepting the prompt cannot drop a job into the
+        # terminal's directory.
+        default = self._current_path or self._paths.default_save_path(
+            self._suggest_file_name(project.configuration)
+        )
         destination = self._ask_destination("menu.ask_save_path", default)
         if not destination:
             self._say(_text("menu.save_cancelled"))
@@ -1542,6 +1574,9 @@ class MenuApp:
         if not self._write_json(destination, name=None, overwrite=overwrite):
             return False
         self._current_path = destination
+        # Remembered only now: a cancelled or refused save must not move the
+        # next default to a folder nothing was written into.
+        self._paths.remember_save_directory(os.path.dirname(os.path.abspath(destination)))
         self._mark_saved()
         return True
 
@@ -1680,8 +1715,12 @@ class MenuApp:
         self._say()
         self._say(batch_preview_note(kind))
         self._say()
-        default = os.path.join(os.getcwd(), "generated_configurations")
-        root = self._ask_destination("menu.file_output_root", default)
+        self._say_output_root()
+        # The batch tree, not the terminal's directory: the resolved
+        # ``generated_configurations`` folder, or the folder the last
+        # successful batch was written into. A batch run from ``System32``
+        # writes where the window would write it too.
+        root = self._ask_destination("menu.file_output_root", self._paths.default_batch_root())
         if not root:
             self._say(_text("menu.save_cancelled"))
             return
@@ -1723,6 +1762,8 @@ class MenuApp:
             # called one manifest an extra configuration (audit finding).
             self._say(batch_summary(batch_counts(outcome)))
             self._say(_text("menu.file_summary_location") % root)
+            # Only a run that actually wrote something moves the default.
+            self._paths.remember_batch_directory(root)
         elif not outcome.written and not outcome.errors:
             self._say(_text("menu.file_nothing_written"))
 

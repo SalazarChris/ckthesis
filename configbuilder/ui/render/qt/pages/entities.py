@@ -376,7 +376,11 @@ class EntitiesPage(QWidget):
         if not preview.ok:
             self._problems(preview.message)
             return
-        root = self.batch_folder_chooser(self)
+        # The folder is offered already chosen: ``generated_configurations``
+        # under the shared output root (or the last batch's folder), not an
+        # empty dialog remembering some unrelated directory. The preview below
+        # names the same folder, so what is shown is what is written.
+        root = self.batch_folder_chooser(self, self._default_batch_root())
         if not root:
             return
         if not self.batch_previewer(self, preview, root, kind):
@@ -384,9 +388,18 @@ class EntitiesPage(QWidget):
         outcome = self._state.generate_input_configurations(path, root, kind)
         self.batch_reporter(self, outcome)
         if outcome.ok:
+            # Only a run that wrote something moves the next default.
+            self._state.paths.remember_batch_directory(root)
             # The same sentence the console prints and the report box shows,
             # so the status line cannot disagree with the dialog.
             self._notify(batch_summary(batch_counts(outcome)))
+
+    def _default_batch_root(self) -> str:
+        """The batch destination to offer first, or an empty string."""
+        try:
+            return self._state.paths.default_batch_root()
+        except (OSError, ValueError):
+            return ""
 
     # -- reading the details pane back --------------------------------------
 

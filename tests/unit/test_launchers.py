@@ -294,3 +294,67 @@ def test_gui_launcher_help_round_trips_through_the_real_environment():
     assert result.returncode == 0, (result.returncode, result.stderr[-600:])
     assert "--demo" in result.stdout
     assert "Traceback" not in result.stderr
+
+
+# -- the double-click launchers -----------------------------------------------
+#
+# ``run_gui.cmd`` and ``run_console.cmd`` are read, not executed: running them
+# would start a real front end (or wait on ``pause``), so what is pinned here is
+# the part that can silently break — how each one finds its folder, its
+# interpreter and its entry file, and that neither hard-codes a user's path.
+
+
+def _launcher_text(name: str) -> str:
+    return (ROOT / name).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "name, entry",
+    [("run_gui.cmd", "gui.py"), ("run_console.cmd", "af3builder.py")],
+)
+def test_each_double_click_launcher_exists_and_names_its_entry(name, entry):
+    text = _launcher_text(name)
+
+    assert (ROOT / name).is_file()
+    assert entry in text
+    # Forwarded arguments reach the application (a JSON path, ``--demo``).
+    assert "%*" in text
+
+
+@pytest.mark.parametrize("name", ["run_gui.cmd", "run_console.cmd"])
+def test_launchers_find_their_own_folder_and_not_the_callers(name):
+    text = _launcher_text(name)
+
+    assert 'cd /d "%~dp0"' in text
+    assert 'set "ROOT=%CD%"' in text
+    # The interpreter is the project's own environment, addressed relative to
+    # the launcher's folder.
+    assert r"%ROOT%\.venv\Scripts\python.exe" in text
+
+
+@pytest.mark.parametrize("name", ["run_gui.cmd", "run_console.cmd"])
+def test_launchers_hard_code_no_machine_specific_path(name):
+    text = _launcher_text(name).lower()
+
+    assert "c:\\users" not in text
+    assert "desktop" not in text
+    assert "thesissp" not in text
+
+
+@pytest.mark.parametrize("name", ["run_gui.cmd", "run_console.cmd"])
+def test_launchers_explain_a_missing_environment_and_pause(name):
+    text = _launcher_text(name)
+
+    assert "setup_windows.bat" in text
+    assert "check_dependencies.bat" in text
+    # ``pause`` keeps the explanation on screen after a double-click.
+    assert "pause" in text
+
+
+def test_the_gui_launcher_uses_a_visible_python_so_failures_are_readable():
+    text = _launcher_text("run_gui.cmd")
+
+    assert r'"%VENV_PY%" "%ROOT%\gui.py"' in text
+    # ``pythonw.exe`` would swallow a startup failure; the comment may mention
+    # it, but no interpreter path may be built from it.
+    assert r"Scripts\pythonw.exe" not in text

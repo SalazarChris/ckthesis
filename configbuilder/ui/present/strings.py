@@ -363,6 +363,11 @@ STRINGS = {
     "menu.file_preview_title": "%d entries read from %s:",
     "menu.file_preview_entry": "  - %s",
     "menu.file_output_root": "Output folder for the configurations [%s]: ",
+    # Where the offered default came from, and anything wrong with the
+    # configured one. The sentence itself is the path service's (it knows
+    # which source failed); this entry only frames it.
+    "menu.output_root_note": "Output folder: %s",
+    "menu.output_root_problem": "%s",
     "menu.file_generating": "Generating configurations...",
     "menu.file_written": "Wrote %s",
     "menu.file_summary_location": "Written under %s",

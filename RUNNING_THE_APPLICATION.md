@@ -1,15 +1,19 @@
 # Running the AF3 JSON Builder
 
-Two small launchers in the repository root start the application. For the
+Two double-clickable launchers in the application folder start the application:
+`run_gui.cmd` for the window and `run_console.cmd` for the text menu. For the
 one-click Windows setup and dependency checker, see
 [`DEPENDENCY_SETUP.md`](DEPENDENCY_SETUP.md): double-click
 `setup_windows.bat` once, then `check_dependencies.bat` whenever you want a
-readiness report. Run the launchers from the repository root with the project
-interpreter.
+readiness report. Both launchers find their own folder, so a shortcut, Explorer
+and a terminal all start the same application; neither needs to be launched
+from the repository root.
 
 ## The console builder
 
 ```powershell
+run_console.cmd
+# or, from a terminal in the folder:
 python af3builder.py
 ```
 
@@ -27,6 +31,7 @@ continues to fall back to a pre-existing `.venv-gui`. It runs the existing GUI
 module and forwards your arguments unchanged.
 
 ```powershell
+run_gui.cmd                            # the same as: python gui.py
 python gui.py                          # empty window -> "Open AF3 JSON..."
 python gui.py --demo                   # built-in sample job (in memory only)
 python gui.py "C:\path\to\job.json"    # offer a file for preview + confirm
@@ -34,8 +39,10 @@ python gui.py --help                   # the GUI launcher's own options
 ```
 
 A JSON path containing spaces is fine: it is passed through as a single
-argument. The GUI always starts with the repository root as its working
-directory, even when `gui.py` is invoked by its full path from elsewhere.
+argument. The GUI starts with the application folder as its working directory,
+even when `gui.py` is invoked by its full path from elsewhere; that is only so
+imports and internal files resolve. Where **your** files are written is decided
+by the output-folder rules below, never by the working directory.
 
 ### Manual GUI-only setup (optional)
 
@@ -68,6 +75,33 @@ PySide6 is missing), the launcher reports the failure with the child's own
 diagnostic and its non-zero exit code. It prefers `.venv` and only checks the
 legacy `.venv-gui` path when `.venv` is absent.
 
+## Where saved and generated files go
+
+Both front ends use one output-folder service
+(`configbuilder/app/paths.py`), so the destination offered by the console and by
+the window is the same:
+
+| Operation | Offered default |
+| --- | --- |
+| Save the open job | the file it came from; otherwise `<output root>\saved_jobs\<job>.json` |
+| Generate the open job (Generate page) | `<output root>\saved_jobs` (or the folder the last export went to) |
+| Generate configurations from a file (Entities) | `<output root>\generated_configurations` (or the last batch folder) |
+
+The `<output root>` is resolved in this order: the `AF3BUILDER_OUTPUT_ROOT`
+environment variable; the last-used output folder in
+`%APPDATA%\AF3Builder\preferences.json`; `Documents\AF3Builder`; then
+`%LOCALAPPDATA%\AF3Builder`. An `AF3BUILDER_OUTPUT_ROOT` that cannot be created
+or written is reported in the interface and the next source is used — it is
+never silently ignored, and no default ever falls back to the application
+folder or the terminal's directory.
+
+A chosen folder is remembered only after the save or generation actually
+succeeded, so cancelling or a refused plan leaves the next default where it was.
+Both folders stay distinct on purpose: `saved_jobs` holds one JSON per job,
+`generated_configurations` holds the batch tree (one folder per entry, each with
+its `assets\`, plus `manifest.json`). The manifest is a builder-side run report
+that AF3 does not read.
+
 ## A first tour of the desktop window
 
 The window has a header with the product mark and name, the open job and whether
@@ -93,9 +127,10 @@ keyboard shortcuts (Ctrl+N, Ctrl+O, Ctrl+S). The menu bar itself is hidden, so
 the same commands are not offered in two places. The header's pill says "Unsaved"
 while the open job differs from what was last opened or saved and "Saved"
 otherwise. The window title names the job and carries a `*` in the unsaved
-state. `Save JSON…` writes one file; `Generate` writes the planned project
-folder, its copied assets and the manifest. Both go through the same generation
-service.
+state. `Save JSON…` writes one file (into `saved_jobs` by default); `Generate`
+writes the planned project folder, its copied assets and the manifest (into
+`generated_configurations` when started from a file). Both go through the same
+generation service.
 
 The dark charcoal/turquoise look is applied from the one style module
 (`configbuilder/ui/render/qt/style.py`); no page carries its own style sheet.

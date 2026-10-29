@@ -425,8 +425,13 @@ class MainWindow(QMainWindow):
         if not self._state.has_project():
             self.report_problem(_text("menu.no_project"))
             return False
+        # The file the job came from first (re-saving over it is the normal
+        # case); otherwise a full path inside ``saved_jobs``, so accepting the
+        # dialog unchanged cannot write a job into the program folder.
         destination, accepted = self.save_path_chooser(
-            self, self._state.source_path or self._state.suggested_file_name()
+            self,
+            self._state.source_path
+            or self._state.paths.default_save_path(self._state.suggested_file_name()),
         )
         if not accepted or not destination:
             self.statusBar().showMessage(_text("menu.save_cancelled"), 8000)
@@ -450,6 +455,11 @@ class MainWindow(QMainWindow):
         for path in result.skipped:
             self.statusBar().showMessage(_text("menu.export_skipped") % path, 8000)
         self._state.record_save(destination)
+        # Remembered only after a successful write: a refused or cancelled
+        # save must not move the next default.
+        self._state.paths.remember_save_directory(
+            os.path.dirname(os.path.abspath(destination))
+        )
         return True
 
     def _report_save_refusal(self, plan) -> bool:
