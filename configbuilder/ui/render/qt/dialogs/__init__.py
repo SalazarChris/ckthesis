@@ -37,9 +37,9 @@ from configbuilder.ui.render.qt.dialogs.messages import (
     confirm_bond_removal,
     confirm_discard,
     confirm_entity_delete,
-    confirm_generation,
     confirm_modification_removal,
     confirm_overwrite,
+    confirm_replacement,
     show_problem,
 )
 
@@ -60,9 +60,9 @@ __all__ = [
     "confirm_bond_removal",
     "confirm_discard",
     "confirm_entity_delete",
-    "confirm_generation",
     "confirm_modification_removal",
     "confirm_overwrite",
+    "confirm_replacement",
     "report_batch_run",
     "show_failure",
     "show_problem",

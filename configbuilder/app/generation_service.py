@@ -781,6 +781,20 @@ class GenerationService:
 
     # -- execution (§15: writes only) --------------------------------------------
 
+    def base_file_path(self, output_root: str) -> str:
+        """Where ``plan_base`` writes the open job, without planning it.
+
+        A front end that offers a one-click write has to name the file it is
+        about to create *before* the click, and a second copy of the naming
+        rule would let that label drift from what is actually written. Both
+        routes therefore ask this method (``plan_base`` through the same
+        ``_base_paths`` helper). Returns ``""`` when no job is open.
+        """
+        project = self._projects._require_project()
+        if project is None:
+            return ""
+        return _base_paths(output_root, project.configuration.metadata.name)[2]
+
     def plan_base(
         self,
         output_root: str,
@@ -841,7 +855,7 @@ class GenerationService:
         # is assembled from the planner's own decision helpers: same
         # §13.5 path-policy resolution and §13.3 action table.
         filesystem = self._filesystem if self._filesystem is not None else OsFileView()
-        base_dir = os.path.join(output_root, project_slug)
+        _slug, base_dir, base_file = _base_paths(output_root, project_name)
         resources, warnings = resolve_resources_into(
             result.external_resources,
             output_root,
@@ -867,10 +881,14 @@ class GenerationService:
                 message=str(error),
             )
 
-        file_name = project_slug + ".json"
-        file_path = os.path.join(base_dir, file_name)
         file_path, action, exists = decide_action(
-            file_path, payload, overwrite, filesystem
+            base_file, payload, overwrite, filesystem
+        )
+        # An identical file is planned as ``overwrite`` too (same bytes, same
+        # result). This flag is the difference a front end needs when it wants
+        # to ask before replacing and stay silent when nothing changes.
+        different_content = bool(
+            action == "overwrite" and exists and filesystem.read(file_path) != payload
         )
         conflicts = (conflict_message(file_path),) if action == "conflict" else ()
         if conflicts:
@@ -904,6 +922,7 @@ class GenerationService:
                     file_path,
                     action,
                     reviewed.entries[0].payload_fingerprint,
+                    different_content,
                 ),
             ),
             conflicts=(),
@@ -1155,3 +1174,15 @@ def _plan_with_manifest(planned, manifest_entry):
         conflicts=planned.conflicts,
         warnings=planned.warnings,
     )
+
+
+def _base_paths(output_root, project_name):
+    """The base job's own three path pieces: ``(slug, folder, file)``.
+
+    ``<output_root>/<slug>/<slug>.json`` — the file's name and the wire
+    ``name`` agree because both come from this slug. Kept in one place so
+    ``plan_base`` and ``base_file_path`` cannot disagree about it.
+    """
+    slug = slug_name(project_name)
+    directory = os.path.join(output_root, slug)
+    return slug, directory, os.path.join(directory, slug + ".json")

@@ -29,9 +29,9 @@ __all__ = [
     "confirm_bond_removal",
     "confirm_discard",
     "confirm_entity_delete",
-    "confirm_generation",
     "confirm_modification_removal",
     "confirm_overwrite",
+    "confirm_replacement",
     "show_problem",
 ]
 
@@ -112,21 +112,25 @@ def confirm_bond_removal(parent, message: str) -> bool:
     return _confirm_removal(parent, _text("gui.bond_delete_title"), message)
 
 
-def confirm_generation(parent, message: str) -> bool:
-    """Ask before writing the reviewed output plan. Cancel is the default.
+def confirm_replacement(parent, message: str) -> bool:
+    """Ask before replacing existing files that hold different content.
 
-    ``message`` is the page's own summary: the destination, how many files
-    will be written, and the two policies in force. This function only asks
-    and answers; the page owns planning and execution.
+    This is the only question the Generate page asks: writing a new file needs
+    no confirmation, but overwriting someone's earlier bytes does. Cancel is
+    the default, so a stray Return keeps the existing files. ``message`` is
+    the page's own list of the files that would change; this function only
+    asks and answers.
     """
     box = QMessageBox(parent)
-    box.setWindowTitle(_text("gui.output_confirm_title"))
+    box.setWindowTitle(_text("gui.output_replace_title"))
     box.setText(message)
-    write = box.addButton(_text("gui.output_confirm_accept"), QMessageBox.AcceptRole)
+    replace = box.addButton(
+        _text("gui.output_replace_accept"), QMessageBox.AcceptRole
+    )
     cancel = box.addButton(_text("gui.form_cancel"), QMessageBox.RejectRole)
     box.setDefaultButton(cancel)
     box.exec()
-    return box.clickedButton() is write
+    return box.clickedButton() is replace
 
 
 def ask_save_path(parent, default: str):

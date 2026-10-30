@@ -127,23 +127,36 @@ workspace; the destination you pick in the sidebar replaces it.
 | **Overview** | The job's name, model seeds and JSON version are edited here. Below them, a compact **Entities** card gives the record count, the per-family breakdown and a **Manage entities** action that opens the Entities workspace. Readiness is one line — `Ready` or `Not ready: 1 blocking finding.` — with a quiet **Validate job** action that re-reads the service verdict. There is no permanent findings table: a refusal explains itself when you attempt the save or generation. Saving the document is the labelled **Save** action in the FILE footer (Ctrl+S). |
 | **Entities** | A compact drop-down lists every record as identity, family and a short summary (both DNA strands and every identifier of a multi-copy ligand are separate entries), with **Add Protein/RNA/DNA/Ligand**, **Edit entity** and **Delete entity** beside it. The **Generate configurations from file…** action accepts explicitly selected protein, DNA, RNA, SMILES or standard CCD-code input, then previews and writes one independent AF3 JSON per entry without changing the open base job. Three work areas sit below: **Entity settings** (compact facts — length or representation, description, DNA partner — then Alignment/MSA, templates and PTMs), **Custom CCDs** (the whole-job `userCCD`/`userCCDPath` definition) and **Covalent bonds** (whole-job endpoints across entities). The full sequence is edited in the Add/Edit dialog, never rendered as a large preview. |
 
-| **Generate** | Four numbered steps, top to bottom: generate the open base job, choose where files go, review the plan (files, assets, conflicts, warnings and findings), then generate. The folder and overwrite/path policies sit behind an *Advanced options* disclosure whose defaults are safe; conflicts and warnings stay visible whichever way it is set. Nothing is written before the confirmation, and the result appears in the fourth step. |
+| **Generate** | One action. The output folder is pre-filled and the file it will produce is named above the button (`<folder>\<job>\<job>.json`), then **Save job** writes it — no preview step to complete first and no confirmation for a new file. The only question is a replacement: an existing file holding *different* content is confirmed once, naming the files; a file whose bytes are identical is rewritten silently. The overwrite and path policies sit behind an **Options** disclosure whose defaults are safe, and **Preview plan** is available (under the result) for anyone who wants to see the files, copied assets, warnings and conflicts first. After a write the result lists what was written and copied, **Open folder** shows it in Explorer, and **Plan details** expands the plan's own rows. A refusal (no folder, blocking findings, a conflict under the default `Fail` policy) writes nothing and explains itself. |
 
 Job-wide settings have exactly one home: the **Overview** page edits the job
 name, model seeds and JSON version through the configuration service, and the
 readiness verdict that depends on them sits directly beside them. There is no
 separate Job Settings destination to keep in step.
 
-The sidebar's FILE footer carries the three lifecycle actions (`New`, `Open`,
-`Save`) with their full action labels in the tooltips and the standard
-keyboard shortcuts (Ctrl+N, Ctrl+O, Ctrl+S). The menu bar itself is hidden, so
-the same commands are not offered in two places. The header's pill says "Unsaved"
-while the open job differs from what was last opened or saved and "Saved"
-otherwise. The window title names the job and carries a `*` in the unsaved
-state. `Save JSON…` writes one file (into `saved_jobs` by default); `Generate`
-writes the planned project folder, its copied assets and the manifest (into
-`generated_configurations` when started from a file). Both go through the same
-generation service.
+The sidebar's FILE footer carries the lifecycle actions (`New`, `Open`, `Save`,
+`Save to folder`) with their full action labels in the tooltips and the
+standard keyboard shortcuts (Ctrl+N, Ctrl+O, Ctrl+S). The menu bar itself is
+hidden, so the same commands are not offered in two places. The header's pill
+says "Unsaved" while the open job differs from what was last opened or saved
+and "Saved" otherwise. The window title names the job and carries a `*` in the
+unsaved state.
+
+Two write actions, and they differ only in who chooses the path:
+
+- **`Save`** (Ctrl+S) opens a save dialog so you pick the file. It remembers
+  the folder you chose for the next time.
+- **`Save to folder`** is the one-click route: it writes the job into the
+  output folder exactly as the Generate page does
+  (`<folder>\<job>\<job>.json`, plus any copied assets), with no dialog and
+  without opening the Generate page. It uses the remembered output folder, so
+  pick a different one on the Generate page when you want one.
+
+Both go through the same generation service, ask the same single question when
+an existing file would be replaced with different content, and mark the job
+saved once the bytes are on disk. `Generate configurations from file…` on the
+Entities page is the separate batch route: one configuration per input entry,
+plus `manifest.json`, into `generated_configurations`.
 
 The dark charcoal/turquoise look is applied from the one style module
 (`configbuilder/ui/render/qt/style.py`); no page carries its own style sheet.

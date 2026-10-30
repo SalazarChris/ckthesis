@@ -233,15 +233,36 @@ class ConfigurationPlan:
     ``payload_fingerprint`` is the SHA-256 of the exact bytes that will
     be written; ``action`` is ``create`` / ``overwrite`` / ``skip`` /
     ``conflict`` (plan §13.3).
+
+    ``different_content`` is True only when the file exists, will be
+    written over, and the bytes on disk are *not* the bytes about to be
+    written. An identical file is also labelled ``overwrite`` (it is
+    rewritten with the same bytes, which changes nothing), so a front end
+    that wants to ask before replacing needs this distinction rather than
+    the action word.
     """
 
-    __slots__ = ("variant_key", "path", "action", "payload_fingerprint")
+    __slots__ = (
+        "variant_key",
+        "path",
+        "action",
+        "payload_fingerprint",
+        "different_content",
+    )
 
-    def __init__(self, variant_key, path, action, payload_fingerprint) -> None:
+    def __init__(
+        self,
+        variant_key,
+        path,
+        action,
+        payload_fingerprint,
+        different_content=False,
+    ) -> None:
         self.variant_key = variant_key
         self.path = path
         self.action = action
         self.payload_fingerprint = payload_fingerprint
+        self.different_content = different_content
 
     def __repr__(self) -> str:
         return "ConfigurationPlan(%r, %s, %s)" % (self.variant_key, self.path, self.action)

@@ -70,10 +70,11 @@ def no_modal_boxes(monkeypatch):
         "configbuilder.ui.render.qt.pages.advanced.confirm_bond_removal",
         lambda parent, message: True,
     )
-    # The Generate & Output page's one question: answer "yes", so a stray
-    # press can never hang; the Stage 6 tests replace it with a recorder.
+    # The Generate & Output page's one question (a replacement only): answer
+    # "yes", so a stray press can never hang; the tests replace it with a
+    # recorder when they assert on the wording.
     monkeypatch.setattr(
-        "configbuilder.ui.render.qt.pages.generate.confirm_generation",
+        "configbuilder.ui.render.qt.pages.generate.confirm_replacement",
         lambda parent, message: True,
     )
     from PySide6.QtWidgets import QDialog

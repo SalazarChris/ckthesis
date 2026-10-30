@@ -591,6 +591,9 @@ STRINGS = {
     # wording above, so both front ends say the same thing.
     "gui.action_new_job": "New Job…",
     "gui.action_save": "Save JSON…",
+    "gui.action_save_to_folder": (
+        "Save to folder (writes the job into the output folder)"
+    ),
     "gui.section_settings": "Job settings",
     "gui.settings_apply": "Apply",
     "gui.settings_default": "Application default",
@@ -792,30 +795,35 @@ STRINGS = {
     "gui.tab_output": "Generate",
     "gui.output_title": "Generate output files",
     "gui.output_intro": (
-        "Review the plan first - nothing is written until you confirm. This "
-        "page writes the open job's own AF3 JSON file and any external files "
-        "it copies; Save JSON in the FILE footer writes the one file directly. "
-        "A file of ligands is generated from the Entities page."
+        "One AF3 JSON file for the open job, written to the folder below, plus "
+        "any external files copied beside it. Save to folder in the FILE footer "
+        "does the same without opening this page. A file of ligand inputs is "
+        "generated from the Entities page."
     ),
     "gui.output_base": "Base job: %s - %d entities",
-    "gui.output_group_scope": "1. What is written",
-    "gui.output_group_destination": "2. Where should the files go?",
+    "gui.output_group_output": "Where the file goes",
     "gui.output_destination": "Output folder",
     "gui.output_destination_placeholder": "Choose a folder for the generated files",
     "gui.output_destination_hint": (
-        "The project folder is created inside this folder; the exact files are "
-        "listed in the plan you review before generating."
+        "The job's own folder is created inside this one; the file written is "
+        "the path shown above."
     ),
-    "gui.output_advanced": "Advanced options",
+    "gui.output_will_write": "Will write: %s",
+    "gui.output_will_write_none": (
+        "Choose a folder to see the file that will be written."
+    ),
+    "gui.output_advanced": "Options",
     "gui.output_advanced_hint": (
         "The defaults are safe: an existing file with different content stops the "
         "run and writes nothing, and external files are copied so the output still "
         "works elsewhere."
     ),
-    "gui.output_write_hint": "Nothing is written until you confirm the plan.",
+    "gui.output_write_hint": (
+        "Writes the file named above now; an existing file is never replaced "
+        "without asking."
+    ),
     "gui.output_browse": "Choose folder...",
     "gui.output_folder_dialog": "Choose the output folder",
-    "gui.output_scope_base_note": "One AF3 JSON file. No manifest.",
     "gui.output_overwrite_policy": "If a file already exists",
     "gui.output_path_policy": "External files (MSA, templates)",
     "gui.policy_overwrite_fail": "Stop and write nothing",
@@ -852,43 +860,29 @@ STRINGS = {
         "on another machine."
     ),
     "gui.output_preview": "Preview plan",
-    "gui.output_generate": "Generate files",
+    "gui.output_preview_hint": (
+        "See the files, copied assets, warnings and conflicts without writing "
+        "anything."
+    ),
+    "gui.output_save": "Save job",
+    "gui.output_open_folder": "Open folder",
     "gui.output_copy_path": "Copy selected path",
     "gui.output_copied_path": "The selected path was copied.",
-    "gui.output_group_plan": "3. Review the plan",
-    "gui.output_group_generate": "4. Generate files",
-    "gui.output_step3_hint": (
-        "Previewing shows the files, copied assets, warnings and conflicts. "
-        "Nothing is written by a preview."
-    ),
     "gui.output_conflicts_blocking": (
         "Blocking - nothing is written while these remain."
     ),
     "gui.output_warnings_nonblocking": (
         "Non-blocking - generation can still proceed."
     ),
-    "gui.output_plan_empty": (
-        "Choose a folder and preview the plan. Nothing is written until you "
-        "confirm."
-    ),
-    "gui.output_plan_ready": (
+    "gui.output_plan_empty": "Nothing has been written yet.",
+    "gui.output_plan_previewed": (
         "%d file(s) and %d copied file(s) planned, with %d warning(s) - "
         "nothing has been written yet."
     ),
-    "gui.output_plan_invalidated": (
-        "The job changed since this plan was previewed. Preview the plan again."
-    ),
-    "gui.output_plan_done": (
-        "Generation finished - see the Result tab for what was written."
-    ),
+    "gui.output_plan_done": "Saved - what was written is listed below.",
     "gui.output_tab_files": "Files",
     "gui.output_tab_assets": "Assets",
-    "gui.output_tab_messages": "Warnings and findings",
-    "gui.output_stale": (
-        "The destination or an option changed. Preview the plan again before "
-        "generating."
-    ),
-    "gui.output_need_plan": "Preview the plan before generating.",
+    "gui.output_plan_details": "Plan details",
     "gui.output_no_folder": "Choose an output folder first.",
     "gui.output_plan_refused": "Nothing can be written: %s",
     "gui.output_col_kind": "Planned item",
@@ -900,10 +894,6 @@ STRINGS = {
     "gui.output_col_copy": "Copied to",
     "gui.output_col_emitted": "Path in JSON",
     "gui.output_kind_base": "Base job",
-    "gui.output_kind_manifest": "Manifest",
-    "gui.output_manifest_note": (
-        "The manifest (manifest.json) records the run; it is written last."
-    ),
     "gui.output_action_create": "Create",
     "gui.output_action_overwrite": "Replace",
     "gui.output_action_skip": "Keep existing",
@@ -911,7 +901,6 @@ STRINGS = {
     "gui.output_group_warnings": "Warnings, conflicts and findings",
     "gui.output_conflicts": "Conflicts (%d)",
     "gui.output_warnings": "Warnings (%d)",
-    "gui.output_no_warnings": "No warnings.",
     "gui.output_findings_note": (
         "These findings blocked generation. Select one to open its entity, or "
         "review the configuration."
@@ -927,15 +916,18 @@ STRINGS = {
     "gui.output_written": "Written",
     "gui.output_skipped": "Skipped",
     "gui.output_copied": "Copied",
-    "gui.output_confirm_title": "Generate files?",
-    "gui.output_confirm_question": (
-        "Write %d file(s) to:\n%s\n\nIf a file exists: %s\n"
-        "External files: %s"
+    "gui.output_replace_title": "Replace existing files?",
+    "gui.output_replace_question": (
+        "%d existing file(s) hold different content and would be replaced:\n%s\n\n"
+        "Replace them with the newly generated bytes?"
     ),
-    "gui.output_confirm_accept": "Generate",
+    "gui.output_replace_accept": "Replace",
+    "gui.output_replace_cancelled": (
+        "Nothing was written - the existing files were kept."
+    ),
     "gui.output_plan_changed": (
-        "The destination changed since this plan was reviewed, so the new plan "
-        "is shown. Review it and generate again."
+        "The output folder changed while the plan was being prepared, so "
+        "nothing was written. The plan shown is the current one - try again."
     ),
 
     # -- the mockup shell (sidebar, header, page titles) ------------------
@@ -952,6 +944,7 @@ STRINGS = {
     "gui.file_action_new": "New",
     "gui.file_action_open": "Open",
     "gui.file_action_save": "Save",
+    "gui.file_action_save_to_folder": "Save to folder",
     "gui.breadcrumb_overview": "WORKSPACE / OVERVIEW",
     "gui.overview_title": "Prepare your AF3 job",
     "gui.overview_intro": (

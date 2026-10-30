@@ -351,11 +351,17 @@ Both front ends: create the job with an external MSA (and/or template), then:
 * **Console:** job menu `6` writes the JSON (and copies assets next to it under
   the default policy). That is the console's route to a file; the ligand batch is
   its only multi-file action.
-* **Window:** **Generate** page → step 1 says exactly what is written, the open
-  job's own AF3 JSON → *2. Where should the files go?* → **Choose folder...** →
-  under **Advanced options** set *External files (MSA, templates)* to `Copy into
-  the output folder` → **Preview plan** (shows the JSON, the assets to copy,
-  warnings) → **Generate files**.
+* **Window:** **Generate** page → the folder is already filled in and the line
+  under it names the exact file (`Will write: <folder>\<job>\<job>.json`) →
+  under **Options** set *External files (MSA, templates)* to `Copy into the
+  output folder` if the default is not what you want → **Save job**. One click,
+  no preview and no confirmation, because the file does not exist yet. The
+  result appears below; **Open folder** shows the file in Explorer, and
+  **Preview plan** is still there (under the result) if you want to see the
+  files and copied assets before writing.
+  The same write is in the FILE footer as **Save to folder** — one click, no
+  dialog, no need to open this page. It replaces an existing file only after
+  asking you, and only when the new bytes differ from what is on disk.
 
 Expected layout for a base-only run into `/tmp/af3-manual`:
 
@@ -366,6 +372,11 @@ Expected layout for a base-only run into `/tmp/af3-manual`:
 
 With *Use the paths exactly as entered* the JSON keeps your path, no `assets/`
 folder appears, and a drive-letter/UNC path adds a portability warning.
+
+Running it again over a finished job does not ask anything: the same bytes are
+rewritten, which changes nothing. Editing the job and running again asks once,
+naming the file whose content would change — unless the overwrite policy is
+`Keep the existing file` or `Write a numbered copy`, which never replace.
 
 ### Scenario 7 — invalid and missing paths
 

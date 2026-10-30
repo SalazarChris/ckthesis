@@ -115,6 +115,12 @@ class MainWindow(QMainWindow):
         self._save_action = QAction(_text("gui.action_save"), self)
         self._save_action.setShortcut(QKeySequence.Save)
         self._save_action.triggered.connect(self.save_json)
+        # One click, no dialog: the same file the Generate page writes, into
+        # the shared output folder. Save asks where; this does not.
+        self._save_folder_action = QAction(
+            _text("gui.action_save_to_folder"), self
+        )
+        self._save_folder_action.triggered.connect(self.save_to_folder)
         self._quit_action = QAction(_text("gui.action_quit"), self)
         self._quit_action.setShortcut(QKeySequence.Quit)
         self._quit_action.triggered.connect(self.close)
@@ -124,6 +130,7 @@ class MainWindow(QMainWindow):
             self._new_action,
             self._open_action,
             self._save_action,
+            self._save_folder_action,
             self._quit_action,
         ):
             self.addAction(action)
@@ -137,6 +144,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self._open_action)
         file_menu.addSeparator()
         file_menu.addAction(self._save_action)
+        file_menu.addAction(self._save_folder_action)
         file_menu.addSeparator()
         file_menu.addAction(self._quit_action)
         self.menuBar().setVisible(False)
@@ -312,6 +320,11 @@ class MainWindow(QMainWindow):
                 (self._new_action, "gui.file_action_new", self.new_job),
                 (self._open_action, "gui.file_action_open", self.open_json),
                 (self._save_action, "gui.file_action_save", self.save_json),
+                (
+                    self._save_folder_action,
+                    "gui.file_action_save_to_folder",
+                    self.save_to_folder,
+                ),
             )
         ):
             if index:
@@ -462,6 +475,20 @@ class MainWindow(QMainWindow):
         )
         return True
 
+    def save_to_folder(self) -> bool:
+        """One click: write the job into the shared output folder, no dialog.
+
+        The same file the Generate page writes — its destination is set to the
+        remembered output folder first, so both routes name the same path and
+        share one planning, replacement question, write and saved-state update.
+        A user who never opens the Generate page can still get their job out.
+        """
+        if not self._state.has_project():
+            self.report_problem(_text("menu.no_project"))
+            return False
+        self._output.destination.setText(str(self._state.paths.save_directory()))
+        return self._output.generate()
+
     def _report_save_refusal(self, plan) -> bool:
         """Show why nothing was written, including the blocking findings.
 
@@ -584,7 +611,9 @@ class MainWindow(QMainWindow):
     def refresh(self) -> None:
         """Re-read every page from the services. Writes nothing."""
         self._save_action.setEnabled(self._state.has_project())
+        self._save_folder_action.setEnabled(self._state.has_project())
         self._file_buttons[2].setEnabled(self._state.has_project())
+        self._file_buttons[3].setEnabled(self._state.has_project())
         self._overview.refresh()
         self._entities.refresh()
         self._advanced.refresh()

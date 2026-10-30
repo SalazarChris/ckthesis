@@ -398,6 +398,14 @@ class GuiState(QObject):
             path_policy=path_policy,
         )
 
+    def base_destination(self, output_root: str) -> str:
+        """The file ``plan_generation`` would write for the open job.
+
+        Read from the service rather than rebuilt here, so a page can name
+        the file before the user clicks and still be right afterwards.
+        """
+        return self._services.generation.base_file_path(output_root)
+
     def execute(self, plan):
         """``GenerationService.execute`` — writes exactly the reviewed plan."""
         return self._services.generation.execute(plan)

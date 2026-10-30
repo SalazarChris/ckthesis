@@ -209,16 +209,16 @@ def test_job_wide_areas_open_with_no_entities(window):
 # -- refusal explanations ----------------------------------------------------
 
 
-def test_blocked_generate_keeps_the_plan_review_and_explains_itself(
-    reviewed, tmp_path
-):
+def test_blocked_generate_explains_itself_and_writes_nothing(reviewed, tmp_path):
     reviewed.state.services.configuration.add_modification("A", "SEP", 999)
     reviewed.refresh()
     page = reviewed.output_page
     page.destination.setText(str(tmp_path))
 
-    assert page.preview_plan() is False
-    assert "blocking" in page.plan_note.text()
+    assert page.generate() is False
+    assert page.plan_note.text().startswith(_text("gui.output_plan_refused") % "")
     assert page.findings_model.rowCount() > 0
-    assert not page.generate_button.isEnabled()
+    # The refusal is a reason to fix the job, not a reason to disable the
+    # button: the retry is the same click.
+    assert page.generate_button.isEnabled()
     assert list(tmp_path.iterdir()) == []

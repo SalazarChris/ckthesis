@@ -127,15 +127,13 @@ def test_a_refused_overview_change_keeps_the_service_value_and_reports(job):
 # -- Workstream C: the four-step generation flow -----------------------------
 
 
-def test_the_generate_page_labels_its_steps_and_hides_advanced_options(job):
-    """Stage 9: four numbered steps; the warnings live outside Advanced."""
+def test_the_generate_page_is_one_action_and_hides_options_and_details(job):
+    """Two groups: where the file goes, then what happened."""
     page = job.output_page
     titles = [group.title() for group in page.findChildren(QGroupBox)]
     for key in (
-        "gui.output_group_scope",
-        "gui.output_group_destination",
-        "gui.output_group_plan",
-        "gui.output_group_generate",
+        "gui.output_group_output",
+        "gui.output_group_result",
     ):
         assert _text(key) in titles
     headings = {
@@ -154,6 +152,11 @@ def test_the_generate_page_labels_its_steps_and_hides_advanced_options(job):
     # Conflicts and warnings are deliberately outside the disclosure.
     assert not section.body.isAncestorOf(page.conflicts_list)
     assert not section.body.isAncestorOf(page.warnings_list)
+    # The plan tables are one fold further down, below the action.
+    details = page.details_section
+    assert details.header_text() == _text("gui.output_plan_details")
+    assert details.is_expanded() is False
+    assert details.body.isAncestorOf(page.entries_table)
 
     page.destination.setText("C:/somewhere")
     section.toggle()
@@ -168,15 +171,15 @@ def test_the_generate_page_labels_its_steps_and_hides_advanced_options(job):
     assert page.destination.text() == "C:/somewhere", "collapsing keeps values"
 
 
-def test_generate_reviews_the_service_plan_then_writes_it(job, tmp_path):
+def test_generate_writes_the_service_plan_in_one_click(job, tmp_path):
     assert job.state.add_record("protein", sequence="ACDEFGHIKLMNPQRSTVWY").ok
     job.refresh()
     page = job.output_page
     page.destination.setText(str(tmp_path))
-    assert not page.generate_button.isEnabled(), "no plan has been reviewed"
+    assert page.generate_button.isEnabled(), "one click is available at once"
 
+    # Preview is optional: it shows the service's own plan and writes nothing.
     assert page.preview_plan() is True
-
     rows = page.entries()
     plan = job.state.plan_generation(
         output_root=str(tmp_path),
@@ -189,52 +192,45 @@ def test_generate_reviews_the_service_plan_then_writes_it(job, tmp_path):
     assert "nothing has been written" in page.plan_note_text()
     assert list(tmp_path.iterdir()) == []
 
-    # Cancel: the confirmation says no, and nothing is written.
-    page.generation_confirmer = lambda parent, message: False
-    assert page.generate() is False
-    assert list(tmp_path.iterdir()) == []
-
-    # Confirm: the reviewed plan's own paths appear on disk.
+    # The click itself: no question for a file that does not exist yet.
     asked = []
-    page.generation_confirmer = (
+    page.replacement_confirmer = (
         lambda parent, message: asked.append(message) or True
     )
     assert page.generate() is True
 
-    assert asked and str(tmp_path) in asked[0]
+    assert asked == []
     assert os.path.isfile(rows[0][2])
     assert _text("gui.output_written") in page.result_text()
-    assert "Generation finished" in page.plan_note_text()
+    assert page.plan_note_text() == _text("gui.output_plan_done")
 
 
-def test_a_refused_plan_and_a_conflict_write_nothing_while_collapsed(job, tmp_path):
+def test_a_refused_write_and_a_conflict_leave_the_disk_alone(job, tmp_path):
     page = job.output_page
     page.destination.setText(str(tmp_path))
 
-    # An empty job cannot be planned: the service's findings are shown and
-    # nothing is created.
-    assert page.preview_plan() is False
+    # An empty job cannot be written: the service's findings are shown and
+    # nothing is created. The button stays available for the retry.
+    assert page.generate() is False
     assert page.findings_model.rowCount() > 0
     assert page.conflicts_list.count() == 0
-    assert not page.generate_button.isEnabled()
+    assert page.generate_button.isEnabled()
     assert list(tmp_path.iterdir()) == []
 
-    # A real conflict with the advanced options still collapsed.
+    # A real conflict with the options still collapsed.
     assert job.state.add_record("protein", sequence="ACDEFGHIKLMNPQRSTVWY").ok
     job.refresh()
-    assert page.preview_plan() is True
-    target = page.entries()[0][2]
+    target = page.destination_file()
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, "w", encoding="utf-8") as handle:
         handle.write("not generated")
 
-    assert page.preview_plan() is False
+    assert page.generate() is False
 
     assert page.advanced_section.is_expanded() is False
     assert page.conflicts_list.count() == 1
     assert page.conflicts_label.text() == _text("gui.output_conflicts") % 1
     assert target in page.conflicts_list.item(0).text()
-    assert not page.generate_button.isEnabled()
     with open(target, encoding="utf-8") as handle:
         assert handle.read() == "not generated"
     assert [

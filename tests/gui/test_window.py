@@ -81,19 +81,26 @@ def _menu_actions(window):
     return [action for action in file_menu.actions() if not action.isSeparator()]
 
 
-def test_the_window_offers_exactly_the_stage_two_actions(window):
-    """New Job, Open, Save JSON and Quit — and nothing beyond this stage."""
+def test_the_window_offers_the_lifecycle_actions_and_one_click_save(window):
+    """New, Open, Save JSON, Save to folder, Quit — and nothing else."""
     assert [action.text() for action in _menu_actions(window)] == [
         _text("gui.action_new_job"),
         _text("gui.action_open"),
         _text("gui.action_save"),
+        _text("gui.action_save_to_folder"),
         _text("gui.action_quit"),
     ]
-    # The same three actions sit in the sidebar's FILE footer, as the mockup
-    # arranges them, with short labels and the full wording in each tooltip.
+    # The same actions sit in the sidebar's FILE footer, with short labels and
+    # the full wording in each tooltip. "Save to folder" is the one-click
+    # write: no dialog, no Generate page.
     assert window.file_action_texts() == [
         _text(key)
-        for key in ("gui.file_action_new", "gui.file_action_open", "gui.file_action_save")
+        for key in (
+            "gui.file_action_new",
+            "gui.file_action_open",
+            "gui.file_action_save",
+            "gui.file_action_save_to_folder",
+        )
     ]
     # No toolbar bar: the header carries product identity only.
     assert window.findChild(QToolBar) is None

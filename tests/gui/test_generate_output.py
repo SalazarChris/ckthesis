@@ -1,10 +1,21 @@
-"""Stage 6: the Generate & Output page, driven through its real widgets.
+"""The Generate page and the footer's one-click write, through real widgets.
 
-Each test builds the job through the services, previews the page's plan and
-then asserts on the files the existing pipeline actually wrote (or refused to
-write). A test that only read a label would not prove that planning and
-execution stayed in the application layer, that the reviewed plan is the one
-executed, or that a refusal left the disk untouched.
+Each test builds the job through the services, presses the page's own action
+and then asserts on the files the existing pipeline actually wrote (or refused
+to write). A test that only read a label would not prove that planning and
+execution stayed in the application layer, or that a refusal left the disk
+untouched.
+
+The contract these tests pin:
+
+- **Save job is one click.** No preview, no confirmation for a new file.
+- **The only question is a replacement** — an existing file holding different
+  bytes — and cancelling it writes nothing.
+- **Identical bytes are not "a replacement"**: rewriting the same file is
+  silent, because nothing changes.
+- **A refusal writes nothing** and shows the service's own message.
+- **Save to folder in the FILE footer** writes the same file without a save
+  dialog, so the page never has to be visited.
 
 The page writes the **open job's own file** — one JSON, no manifest, and no
 choice of scope: a file of ligands is generated from the Entities page, not
@@ -73,17 +84,42 @@ def _destinations(window):
     return window.sidebar_labels()
 
 
-# -- the plan surface --------------------------------------------------------
+def _recorder():
+    """A replacement confirmer that records its question and answers yes."""
+    asked = []
+
+    def confirm(_parent, message):
+        asked.append(message)
+        return True
+
+    return asked, confirm
 
 
-def test_the_output_page_is_reachable_and_starts_without_a_plan(outputs):
+# -- the page as it opens ----------------------------------------------------
+
+
+def test_the_page_offers_one_click_without_a_plan(outputs):
     window = outputs
     assert _text("gui.tab_output") in _destinations(window)
     assert window.current_page() is not _page(window)
     page = _page(window)
     assert page.plan_note_text() == _text("gui.output_plan_empty")
-    assert not page.generate_button.isEnabled()
+    # The action is available the moment a job is open: no preview first.
+    assert page.generate_button.isEnabled()
     assert PROJECT in page._base_label.text()
+
+
+def test_the_page_names_the_exact_file_before_the_click(outputs, tmp_path):
+    page = _page(outputs)
+    page.destination.setText(str(tmp_path))
+
+    assert page.destination_file() == _base_path(tmp_path)
+    assert _base_path(tmp_path) in page.write_label.text()
+
+    page.destination.setText("")
+    assert page.destination_file() == ""
+    assert page.write_label.text() == _text("gui.output_will_write_none")
+    assert not page.generate_button.isEnabled()
 
 
 def test_the_policy_pickers_offer_exactly_the_services_closed_sets(outputs):
@@ -102,13 +138,12 @@ def test_the_policy_pickers_offer_exactly_the_services_closed_sets(outputs):
     assert page.path_policy.currentData() == defaults["path"]
 
 
-def test_preview_shows_the_service_plan_and_writes_nothing(outputs, tmp_path):
+def test_preview_still_exists_and_writes_nothing(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
 
     assert page.preview_plan() is True
 
-    assert page.generate_button.isEnabled()
     rows = _entries(page)
     assert len(rows) == 1
     assert rows[0][0] == _text("gui.output_kind_base")
@@ -124,29 +159,21 @@ def test_an_empty_destination_is_refused_without_planning(outputs):
 
     assert page.preview_plan() is False
     assert outputs.last_problem_text() == _text("gui.output_no_folder")
-    assert not page.generate_button.isEnabled()
-
-
-def test_generate_needs_a_reviewed_plan(outputs):
-    page = _page(outputs)
-
     assert page.generate() is False
-    assert outputs.last_problem_text() == _text("gui.output_need_plan")
+    assert outputs.last_problem_text() == _text("gui.output_no_folder")
 
 
-# -- execution ---------------------------------------------------------------
+# -- one click ---------------------------------------------------------------
 
 
-def test_generate_writes_the_reviewed_plan(outputs, tmp_path):
+def test_save_writes_the_file_without_asking_anything(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
-    assert page.preview_plan() is True
-    question = []
-    page.generation_confirmer = lambda parent, message: question.append(message) or True
+    asked, page.replacement_confirmer = _recorder()
 
     assert page.generate() is True
 
-    assert question and str(tmp_path) in question[0]
+    assert asked == []  # a new file is not a destructive act
     assert os.path.isfile(_base_path(tmp_path))
     with open(_base_path(tmp_path), encoding="utf-8") as handle:
         document = json.load(handle)
@@ -158,59 +185,105 @@ def test_generate_writes_the_reviewed_plan(outputs, tmp_path):
     )
     assert not os.path.exists(os.path.join(str(tmp_path), SLUG, "manifest.json"))
     assert page.result_text().count(str(tmp_path)) >= 1
-    assert "Generation finished" in page.plan_note_text()
-    assert not page.generate_button.isEnabled()
+    assert page.plan_note_text() == _text("gui.output_plan_done")
+    assert page.open_folder_button.isEnabled()
 
 
-def test_cancelling_the_confirmation_writes_nothing(outputs, tmp_path):
+def test_a_successful_write_marks_the_job_saved(outputs, tmp_path):
+    """Generating the file is what "saved" means, so the header must agree."""
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
-    assert page.preview_plan() is True
-    page.generation_confirmer = lambda parent, message: False
+    assert outputs.state.is_dirty
 
-    assert page.generate() is False
+    assert page.generate() is True
 
-    assert list(tmp_path.iterdir()) == []
-    assert page.result_text() == ""
-    assert page.result_note.text() == _text("gui.output_result_empty")
+    assert outputs.state.is_dirty is False
+    assert outputs.state.source_path == _base_path(tmp_path)
 
 
-def test_changing_the_folder_invalidates_the_plan(outputs, tmp_path):
+def test_changing_the_folder_writes_where_the_page_now_says(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path / "first"))
     assert page.preview_plan() is True
     page.destination.setText(str(tmp_path / "second"))
 
-    assert page.generate() is False
+    assert page.generate() is True
 
-    assert outputs.last_problem_text() == _text("gui.output_stale")
-    assert page.plan_note_text() == _text("gui.output_stale")
-    assert not page.generate_button.isEnabled()
-    assert list(tmp_path.iterdir()) == []
+    assert os.path.isfile(_base_path(tmp_path / "second"))
+    assert not os.path.exists(str(tmp_path / "first"))
 
 
-def test_changing_a_policy_invalidates_the_plan(outputs, tmp_path):
+def test_changing_a_policy_applies_to_the_next_write(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
     assert page.preview_plan() is True
-    _select(page.overwrite_policy, "Overwrite")
+    _select(page.overwrite_policy, "Versioned")
 
-    assert page.generate() is False
-    assert outputs.last_problem_text() == _text("gui.output_stale")
-    assert list(tmp_path.iterdir()) == []
+    assert page.generate() is True
+    assert os.path.isfile(_base_path(tmp_path))
 
 
-def test_a_job_change_invalidates_a_held_plan(outputs, tmp_path):
+def test_renaming_the_job_writes_the_new_file_name(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
     assert page.preview_plan() is True
 
     assert outputs.state.set_job_name("renamed job").ok
 
-    assert not page.generate_button.isEnabled()
-    assert page.plan_note_text() == _text("gui.output_plan_invalidated")
+    assert page.generate() is True
+    assert os.path.isfile(os.path.join(str(tmp_path), "renamed-job", "renamed-job.json"))
+
+
+# -- the replacement question ------------------------------------------------
+
+
+def test_replacing_a_changed_file_asks_once_and_names_it(outputs, tmp_path):
+    target = _base_path(tmp_path)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "w", encoding="utf-8") as handle:
+        handle.write("old bytes")
+    page = _page(outputs)
+    page.destination.setText(str(tmp_path))
+    _select(page.overwrite_policy, "Overwrite")
+    asked, page.replacement_confirmer = _recorder()
+
+    assert page.generate() is True
+
+    assert len(asked) == 1
+    assert target in asked[0]
+    with open(target, encoding="utf-8") as handle:
+        assert json.load(handle)["name"] == SLUG
+
+
+def test_cancelling_the_replacement_writes_nothing(outputs, tmp_path):
+    target = _base_path(tmp_path)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "w", encoding="utf-8") as handle:
+        handle.write("old bytes")
+    page = _page(outputs)
+    page.destination.setText(str(tmp_path))
+    _select(page.overwrite_policy, "Overwrite")
+    page.replacement_confirmer = lambda parent, message: False
+
     assert page.generate() is False
-    assert list(tmp_path.iterdir()) == []
+
+    with open(target, encoding="utf-8") as handle:
+        assert handle.read() == "old bytes"
+    assert page.plan_note_text() == _text("gui.output_replace_cancelled")
+
+
+def test_identical_bytes_are_rewritten_without_a_question(outputs, tmp_path):
+    """Writing the same file twice changes nothing, so nothing is asked."""
+    page = _page(outputs)
+    page.destination.setText(str(tmp_path))
+    assert page.generate() is True
+    asked, page.replacement_confirmer = _recorder()
+
+    assert page.generate() is True
+
+    assert asked == []
+    with open(_base_path(tmp_path), encoding="utf-8") as handle:
+        assert json.load(handle)["name"] == SLUG
 
 
 # -- policies and conflicts --------------------------------------------------
@@ -224,11 +297,10 @@ def test_a_conflicting_file_refuses_the_whole_plan(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
 
-    assert page.preview_plan() is False
+    assert page.generate() is False
 
     assert page.conflicts_list.count() == 1
     assert target in page.conflicts_list.item(0).text()
-    assert not page.generate_button.isEnabled()
     with open(target, encoding="utf-8") as handle:
         assert handle.read() == "not generated"
 
@@ -241,35 +313,15 @@ def test_skip_policy_keeps_the_existing_file_and_reports_it(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
     _select(page.overwrite_policy, "Skip")
-
-    assert page.preview_plan() is True
-    rows = {row[2]: row[3] for row in _entries(page)}
-    assert rows[target] == _text("gui.output_action_skip")
+    asked, page.replacement_confirmer = _recorder()
 
     assert page.generate() is True
+
+    assert asked == []
     with open(target, encoding="utf-8") as handle:
         assert handle.read() == "keep me"
     assert _text("gui.output_skipped") in page.result_text()
     assert target in page.result_text()
-
-
-def test_overwrite_policy_replaces_a_changed_file(outputs, tmp_path):
-    target = _base_path(tmp_path)
-    os.makedirs(os.path.dirname(target), exist_ok=True)
-    with open(target, "w", encoding="utf-8") as handle:
-        handle.write("old bytes")
-    page = _page(outputs)
-    page.destination.setText(str(tmp_path))
-    _select(page.overwrite_policy, "Overwrite")
-
-    assert page.preview_plan() is True
-    rows = {row[2]: row[3] for row in _entries(page)}
-    assert rows[target] == _text("gui.output_action_overwrite")
-
-    assert page.generate() is True
-    with open(target, encoding="utf-8") as handle:
-        document = json.load(handle)
-    assert document["name"] == SLUG
 
 
 def test_versioned_policy_writes_a_numbered_copy(outputs, tmp_path):
@@ -280,19 +332,18 @@ def test_versioned_policy_writes_a_numbered_copy(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
     _select(page.overwrite_policy, "Versioned")
-
-    assert page.preview_plan() is True
-    paths = [row[2] for row in _entries(page)]
-    versioned = os.path.join(os.path.dirname(target), "%s-1.json" % SLUG)
-    assert versioned in paths
+    asked, page.replacement_confirmer = _recorder()
 
     assert page.generate() is True
+
+    assert asked == []
+    versioned = os.path.join(os.path.dirname(target), "%s-1.json" % SLUG)
     assert os.path.isfile(versioned)
     with open(target, encoding="utf-8") as handle:
         assert handle.read() == "old bytes"
 
 
-def test_a_file_created_after_the_preview_stops_generation(outputs, tmp_path):
+def test_a_file_created_after_the_preview_is_not_overwritten(outputs, tmp_path):
     page = _page(outputs)
     page.destination.setText(str(tmp_path))
     assert page.preview_plan() is True
@@ -303,11 +354,35 @@ def test_a_file_created_after_the_preview_stops_generation(outputs, tmp_path):
 
     assert page.generate() is False
 
-    assert outputs.last_problem_text() == _text("gui.output_plan_changed")
     assert page.conflicts_list.count() == 1
-    assert not page.generate_button.isEnabled()
     with open(target, encoding="utf-8") as handle:
         assert handle.read() == "outside change"
+
+
+def test_a_plan_that_changes_mid_write_stops_generation(outputs, tmp_path, monkeypatch):
+    """The re-plan before ``execute`` refuses bytes the user never saw."""
+    page = _page(outputs)
+    page.destination.setText(str(tmp_path))
+    state = outputs.state
+    original = state.plan_generation
+    calls = []
+
+    def planning(**kwargs):
+        calls.append(kwargs)
+        plan = original(**kwargs)
+        if len(calls) == 2:
+            # The second plan differs: pretend another file appeared after the
+            # first, so the reviewed and the current plan disagree.
+            plan.entries[0].action = "create"
+            plan.entries[0].payload_fingerprint = "different"
+        return plan
+
+    monkeypatch.setattr(state, "plan_generation", planning)
+
+    assert page.generate() is False
+
+    assert outputs.last_problem_text() == _text("gui.output_plan_changed")
+    assert not os.path.exists(_base_path(tmp_path))
 
 
 def test_an_unwritable_destination_is_reported_not_raised(outputs, tmp_path):
@@ -315,9 +390,6 @@ def test_an_unwritable_destination_is_reported_not_raised(outputs, tmp_path):
     blocker.write_text("file", encoding="utf-8")
     page = _page(outputs)
     page.destination.setText(str(blocker))
-
-    assert page.preview_plan() is True
-    page.generation_confirmer = lambda parent, message: True
 
     assert page.generate() is False
     assert outputs.last_problem_text()
@@ -328,26 +400,26 @@ def test_an_unwritable_destination_is_reported_not_raised(outputs, tmp_path):
 # -- validation --------------------------------------------------------------
 
 
-def test_a_blocked_base_shows_the_services_findings(outputs):
+def test_a_blocked_base_shows_the_services_findings(outputs, tmp_path):
     state = outputs.state
     state.new_job("empty-job")
     outputs.refresh()
     page = _page(outputs)
-    page.destination.setText(str(os.getcwd()))
+    page.destination.setText(str(tmp_path))
 
-    assert page.preview_plan() is False
+    assert page.generate() is False
 
     assert page.findings_model.rowCount() > 0
     assert page.findings_note.text() == _text("gui.output_findings_note")
     assert page.plan_note_text().startswith(_text("gui.output_plan_refused") % "")
-    assert not page.generate_button.isEnabled()
     assert not page.review_button.isHidden()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_a_finding_selection_jumps_to_its_entity(blocked, tmp_path):
     page = _page(blocked)
     page.destination.setText(str(tmp_path))
-    assert page.preview_plan() is False
+    assert page.generate() is False
     assert page.findings_model.rowCount() > 0
 
     page.findings_view.selectRow(0)
@@ -358,16 +430,47 @@ def test_a_finding_selection_jumps_to_its_entity(blocked, tmp_path):
 def test_review_configuration_goes_to_overview(blocked, tmp_path):
     page = _page(blocked)
     page.destination.setText(str(tmp_path))
-    assert page.preview_plan() is False
+    assert page.generate() is False
 
     page.review_button.click()
 
     assert blocked.current_page() is blocked.overview_page
 
 
+# -- the footer shortcut -----------------------------------------------------
+
+
+def test_save_to_folder_writes_the_job_without_a_dialog(outputs):
+    """The FILE footer's shortcut: no dialog, no page, the same file."""
+    window = outputs
+    asked = []
+
+    def refuse_dialog(*_args, **_kwargs):
+        asked.append(_kwargs)
+        return ("", False)
+
+    window.save_path_chooser = refuse_dialog
+
+    assert window.save_to_folder() is True
+
+    assert asked == []  # no save dialog was opened
+    page = _page(window)
+    target = page.destination_file()
+    assert target and os.path.isfile(target)
+    assert window.state.source_path == target
+    assert window.state.is_dirty is False
+
+
+def test_save_to_folder_is_disabled_without_a_job(window):
+    window.refresh()
+    assert not window._save_folder_action.isEnabled()
+    assert not window._file_buttons[3].isEnabled()
+
+
 # -- assets ------------------------------------------------------------------
 
-def test_copied_assets_are_planned_shown_written_and_referenced(outputs, tmp_path):
+
+def test_copied_assets_are_planned_written_and_referenced(outputs, tmp_path):
     msa = tmp_path / "chain-a.a3m"
     msa.write_text(">query\nACDEFG\n", encoding="utf-8")
     state = outputs.state
@@ -398,4 +501,3 @@ def test_copied_assets_are_planned_shown_written_and_referenced(outputs, tmp_pat
     assert protein["unpairedMsaPath"] == "assets/chain-a.a3m"
     copied = os.path.join(str(tmp_path / "out"), SLUG, "assets", "chain-a.a3m")
     assert os.path.isfile(copied)
-    assert page.result_text().count("chain-a.a3m") >= 1

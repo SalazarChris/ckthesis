@@ -93,7 +93,7 @@ def test_the_header_says_no_job_when_nothing_is_open(window):
 
 
 def test_the_sidebar_carries_the_mockup_captions_and_file_actions(window):
-    """WORKSPACE and FILE captions, and New · Open · Save in the footer."""
+    """WORKSPACE and FILE captions, and New · Open · Save · Save to folder."""
     captions = [
         label.text()
         for label in window.findChildren(QLabel)
@@ -107,13 +107,16 @@ def test_the_sidebar_carries_the_mockup_captions_and_file_actions(window):
         _text("gui.file_action_new"),
         _text("gui.file_action_open"),
         _text("gui.file_action_save"),
+        _text("gui.file_action_save_to_folder"),
     ]
-    # The footer actions ask the window's own lifecycle questions, so saving
-    # is disabled exactly when the File menu's action is.
+    # The footer actions ask the window's own lifecycle questions, so both
+    # write actions are disabled exactly when the job is absent.
     assert not window._file_buttons[2].isEnabled()
+    assert not window._file_buttons[3].isEnabled()
     window.state.new_job("footer-job")
     window.refresh()
     assert window._file_buttons[2].isEnabled()
+    assert window._file_buttons[3].isEnabled()
 
 
 def test_overview_summarises_the_service_and_offers_the_summary_action(job):

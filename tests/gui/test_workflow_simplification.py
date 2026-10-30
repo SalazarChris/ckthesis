@@ -195,22 +195,23 @@ def test_the_file_generation_action_lives_on_the_entities_page(reviewed):
 # -- generate ----------------------------------------------------------------
 
 
-def test_generate_is_four_ordered_steps(reviewed):
+def test_generate_is_one_folder_and_one_action(reviewed):
     page = reviewed.output_page
     titles = [group.title() for group in page.findChildren(QGroupBox)]
     assert titles == [
-        _text("gui.output_group_scope"),
-        _text("gui.output_group_destination"),
-        _text("gui.output_group_plan"),
-        _text("gui.output_group_generate"),
+        _text("gui.output_group_output"),
+        _text("gui.output_group_result"),
     ]
-    # The scope is one explained sentence, not a picker: this page writes the
-    # open job's own file and nothing else.
+    # The scope is fixed, not a picker: this page writes the open job's own
+    # file and nothing else, named before the click.
     assert not hasattr(page, "scope_all")
     assert not hasattr(page, "choose_scope")
     assert page._plan_arguments()["scope"] == "base"
-    # Advanced stays one click away; conflicts and findings never do.
+    assert page.destination_file()
+    # Options and plan details stay one click away; conflicts and findings
+    # never do.
     assert page.advanced_section.is_expanded() is False
+    assert page.details_section.is_expanded() is False
     assert not page.advanced_section.body.isAncestorOf(page.conflicts_list)
     assert not page.advanced_section.body.isAncestorOf(page.findings_view)
 
@@ -223,7 +224,7 @@ def test_generate_offers_no_second_kind_of_output(reviewed):
         for label in page.findChildren(QLabel)
         if label.property("role") == "hint"
     }
-    assert _text("gui.output_scope_base_note") in hints
+    assert _text("gui.output_write_hint") in hints
     assert not hasattr(page, "_variant_row")
     assert not hasattr(page, "variant_choice")
     assert not hasattr(page, "scope_note_text")
