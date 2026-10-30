@@ -58,9 +58,11 @@ def test_two_templates_keep_their_own_paths_and_index_maps(tmp_path):
 
     document, transcript = _save(
         _protein_script(
+            "1",  # template 1 comes from a file
             str(first),
             " 0:5, 1:6, 2:7 ",
             "y",
+            "1",  # template 2 comes from a file
             str(second),
             "0:0,1:1",
             "n",
@@ -91,6 +93,7 @@ def test_bad_files_and_bad_pairs_are_refused_and_reasked(tmp_path):
 
     document, transcript = _save(
         _protein_script(
+            "1",  # the source route is asked once; a bad path is re-asked
             str(missing),
             str(wrong_extension),
             str(empty),
@@ -140,7 +143,7 @@ def test_cancelling_after_a_valid_template_commits_nothing(tmp_path):
     first = _cif(tmp_path / "first.cif")
 
     document, transcript = _save(
-        _protein_script(str(first), "0:5", "y", "0"),
+        _protein_script("1", str(first), "0:5", "y", "0"),
         tmp_path / "cancelled.json",
     )
 

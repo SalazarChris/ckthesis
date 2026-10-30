@@ -347,8 +347,9 @@ def _descriptions(services, configuration, refusals, directory):
     configuration.add_record("dna", DNA, description="dna note")
     configuration.add_record("ligand", representation="ATP",
                              representation_kind="ccd", description="ligand note")
-    _apply("job description",
-           configuration.set_job_description("thesis goal: a described job"), refusals)
+    # The job-level description setter was removed: it is not part of the AF3
+    # wire format, so this scenario now covers the four per-entity
+    # descriptions a real input file can carry.
 
 
 def _version(version):

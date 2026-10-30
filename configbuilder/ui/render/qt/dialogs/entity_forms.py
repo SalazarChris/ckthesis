@@ -14,6 +14,12 @@ representation, the copy count and the optional description. The warning
 line is worded by the page (which knows the pinned JSON version) and is shown
 only while a description is actually supplied; it explains, and never
 upgrades or discards anything.
+
+A DNA add also asks the one question the service cannot answer for the user:
+whether the entered strand is half of a duplex (the default, matching every
+existing caller) or a lone single strand. The choice is a *dialog control*
+whose answer is passed straight to ``add_record(duplex=…)``; the complement
+itself is still built by the service, never here.
 """
 
 from __future__ import annotations
@@ -115,7 +121,11 @@ class SequenceFormDialog(_ResultDialog):
         description="",
         hint="",
         warning="",
+        duplex=None,
     ) -> None:
+        """``duplex`` is ``None`` for a family that has no such choice
+        (protein, RNA, and every edit form); for a DNA add it is the initial
+        answer — ``True`` (duplex, the service default) or ``False``."""
         super().__init__(parent, title, accept_text, apply, warning)
         layout = QVBoxLayout(self)
         form = QFormLayout()
@@ -126,6 +136,22 @@ class SequenceFormDialog(_ResultDialog):
         form.addRow(_text("gui.form_sequence"), self.sequence_edit)
         self.description_edit = QLineEdit(description)
         form.addRow(_text("gui.form_description"), self.description_edit)
+        # The DNA-only duplex question. Two radios in one group, so exactly
+        # one answer is ever collected; the service still builds the
+        # complement when the duplex answer is chosen.
+        self.paired_radio = None
+        self.single_radio = None
+        self.duplex_group = None
+        if duplex is not None:
+            self.paired_radio = QRadioButton(_text("gui.dna_duplex_pair"))
+            self.single_radio = QRadioButton(_text("gui.dna_duplex_single"))
+            self.duplex_group = QButtonGroup(self)
+            self.duplex_group.addButton(self.paired_radio)
+            self.duplex_group.addButton(self.single_radio)
+            self.paired_radio.setChecked(bool(duplex))
+            self.single_radio.setChecked(not duplex)
+            form.addRow(_text("gui.dna_duplex_choice"), self.paired_radio)
+            form.addRow("", self.single_radio)
         layout.addLayout(form)
         # The hint is kept as an attribute so a caller (and a test) can read
         # back the guidance the user is actually being given.
@@ -142,10 +168,21 @@ class SequenceFormDialog(_ResultDialog):
     def _description_supplied(self) -> bool:
         return bool(self.description_edit.text().strip())
 
+    def duplex_selected(self) -> bool:
+        """Whether the entered DNA strand should get its complement.
+
+        Always ``True`` for a form without the control (protein, RNA, edit),
+        which is the service's own default.
+        """
+        if self.duplex_group is None:
+            return True
+        return self.paired_radio.isChecked()
+
     def _collect(self):
         return (
             self.sequence_edit.toPlainText().strip(),
             self.description_edit.text(),
+            self.duplex_selected(),
         )
 
 

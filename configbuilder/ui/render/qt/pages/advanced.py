@@ -105,28 +105,35 @@ _POLYMER_FAMILIES = (FamilyARecord, FamilyBRecord, FamilyCRecord)
 
 
 def alignment_state(record):
-    """One record's alignment as ``(mode word, source kind, source text)``.
+    """One record's alignment as ``(mode, kind, text, paired_kind, paired_text)``.
 
     Purely a projection of the model's own alignment value: ``""`` for a mode
     word means the family has no alignment setting (DNA, ligands). Nothing is
-    interpreted — every value comes from the model object.
+    interpreted — every value comes from the model object. The paired pair is
+    ``("", "")`` unless the mode is ``both`` and the paired side has a source
+    of its own, which is what lets the form reopen with both sources intact.
     """
     alignment = getattr(record, "alignment", None)
     if isinstance(alignment, AlignmentAutomatic):
-        return ("automatic", "", "")
+        return ("automatic", "", "", "", "")
     if isinstance(alignment, (AlignmentFree, SingleFree)):
-        return ("free", "", "")
+        return ("free", "", "", "", "")
     if isinstance(alignment, AlignmentUnpairedOnly):
-        return _alignment_with_source("unpaired", alignment.source)
+        return _padded(_alignment_with_source("unpaired", alignment.source))
     if isinstance(alignment, AlignmentPairedOnly):
-        return _alignment_with_source("paired", alignment.source)
+        return _padded(_alignment_with_source("paired", alignment.source))
     if isinstance(alignment, AlignmentBoth):
-        return _alignment_with_source("both", alignment.source)
+        mode, kind, text = _alignment_with_source("both", alignment.source)
+        paired = alignment.paired_source
+        if paired == alignment.source:
+            return (mode, kind, text, "", "")
+        _mode, paired_kind, paired_text = _alignment_with_source("both", paired)
+        return (mode, kind, text, paired_kind, paired_text)
     if isinstance(alignment, SingleAutomatic):
-        return ("automatic", "", "")
+        return ("automatic", "", "", "", "")
     if isinstance(alignment, SingleProvided):
-        return _alignment_with_source("provided", alignment.source)
-    return ("", "", "")
+        return _padded(_alignment_with_source("provided", alignment.source))
+    return ("", "", "", "", "")
 
 
 def _alignment_with_source(mode, source):
@@ -137,12 +144,19 @@ def _alignment_with_source(mode, source):
     return (mode, "", "")
 
 
+def _padded(triple):
+    """A single-source state widened to the five-field shape (no paired side)."""
+    return tuple(triple) + ("", "")
+
+
 def reference_state(record):
-    """One protein's references as ``(route, ((path, pairs text), ...))``.
+    """One protein's references as ``(route, ((kind, value, pairs), ...))``.
 
     ``search`` is the model's search-allowed state, ``none`` its explicitly
     template-free state and ``list`` an explicit reference list — the three
-    routes the console offers, read back from the model.
+    routes the console offers, read back from the model. ``kind`` is ``file``
+    or ``inline``, so an imported inline template is shown, and re-sent, as
+    what it is.
     """
     references = getattr(record, "references", None)
     if isinstance(references, Explicit):
@@ -156,12 +170,16 @@ def reference_state(record):
 
 
 def _reference_row(item):
+    """One reference as ``(kind, value, pairs text)``, read from the model."""
     source = item.source
-    path = source.path.raw if isinstance(source, External) else source.text
+    if isinstance(source, External):
+        kind, value = "file", source.path.raw
+    else:
+        kind, value = "inline", source.text
     pairs = ", ".join(
         "%d:%d" % (pair.query, pair.template) for pair in item.index_map
     )
-    return (path, pairs)
+    return (kind, value, pairs)
 
 
 def parse_pairs(text: str):
@@ -598,8 +616,8 @@ class AdvancedPage(QWidget):
                 self.modification_table.setItem(row, column, QTableWidgetItem(text))
 
     def _refresh_alignment(self, record) -> None:
-        mode, source_kind, source_text = (
-            alignment_state(record) if record is not None else ("", "", "")
+        mode, source_kind, source_text, _paired_kind, _paired_text = (
+            alignment_state(record) if record is not None else ("", "", "", "", "")
         )
         applicable = bool(mode)
         self.alignment_button.setEnabled(applicable)
@@ -828,18 +846,24 @@ class AdvancedPage(QWidget):
         modes = self._modes_for(record)
         if not modes:
             return False
-        mode, source_kind, source_text = alignment_state(record)
+        mode, source_kind, source_text, paired_kind, paired_text = alignment_state(
+            record
+        )
         dialog = AlignmentFormDialog(
             self,
             title=_text("gui.alignment_dialog") % record.ids.primary.value,
             accept_text=_text("gui.form_save"),
-            apply=lambda new_mode, kind, text: self._apply_alignment(
-                new_mode, kind, text
+            apply=lambda new_mode, kind, text, second_kind, second_text: (
+                self._apply_alignment(
+                    new_mode, kind, text, second_kind, second_text
+                )
             ),
             modes=modes,
             mode=mode,
             source_kind=source_kind,
             source_text=source_text,
+            paired_kind=paired_kind,
+            paired_text=paired_text,
             hint=_text("gui.alignment_hint"),
         )
         if dialog.exec() == AlignmentFormDialog.Accepted:
@@ -854,22 +878,27 @@ class AdvancedPage(QWidget):
             return _RNA_MODES
         return ()
 
-    def _apply_alignment(self, mode, source_kind, source_text):
-        """Send one (mode, source) pair to the service, as it requires it.
+    def _apply_alignment(
+        self, mode, source_kind, source_text, paired_kind="", paired_text=""
+    ):
+        """Send the chosen sources to the service, as it requires them.
 
         ``automatic``/``free`` are sent with no source at all — the service
         refuses a source for them — and a source-carrying mode gets exactly
-        one of inline text or an external path.
+        one of inline text or an external path. A ``both`` mode may also carry
+        an independent paired side; no paired side means the unpaired one
+        feeds both, which is the service's documented single-source rule.
         """
+        keywords = {}
         if source_kind == "inline":
-            return self._state.set_alignment(
-                self._record_key, mode, inline_text=source_text
-            )
-        if source_kind == "file":
-            return self._state.set_alignment(
-                self._record_key, mode, external_path=source_text
-            )
-        return self._state.set_alignment(self._record_key, mode)
+            keywords["inline_text"] = source_text
+        elif source_kind == "file":
+            keywords["external_path"] = source_text
+        if paired_kind == "inline":
+            keywords["paired_inline_text"] = paired_text
+        elif paired_kind == "file":
+            keywords["paired_external_path"] = paired_text
+        return self._state.set_alignment(self._record_key, mode, **keywords)
 
     # -- templates ----------------------------------------------------------
 
@@ -898,8 +927,10 @@ class AdvancedPage(QWidget):
 
         ``search`` and ``none`` map to the service's own two explicit calls;
         ``list`` becomes one ``ReferenceInput`` per row, with the pairs parsed
-        exactly as the console parses them. Nothing here builds a wire value:
-        ``ReferenceInput`` is the service's own typed input.
+        exactly as the console parses them and the row's own kind deciding
+        which of the mutually exclusive source fields is sent. Nothing here
+        builds a wire value: ``ReferenceInput`` is the service's own typed
+        input.
         """
         if route == "search":
             return self._state.set_references(self._record_key)
@@ -907,10 +938,11 @@ class AdvancedPage(QWidget):
             return self._state.set_references(self._record_key, references=())
         references = tuple(
             ReferenceInput(
-                external_path=(path or None),
+                external_path=(value or None) if kind == "file" else None,
+                inline_text=(value or None) if kind == "inline" else None,
                 pairs=parse_pairs(pairs_text),
             )
-            for path, pairs_text in rows
+            for kind, value, pairs_text in rows
         )
         return self._state.set_references(self._record_key, references=references)
 

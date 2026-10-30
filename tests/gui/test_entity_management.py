@@ -46,7 +46,9 @@ from configbuilder.ui.render.qt.pages import entities as entities_module  # noqa
 # -- the two modal forms, driven through their real widgets -------------------
 
 
-def _drive_sequence_form(monkeypatch, sequence=None, description=None, cancel=False):
+def _drive_sequence_form(
+    monkeypatch, sequence=None, description=None, cancel=False, single_stranded=False
+):
     """Answer the sequence form. Returns the dialogs the page built."""
     opened = []
 
@@ -58,6 +60,8 @@ def _drive_sequence_form(monkeypatch, sequence=None, description=None, cancel=Fa
             dialog.sequence_edit.setPlainText(sequence)
         if description is not None:
             dialog.description_edit.setText(description)
+        if single_stranded and dialog.single_radio is not None:
+            dialog.single_radio.setChecked(True)
         dialog.accept()
         return dialog.result()
 
@@ -184,8 +188,38 @@ def test_the_dna_form_explains_the_duplex_before_it_is_added(page, monkeypatch):
     opened = _drive_sequence_form(monkeypatch, sequence="ATGC")
     assert page.add_dna() is True
     assert opened[0].windowTitle() == _text("gui.dialog_add_dna")
+    # The choice exists and defaults to the duplex, as the service does.
+    assert opened[0].duplex_group is not None
+    assert opened[0].paired_radio.isChecked()
+    assert opened[0].duplex_selected() is True
     # One sequence in, two records out, and the form said so.
     assert len(page.state.configuration.records) == 2
+
+
+def test_the_dna_form_can_add_a_single_strand(page, monkeypatch):
+    """The console's own question, now in the window: one strand, one record."""
+    _drive_sequence_form(monkeypatch, sequence="ATGC", single_stranded=True)
+
+    assert page.add_dna() is True
+
+    assert _ids(page) == ["A"]
+    assert page.state.configuration.records[0].sequence.text == "ATGC"
+    assert page.model.rowCount() == 1
+    # A lone strand says so, rather than naming a partner it does not have.
+    page.select_record("A")
+    assert page.detail_text("gui.entity_partner_label") == _text("gui.entity_no_partner")
+
+
+def test_only_dna_offers_the_duplex_choice(page, monkeypatch):
+    """Protein and RNA have no complement; their forms carry no such control."""
+    opened = _drive_sequence_form(monkeypatch, sequence="ACDE")
+    assert page.add_protein() is True
+    assert opened[0].duplex_group is None
+    assert opened[0].duplex_selected() is True  # the service's default
+
+    opened = _drive_sequence_form(monkeypatch, sequence="ACGU")
+    assert page.add_rna() is True
+    assert opened[0].duplex_group is None
 
 
 # -- 4: editing DNA goes through the service's own propagation ----------------

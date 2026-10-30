@@ -91,7 +91,8 @@ STRINGS = {
         "4. Custom CCD management\n"
         "5. Post-translational modification management\n"
         "6. Save and show summary\n"
-        "7. Generate configurations from a file (sequences or ligands)"
+        "7. Generate configurations from a file (sequences or ligands)\n"
+        "8. Covalent bond management"
     ),
     "menu.job_back": "0. Return to main menu",
     "menu.leave_title": "Save before leaving?",
@@ -200,11 +201,24 @@ STRINGS = {
     "menu.msa_mode_provided": "Provided (paste or file)",
     "menu.msa_paste_inline": "Paste inline text",
     "menu.msa_use_file": "Use a file",
+    "menu.msa_source_title_paired": "Paired side",
+    "menu.msa_source_title_unpaired": "Unpaired side",
+    "menu.msa_source_title_rna": "Alignment source",
+    "menu.msa_side_empty": "Leave this side empty",
+    "menu.paste_msa": "Paste the alignment, finish with a blank line:",
+    "menu.msa_inline_empty": "Nothing was pasted - the alignment setting is unchanged.",
+    "menu.ask_msa_side_file": "Alignment file: ",
     "menu.templates_menu": "Templates:",
     "menu.templates_search": "Let AlphaFold search for templates",
     "menu.templates_none": "No templates - proceed without template structures",
     "menu.templates_list": "Provide template mmCIF files and residue index pairs",
-    "menu.ref_templates_explained": "For each template, give its own mmCIF file and its own query:template residue index pairs (both 0-based).",
+    "menu.ref_templates_explained": (
+        "For each template, give its own mmCIF content (a file, or pasted "
+        "inline) and its own query:template residue index pairs (both 0-based)."
+    ),
+    "menu.templates_source_title": "Template %d mmCIF source:",
+    "menu.paste_template": "Paste the mmCIF content, finish with a blank line:",
+    "menu.templates_inline_empty": "Nothing was pasted - the template setting is unchanged.",
     "menu.ask_ref_path": "Template %d mmCIF file (0 cancels): ",
     "menu.ask_ref_pairs": "Template %d residue index pairs (query:template, 0-based, comma-separated; e.g. 0:5,1:6,2:7): ",
     "menu.ask_ref_another": "Add another template? [y/N]: ",
@@ -228,6 +242,10 @@ STRINGS = {
     "menu.delete_confirm": "Delete \"%s\"?",
     "menu.delete_yes": "Yes, delete",
     "menu.delete_no": "No, go back",
+    "menu.removed_detail": "Removed %r: %s.",
+    "menu.ask_entity_description": (
+        "Description for this entity (optional, blank leaves it unset): "
+    ),
     "menu.edit_sequence_prompt": "New sequence (blank keeps the current one): ",
     "menu.edit_desc_prompt": "New description (blank keeps the current one): ",
     "menu.removed": "Removed %r.",
@@ -242,9 +260,8 @@ STRINGS = {
     "menu.ccd_title": "CUSTOM CCD MANAGEMENT",
     "menu.ccd_actions": (
         "1. View the custom CCD definition\n"
-        "2. Add a custom CCD definition\n"
-        "3. Edit the custom CCD definition\n"
-        "4. Remove the custom CCD definition"
+        "2. Set or replace the custom CCD definition\n"
+        "3. Remove the custom CCD definition"
     ),
     "menu.ccd_none": "No custom CCD definition is set for this job.",
     "menu.ccd_current": "Current custom CCD definition:",
@@ -257,6 +274,32 @@ STRINGS = {
     "menu.ccd_confirm": "Remove the custom CCD definition?",
     "menu.paste_definition": "Paste the CIF definition, finish with a blank line:",
     "menu.ask_ccd_path": "Path to the CIF definition file: ",
+
+    # -- covalent bonds --------------------------------------------------
+    "menu.bond_title": "COVALENT BOND MANAGEMENT",
+    "menu.bond_note": (
+        "A covalent bond links two entity endpoints; each endpoint is an "
+        "entity, a 1-based residue number and an atom name (e.g. SG)."
+    ),
+    "menu.bond_none": "No covalent bonds are set for this job.",
+    "menu.bond_actions": (
+        "1. View the bonds\n"
+        "2. Add a bond\n"
+        "3. Remove a bond"
+    ),
+    "menu.bond_row": "%d. %s",
+    "menu.bond_pair": "%s  <->  %s",
+    "menu.bond_endpoint": "%s, residue %d, atom %s",
+    "menu.bond_endpoint_a": "First endpoint:",
+    "menu.bond_endpoint_b": "Second endpoint:",
+    "menu.bond_entity": "Which entity is this endpoint?",
+    "menu.bond_residue_prompt": "Residue number (1-based, 0 cancels): ",
+    "menu.bond_residue_bad": "Enter a whole residue number of at least 1.",
+    "menu.bond_atom_prompt": "Atom name (e.g. SG, blank cancels): ",
+    "menu.bond_needs_entities": "Add at least two entities before defining a bond.",
+    "menu.bond_added": "Covalent bond added.",
+    "menu.bond_removed": "Covalent bond removed.",
+    "menu.bond_remove_prompt": "Remove which covalent bond?",
 
     # -- PTM management --------------------------------------------------
     "menu.ptm_title": "POST-TRANSLATIONAL MODIFICATION MANAGEMENT",
@@ -510,6 +553,11 @@ STRINGS = {
         "replaced: if one already exists with different content the whole "
         "batch is refused, so choose another output folder instead."
     ),
+    "batch.preview_assets": (
+        "External files (MSA, templates, custom CCD) follow this job's path "
+        "policy; with the default, CopyIntoAssets, each configuration gets "
+        "its own assets folder and can be moved on its own."
+    ),
     "batch.summary_configurations": "Generated %d AF3 configurations.",
     "batch.summary_one_configuration": "Generated 1 AF3 configuration.",
     "batch.summary_manifests": "Wrote %d manifest files.",
@@ -583,7 +631,10 @@ STRINGS = {
     "gui.form_cancel": "Cancel",
     "gui.sequence_add_hint": "Paste is fine; the sequence must contain only this family's letters — no FASTA header and no line breaks.",
     "gui.sequence_edit_hint": "The sequence is changed through the builder's own update operation; the record's other settings are preserved. Paste a plain sequence — no FASTA header and no line breaks.",
-    "gui.dna_add_hint": "The sequence you enter becomes one strand; the builder also creates its reverse-complement partner, with its own identifier.",
+    "gui.dna_add_hint": "The sequence you enter becomes one strand; choose below whether the builder also creates its reverse-complement partner.",
+    "gui.dna_duplex_choice": "DNA strands",
+    "gui.dna_duplex_pair": "Double-stranded — also add the reverse-complement partner strand",
+    "gui.dna_duplex_single": "Single-stranded — use only the strand entered here",
     "gui.dna_edit_hint": "This strand belongs to a DNA duplex: changing its sequence updates its reverse-complement partner through the builder.",
     "gui.ligand_kind": "Representation",
     "gui.ligand_ccd_option": "CCD code(s)",
@@ -652,6 +703,10 @@ STRINGS = {
     "gui.alignment_hint_automatic": "AlphaFold searches for the alignment itself; the job stores none.",
     "gui.alignment_hint_free": "No alignment data: prediction runs without an MSA.",
     "gui.alignment_hint_source": "The alignment comes from what you provide here — paste text or choose a file, not both.",
+    "gui.alignment_paired_source": "Paired side source",
+    "gui.alignment_paired_same": "Same as the unpaired source",
+    "gui.alignment_paired_inline": "Paired alignment text",
+    "gui.alignment_paired_path": "Paired alignment file",
     "gui.alignment_path_version": "An external alignment file is written as a path field, which needs input version %d or later.",
     "gui.alignment_state_automatic": "automatic (AlphaFold searches)",
     "gui.alignment_state_free": "no alignment",
@@ -666,16 +721,24 @@ STRINGS = {
     "gui.templates_button": "Edit templates…",
     "gui.templates_dialog": "Templates for entity %s",
     "gui.templates_mode": "Templates",
-    "gui.templates_col_file": "mmCIF file",
+    "gui.templates_col_file": "mmCIF source",
     "gui.templates_col_pairs": "Index pairs (query:template, 0-based)",
     "gui.templates_pairs_note": "Index pairs map query residues to template residues and are 0-based; leave a cell blank for none.",
     "gui.templates_add_file": "Add file…",
+    "gui.templates_add_inline": "Add inline mmCIF…",
+    "gui.templates_edit_source": "Edit source…",
+    "gui.templates_inline_row": "Inline mmCIF (%d lines)",
+    "gui.templates_inline_dialog": "Inline template mmCIF",
+    "gui.templates_inline_content": "mmCIF content",
     "gui.templates_remove_file": "Remove file…",
     "gui.templates_file_dialog": "Choose a template structure file",
     "gui.templates_file_filter": "mmCIF files (*.cif *.mmcif);;All files (*)",
     "gui.templates_hint_search": "AlphaFold searches for templates itself.",
     "gui.templates_hint_none": "No templates: AlphaFold will not search for any.",
-    "gui.templates_hint_list": "One row per template file; pairs are query:template, 0-based.",
+    "gui.templates_hint_list": (
+        "One row per template — a file you choose or inline mmCIF you paste; "
+        "pairs are query:template, 0-based."
+    ),
     "gui.templates_path_version": "An external template file is written as a path field, which needs input version %d or later.",
     "gui.templates_state_search": "search allowed (AlphaFold finds them)",
     "gui.templates_state_none": "none (explicitly template-free)",
@@ -987,6 +1050,7 @@ def batch_preview_note(kind: str) -> str:
         [
             text(_PREVIEW_LEAD_KEYS.get(kind, "batch.preview_lead_protein")),
             text("batch.preview_tail"),
+            text("batch.preview_assets"),
         ]
     )
 

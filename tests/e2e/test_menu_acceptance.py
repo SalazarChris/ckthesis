@@ -52,7 +52,9 @@ NEW_JOB = ["1", "job"]
 ADD_PROTEIN = ["2", "1", PROTEIN, "1", ""]          # sequence, default MSA, templates no
 ADD_RNA = ["2", "3", "ACGU", "1"]                   # sequence, default MSA
 ADD_DNA = ["2", "2", "ATGC", "1"]                 # one strand in, yes to the complement: a duplex out
-ADD_LIGAND = lambda value, quantity: ["2", "4", "1", value, quantity]
+ADD_LIGAND = lambda value, quantity, description="": [
+    "2", "4", "1", value, quantity, description
+]
 # job 3 Edit entity → pick → action … → 0 → 0 back to the job menu
 LEAVE_DIRTY = ["0", "2", "0"]                      # job: leave → discard → main: exit
 LEAVE_CLEAN = ["0", "0"]                           # job: leave → main: exit
@@ -332,7 +334,7 @@ def test_a_custom_ccd_definition_can_be_added_viewed_and_removed():
         + ["4", "1"]                          # view: none yet
         + ["4", "2", "1", "data_probe", ""]   # add inline (blank line ends it)
         + ["4", "1"]                          # view: the definition
-        + ["4", "4", "1"]                     # remove → Yes
+        + ["4", "3", "1"]                     # remove → Yes (set/replace is 2)
         + LEAVE_DIRTY
     )
     assert status == 0

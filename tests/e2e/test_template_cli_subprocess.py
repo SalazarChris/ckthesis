@@ -52,7 +52,7 @@ def _run(tmp_path, answers):
 
 
 def _attach_answers(name, sequence, template, pairs, destination, another="n"):
-    """New job → protein → MSA default → templates → list → pairs → save."""
+    """New job → protein → MSA default → templates → list → file → pairs → save."""
     return [
         "1",            # main menu: new job
         name,
@@ -61,7 +61,8 @@ def _attach_answers(name, sequence, template, pairs, destination, another="n"):
         sequence,
         "1",            # keep the MSA setting (automatic)
         "y",            # use structural templates
-        "3",            # provide mmCIF files and residue index pairs
+        "3",            # provide mmCIF sources and residue index pairs
+        "1",            # this template comes from a file (2 would paste it)
         str(template),  # the picker takes a path
         pairs,
         another,        # add another template?

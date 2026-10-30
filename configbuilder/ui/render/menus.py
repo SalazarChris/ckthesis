@@ -25,6 +25,7 @@ from configbuilder.model.records import (
     FamilyARecord,
     FamilyBRecord,
     FamilyCRecord,
+    duplex_partner,
     fold_representation,
 )
 
@@ -33,6 +34,7 @@ from configbuilder.app.paths import OutputPaths
 from configbuilder.app.reference_validation import file_issue, parse_pair_text
 from configbuilder.app.results import FailureReason, batch_counts
 from configbuilder.app.status import FieldState
+from configbuilder.ui.present.notices import removal_notice
 from configbuilder.ui.present.sequence import residue_at
 from configbuilder.ui.present.strings import (
     batch_preview_note,
@@ -311,6 +313,19 @@ def _entity_line(record) -> str:
         letter,
         family,
         len(record.sequence),
+    )
+
+
+def _bond_endpoint_text(endpoint) -> str:
+    """One bond endpoint as the user sees it: identifier, residue, atom.
+
+    The residue is the model's 1-based ``ResidueRef``; nothing here converts
+    it — the conversion belongs to the serializer alone.
+    """
+    return _text("menu.bond_endpoint") % (
+        endpoint.entity.value,
+        endpoint.residue.value,
+        endpoint.atom,
     )
 
 
@@ -644,6 +659,8 @@ class MenuApp:
                 self._save_and_summary()
             elif choice == "7":
                 self._file_menu()
+            elif choice == "8":
+                self._bond_menu()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
 
@@ -844,10 +861,15 @@ class MenuApp:
             if copies is None:
                 self._say(_text("menu.add_cancelled"))
                 return False
+            # The description is optional and asked last, exactly as the
+            # desktop's ligand form collects it; a blank answer leaves it
+            # unset (the version-dependent write is the service's business).
+            description = self._ask("menu.ask_entity_description")
             return self._report(
                 self._services.configuration.add_record(
                     "ligand", representation=representation,
                     representation_kind=kind, copies=copies,
+                    description=(description or None),
                 )
             )
         if family == "dna":
@@ -936,46 +958,98 @@ class MenuApp:
             )
         )
         if family == "rna":
-            path = self._ask_msa_file("menu.ask_rna_msa_file", allow_blank=False)
-            if path is None:
+            source = self._collect_msa_side(
+                "menu.msa_source_title_rna", allow_empty=False
+            )
+            if source is None:
                 return
             self._report(
                 self._services.configuration.set_alignment(
-                    record_key, "provided", external_path=path
+                    record_key, "provided", **self._msa_kwargs(source, "")
                 )
             )
             return
         while True:
-            paired = self._ask_msa_file("menu.ask_paired_msa_file", allow_blank=True)
+            paired = self._collect_msa_side(
+                "menu.msa_source_title_paired", allow_empty=True
+            )
             if paired is None:
                 return
-            unpaired = self._ask_msa_file("menu.ask_unpaired_msa_file", allow_blank=True)
+            unpaired = self._collect_msa_side(
+                "menu.msa_source_title_unpaired", allow_empty=True
+            )
             if unpaired is None:
                 return
-            if paired or unpaired:
+            if paired[0] or unpaired[0]:
                 break
             self._say(_text("menu.msa_files_need_one"))
-        if paired and unpaired:
+        if paired[0] and unpaired[0]:
             self._report(
                 self._services.configuration.set_alignment(
                     record_key,
                     "both",
-                    external_path=unpaired,
-                    paired_external_path=paired,
+                    **self._msa_kwargs(unpaired, paired),
                 )
             )
-        elif unpaired:
+        elif unpaired[0]:
             self._report(
                 self._services.configuration.set_alignment(
-                    record_key, "unpaired", external_path=unpaired
+                    record_key, "unpaired", **self._msa_kwargs(unpaired, "")
                 )
             )
         else:
             self._report(
                 self._services.configuration.set_alignment(
-                    record_key, "paired", external_path=paired
+                    record_key, "paired", **self._msa_kwargs(paired, "")
                 )
             )
+
+    def _collect_msa_side(self, title_key: str, allow_empty: bool):
+        """One MSA side as pasted text or a file.
+
+        Returns ``(kind, value)`` — ``("inline", text)`` or ``("file",
+        path)``, ``("", "")`` for a deliberately empty side — or ``None`` when
+        the user cancels. Inline text is the multiline paste the custom-CCD
+        flow already uses, so a user without a prepared file can supply the
+        alignment directly.
+        """
+        entries = [
+            (_text("menu.msa_paste_inline"), "inline"),
+            (_text("menu.msa_use_file"), "file"),
+        ]
+        if allow_empty:
+            entries.append((_text("menu.msa_side_empty"), "empty"))
+        route = self._numbered_choice(_text(title_key), entries)
+        if route is None:
+            return None
+        if route == "empty":
+            return ("", "")
+        if route == "inline":
+            content = self._console.read_multiline(
+                _text("menu.paste_msa") + "\n"
+            ).decode("utf-8", "replace")
+            if not content.strip():
+                self._say(_text("menu.msa_inline_empty"))
+                return None
+            return ("inline", content)
+        path = self._ask_msa_file("menu.ask_msa_side_file", allow_blank=False)
+        if path is None:
+            return None
+        return ("file", path)
+
+    @staticmethod
+    def _msa_kwargs(source, paired_source) -> dict:
+        """The service's source keywords for one collected MSA side pair."""
+        keywords = {}
+        if source[0] == "inline":
+            keywords["inline_text"] = source[1]
+        elif source[0] == "file":
+            keywords["external_path"] = source[1]
+        if paired_source and paired_source[0] == "inline":
+            keywords["paired_inline_text"] = paired_source[1]
+        elif paired_source and paired_source[0] == "file":
+            keywords["paired_external_path"] = paired_source[1]
+        return keywords
 
     def _chain_templates(self, family: str, record_key: str = None) -> None:
         """The record's templates question: y -> collect, N/blank -> skip."""
@@ -1065,11 +1139,12 @@ class MenuApp:
     def _collect_template_list(self, record_key: str) -> None:
         """Collect several complete template definitions, then commit them.
 
-        Each template is one mmCIF path plus its own query:template pairs; a
-        failed or cancelled collection writes nothing, so a half-entered
-        template can never be committed. The builder deliberately has no
-        mmCIF parser, so template indices can only be checked as non-negative
-        here; query indices are checked against the target sequence length.
+        Each template is one mmCIF source — a file, or inline paste of the
+        same content (AF3 accepts either ``mmcifPath`` or ``mmcif``, never
+        both) — plus its own query:template pairs; a failed or cancelled
+        collection writes nothing, so a half-entered template can never be
+        committed. Indices and the mapping are checked by the service's own
+        rules; this method only collects text.
         """
         record = self._record(record_key)
         if record is None:
@@ -1079,15 +1154,22 @@ class MenuApp:
         collected = []
         number = 1
         while True:
-            path = self._ask_template_file(number)
-            if path is None:
+            source = self._collect_template_source(number)
+            if source is None:
                 self._say(_text("menu.ref_templates_cancelled"))
                 return
             pairs = self._ask_template_pairs(number, sequence_length)
             if pairs is None:
                 self._say(_text("menu.ref_templates_cancelled"))
                 return
-            collected.append(ReferenceInput(external_path=path, pairs=pairs))
+            if source[0] == "inline":
+                collected.append(
+                    ReferenceInput(inline_text=source[1], pairs=pairs)
+                )
+            else:
+                collected.append(
+                    ReferenceInput(external_path=source[1], pairs=pairs)
+                )
             if self._ask("menu.ask_ref_another").lower() not in ("y", "yes"):
                 break
             number += 1
@@ -1096,6 +1178,36 @@ class MenuApp:
                 record_key, references=tuple(collected)
             )
         )
+
+    def _collect_template_source(self, number: int):
+        """One template's mmCIF content, from a file or a paste.
+
+        Returns ``("file", path)``, ``("inline", text)`` or ``None`` on
+        cancel. The file route keeps the console's existing picker-and-check
+        behaviour; the paste route mirrors the custom-CCD flow, so an imported
+        inline template can be authored again without inventing a file.
+        """
+        entries = [
+            (_text("menu.msa_use_file"), "file"),
+            (_text("menu.msa_paste_inline"), "inline"),
+        ]
+        route = self._numbered_choice(
+            _text("menu.templates_source_title") % number, entries
+        )
+        if route is None:
+            return None
+        if route == "file":
+            path = self._ask_template_file(number)
+            if path is None:
+                return None
+            return ("file", path)
+        content = self._console.read_multiline(
+            _text("menu.paste_template") + "\n"
+        ).decode("utf-8", "replace")
+        if not content.strip():
+            self._say(_text("menu.templates_inline_empty"))
+            return None
+        return ("inline", content)
 
     def _ask_template_file(self, number: int):
         """One readable CIF file, re-asked until usable; ``None`` on cancel."""
@@ -1189,16 +1301,25 @@ class MenuApp:
             value = self._ask("menu.add_ligand_value_prompt")
             if not value:
                 return
+            # The description is the same optional field the desktop form
+            # offers; a blank answer keeps the current one. Both changes go
+            # through ``update_component_record`` as one commit, so a refused
+            # representation cannot leave a half-applied description.
+            description = self._ask("menu.edit_desc_prompt")
             if kind == "smiles":
                 self._report(
-                    self._services.configuration.set_representation(
-                        record_key, notation=value
+                    self._services.configuration.update_component_record(
+                        record_key,
+                        notation=value,
+                        description=(description or None),
                     )
                 )
             else:
                 self._report(
-                    self._services.configuration.set_representation(
-                        record_key, codes=value.replace(",", " ").split()
+                    self._services.configuration.update_component_record(
+                        record_key,
+                        codes=value.replace(",", " ").split(),
+                        description=(description or None),
                     )
                 )
             return
@@ -1218,8 +1339,30 @@ class MenuApp:
             self._chain_templates(family, record_key)
 
     def _delete_entity_key(self, record_key: str) -> bool:
-        """Delete one entity after confirmation. Returns True when it was
-        removed (the caller then returns to the entity list)."""
+        """Delete one entity after a confirmation that names the consequence.
+
+        ``remove_record`` removes a DNA duplex as one entity and a multi-copy
+        ligand as all of its identifiers, so the question says which records
+        are about to go — the same wording the desktop uses
+        (``present.notices``). The service's own result message is reported
+        afterwards, so the answer to "what happened?" is the service's, not a
+        restatement assembled here. Returns True when the record was removed
+        (the caller then returns to the entity list).
+        """
+        project = self._services.projects.project
+        if project is None:
+            return False
+        configuration = project.configuration
+        record = self._record(record_key)
+        if record is None:
+            return False
+        partner = duplex_partner(configuration, record)
+        notice = removal_notice(
+            ", ".join(entity.value for entity in record.ids.ids),
+            partner.ids.primary.value if partner is not None else None,
+            len(record.ids),
+        )
+        self._say(notice)
         entries = [
             (_text("menu.delete_yes"), True),
             (_text("menu.delete_no"), False),
@@ -1229,10 +1372,15 @@ class MenuApp:
         )
         if not confirmed:
             return False
-        if self._report(self._services.configuration.remove_record(record_key)):
+        outcome = self._services.configuration.remove_record(record_key)
+        if not outcome.ok:
+            self._say(_text("menu.not_applied") % (outcome.message or "refused"))
+            return False
+        if outcome.message:
+            self._say(_text("menu.removed_detail") % (record_key, outcome.message))
+        else:
             self._say(_text("menu.removed") % record_key)
-            return True
-        return False
+        return True
 
     def _record_mod_menu(self, record_key: str) -> None:
         """The selected polymer's own modifications: view, add, edit or
@@ -1265,6 +1413,126 @@ class MenuApp:
 
     # -- custom CCD management ---------------------------------------------
 
+    # -- covalent bonds -----------------------------------------------------
+
+    def _bond_menu(self) -> None:
+        """The job's covalent bonds: view, add, or remove.
+
+        ``bondedAtomPairs`` is part of the AF3 contract, and the service's
+        ``add_linkage`` / ``remove_linkage`` are the only mutators. This submenu
+        exists so the console can produce a bonded job at all; it collects an
+        entity, a 1-based residue and an atom name per endpoint, exactly as the
+        desktop's bond form does, and lets the service validate the pair.
+        """
+        while True:
+            project = self._project()
+            if project is None:
+                return
+            linkages = project.configuration.linkages
+            self._say(_banner(_text("menu.bond_title"), self._width))
+            self._say()
+            self._say(_text("menu.bond_note"))
+            self._say()
+            if linkages:
+                for index, linkage in enumerate(linkages, start=1):
+                    self._say(
+                        _text("menu.bond_row")
+                        % (
+                            index,
+                            _text("menu.bond_pair")
+                            % (
+                                _bond_endpoint_text(linkage.a),
+                                _bond_endpoint_text(linkage.b),
+                            ),
+                        )
+                    )
+            else:
+                self._say(_text("menu.bond_none"))
+            self._say()
+            self._say(_text("menu.bond_actions"))
+            self._say()
+            self._say(_text("menu.back"))
+            choice = self._select()
+            if choice in ("0", "q", "back"):
+                return
+            if choice == "1":
+                continue  # the list above is the view
+            if choice == "2":
+                self._add_bond()
+            elif choice == "3":
+                self._remove_bond()
+            elif choice:
+                self._say(_text("menu.invalid") % choice)
+
+    def _add_bond(self) -> None:
+        """Collect two endpoints and commit one linkage through the service."""
+        project = self._project()
+        if project is None:
+            return
+        if len(project.configuration.records) < 2:
+            self._say(_text("menu.bond_needs_entities"))
+            return
+        self._say(_text("menu.bond_endpoint_a"))
+        first = self._collect_bond_endpoint()
+        if first is None:
+            self._say(_text("menu.add_cancelled"))
+            return
+        self._say(_text("menu.bond_endpoint_b"))
+        second = self._collect_bond_endpoint()
+        if second is None:
+            self._say(_text("menu.add_cancelled"))
+            return
+        if self._report(
+            self._services.configuration.add_linkage(
+                first[0], first[1], first[2], second[0], second[1], second[2]
+            )
+        ):
+            self._say(_text("menu.bond_added"))
+
+    def _collect_bond_endpoint(self):
+        """One endpoint as ``(entity key, 1-based residue, atom name)``."""
+        record_key = self._select_entity(title=_text("menu.bond_entity"))
+        if record_key is None:
+            return None
+        while True:
+            raw = self._ask("menu.bond_residue_prompt")
+            if raw in ("0", "q", "back"):
+                return None
+            if raw.isdigit() and int(raw) >= 1:
+                residue = int(raw)
+                break
+            self._say(_text("menu.bond_residue_bad"))
+        atom = self._ask("menu.bond_atom_prompt")
+        if not atom:
+            return None
+        return (record_key, residue, atom)
+
+    def _remove_bond(self) -> None:
+        """Remove one linkage by the number the list showed."""
+        project = self._project()
+        if project is None:
+            return
+        linkages = project.configuration.linkages
+        if not linkages:
+            self._say(_text("menu.bond_none"))
+            return
+        entries = [
+            (
+                _text("menu.bond_pair")
+                % (
+                    _bond_endpoint_text(linkage.a),
+                    _bond_endpoint_text(linkage.b),
+                ),
+                index,
+            )
+            for index, linkage in enumerate(linkages)
+        ]
+        index = self._numbered_choice(_text("menu.bond_remove_prompt"), entries)
+        if index is None:
+            return
+        if self._report(self._services.configuration.remove_linkage(index)):
+            self._say(_text("menu.bond_removed"))
+
     def _custom_ccd_menu(self) -> None:
         """The job's custom component (userCCD) definition: view, add, edit,
         or remove. A job carries at most one — the AF3 schema has one
@@ -1291,8 +1559,6 @@ class MenuApp:
             elif choice == "2":
                 self._add_ccd_definition()
             elif choice == "3":
-                self._add_ccd_definition()
-            elif choice == "4":
                 self._remove_ccd_definition()
             elif choice:
                 self._say(_text("menu.invalid") % choice)
@@ -1313,8 +1579,14 @@ class MenuApp:
         self._say(_text("menu.ccd_none"))
 
     def _add_ccd_definition(self) -> None:
-        """Collect a custom CCD definition — inline CIF text or an external
-        file path — and set it on the job."""
+        """Set or replace the job's custom CCD definition.
+
+        Inline CIF text or an external file path — one representation, as the
+        service requires. Replacing is the whole operation: the job holds at
+        most one definition, so a separate "edit" that asked the same
+        questions and pre-filled nothing was the same action under a second
+        number.
+        """
         entries = [
             (_text("menu.msa_paste_inline"), "inline"),
             (_text("menu.msa_use_file"), "file"),

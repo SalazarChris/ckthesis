@@ -58,6 +58,12 @@ _SOURCE_OPTIONS = (
     ("menu.msa_use_file", "file"),
 )
 
+# The paired side of a ``both`` alignment: optionally its own source, or the
+# unpaired one reused (the service's own single-source behaviour).
+_PAIRED_SOURCE_OPTIONS = (
+    ("gui.alignment_paired_same", "same"),
+) + _SOURCE_OPTIONS
+
 # The three template routes, as ``(registry key, route word)``.
 _TEMPLATE_ROUTES = (
     ("menu.templates_search", "search"),
@@ -169,6 +175,12 @@ class AlignmentFormDialog(_FormDialog):
     dialog invented. Source controls appear only for modes that carry a
     source, exactly as the service defines them (``automatic`` and ``free``
     take no source and refuse one).
+
+    ``both`` is the one mode with two sides: the unpaired source and, when it
+    differs, an independent paired source. The paired controls appear only for
+    that mode, and their default is to reuse the unpaired source — the
+    service's documented single-source behaviour — so a user who wants one
+    file for both sides changes nothing.
     """
 
     def __init__(
@@ -182,6 +194,8 @@ class AlignmentFormDialog(_FormDialog):
         source_kind="",
         source_text="",
         hint="",
+        paired_kind="",
+        paired_text="",
     ) -> None:
         super().__init__(parent, title, accept_text, apply)
         self.mode_combo = QComboBox()
@@ -226,6 +240,49 @@ class AlignmentFormDialog(_FormDialog):
         self._form.addRow(self._path_label, path_row)
         self.path_row = path_row
 
+        # The paired side's own controls (``both`` mode only). A radio group
+        # of its own, so "reuse the unpaired source" is a real, visible
+        # choice rather than an inferred one.
+        self.paired_block = QWidget()
+        paired_form = QFormLayout(self.paired_block)
+        self._paired_form = paired_form
+        paired_form.setContentsMargins(0, 0, 0, 0)
+        self.paired_group = QButtonGroup(self)
+        self.paired_radios = []
+        paired_row = QWidget()
+        paired_row_layout = QHBoxLayout(paired_row)
+        paired_row_layout.setContentsMargins(0, 0, 0, 0)
+        for label_key, kind in _PAIRED_SOURCE_OPTIONS:
+            radio = QRadioButton(_text(label_key))
+            self.paired_group.addButton(radio)
+            self.paired_radios.append((kind, radio))
+            paired_row_layout.addWidget(radio)
+        paired_form.addRow(_text("gui.alignment_paired_source"), paired_row)
+        self.paired_row = paired_row
+
+        self.paired_inline_edit = QPlainTextEdit(
+            paired_text if paired_kind == "inline" else ""
+        )
+        self.paired_inline_edit.setFont(fixed_font())
+        self.paired_inline_edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.paired_inline_edit.setMinimumHeight(110)
+        self._paired_inline_label = QLabel(_text("gui.alignment_paired_inline"))
+        paired_form.addRow(self._paired_inline_label, self.paired_inline_edit)
+
+        self.paired_path_edit = QLineEdit(
+            paired_text if paired_kind == "file" else ""
+        )
+        self.paired_browse_button = QPushButton(_text("gui.alignment_browse"))
+        paired_path_row = QWidget()
+        paired_path_layout = QHBoxLayout(paired_path_row)
+        paired_path_layout.setContentsMargins(0, 0, 0, 0)
+        paired_path_layout.addWidget(self.paired_path_edit, 1)
+        paired_path_layout.addWidget(self.paired_browse_button)
+        self._paired_path_label = QLabel(_text("gui.alignment_paired_path"))
+        paired_form.addRow(self._paired_path_label, paired_path_row)
+        self.paired_path_row = paired_path_row
+        self._layout.addWidget(self.paired_block)
+
         self.hint_label = QLabel(hint or _text("gui.alignment_hint"))
         self.hint_label.setWordWrap(True)
         self.version_label = QLabel(
@@ -239,9 +296,16 @@ class AlignmentFormDialog(_FormDialog):
         default_kind = source_kind or "inline"
         for kind, radio in self.source_radios:
             radio.setChecked(kind == default_kind)
+        default_paired_kind = paired_kind or "same"
+        for kind, radio in self.paired_radios:
+            radio.setChecked(kind == default_paired_kind)
         self.browse_button.clicked.connect(self.browse)
+        self.paired_browse_button.clicked.connect(self.browse_paired)
         self.mode_combo.currentIndexChanged.connect(self._refresh_source_controls)
         self.source_group.buttonClicked.connect(
+            lambda _button: self._refresh_source_controls()
+        )
+        self.paired_group.buttonClicked.connect(
             lambda _button: self._refresh_source_controls()
         )
         self._refresh_source_controls()
@@ -265,14 +329,32 @@ class AlignmentFormDialog(_FormDialog):
         self.mode_combo.setCurrentIndex(self._mode_words.index(word))
         return True
 
+    def browse_paired(self) -> None:
+        """Put a chosen paired-side alignment file in its path field."""
+        path, _selected = QFileDialog.getOpenFileName(
+            self, _text("gui.alignment_file_dialog"), "", _text("gui.file_filter")
+        )
+        if path:
+            self.paired_path_edit.setText(path)
+
     def current_source_kind(self) -> str:
         for kind, radio in self.source_radios:
             if radio.isChecked():
                 return kind
         return "inline"
 
+    def current_paired_kind(self) -> str:
+        """The paired side's chosen route: ``same``, ``inline`` or ``file``."""
+        for kind, radio in self.paired_radios:
+            if radio.isChecked():
+                return kind
+        return "same"
+
     def _source_needed(self) -> bool:
         return self.current_mode() not in ("automatic", "free")
+
+    def _paired_needed(self) -> bool:
+        return self.current_mode() == "both"
 
     def _refresh_source_controls(self) -> None:
         """Show only the controls the chosen mode actually uses."""
@@ -285,6 +367,20 @@ class AlignmentFormDialog(_FormDialog):
         self._form.setRowVisible(self._path_label, show_path)
         self.browse_button.setEnabled(show_path)
         self.version_label.setVisible(show_path)
+        # The paired side exists only for ``both``, and within it only the
+        # chosen route's control is shown.
+        paired_needed = self._paired_needed()
+        self.paired_block.setVisible(paired_needed)
+        for _kind, radio in self.paired_radios:
+            radio.setEnabled(paired_needed)
+        paired_kind = self.current_paired_kind()
+        self._paired_form.setRowVisible(
+            self._paired_inline_label, paired_needed and paired_kind == "inline"
+        )
+        self._paired_form.setRowVisible(
+            self._paired_path_label, paired_needed and paired_kind == "file"
+        )
+        self.paired_browse_button.setEnabled(paired_needed and paired_kind == "file")
         # The mode explains what it will do, in the console's own words.
         self.hint_label.setText(_text(self._hint_key()))
 
@@ -297,22 +393,77 @@ class AlignmentFormDialog(_FormDialog):
         return "gui.alignment_hint_source"
 
     def _collect(self):
+        """``(mode, kind, text, paired_kind, paired_text)``.
+
+        The paired pair is ``("", "")`` unless the mode is ``both`` and a
+        paired source of its own was chosen; ``"same"`` means "reuse the
+        unpaired source", which the service does when no paired side is sent.
+        """
         mode = self.current_mode()
         if not self._source_needed():
-            return (mode, "", "")
-        if self.current_source_kind() == "file":
-            return (mode, "file", self.path_edit.text().strip())
-        return (mode, "inline", self.inline_edit.toPlainText())
+            return (mode, "", "", "", "")
+        kind = self.current_source_kind()
+        text = (
+            self.path_edit.text().strip()
+            if kind == "file"
+            else self.inline_edit.toPlainText()
+        )
+        if not self._paired_needed():
+            return (mode, kind, text, "", "")
+        paired_kind = self.current_paired_kind()
+        if paired_kind == "same":
+            return (mode, kind, text, "", "")
+        paired_text = (
+            self.paired_path_edit.text().strip()
+            if paired_kind == "file"
+            else self.paired_inline_edit.toPlainText()
+        )
+        return (mode, kind, text, paired_kind, paired_text)
+
+
+class _Accepted:
+    """The trivial success a text-only dialog's ``apply`` returns.
+
+    ``_FormDialog.accept`` closes only when the apply outcome is ``ok``; a
+    dialog that merely collects text has nothing to refuse, so it returns
+    this instead of a service result.
+    """
+
+    ok = True
+
+
+class InlineTextDialog(_FormDialog):
+    """A multiline mmCIF editor, used to author one inline template.
+
+    Inline templates are a first-class AF3 representation (``mmcif``), not a
+    degraded file: a user who imported one can edit it, and a user with no
+    file can paste one. The dialog only collects text — the service validates
+    and stores it.
+    """
+
+    def __init__(self, parent, title, accept_text, apply, content="") -> None:
+        super().__init__(parent, title, accept_text, apply)
+        self.text_edit = QPlainTextEdit(content)
+        self.text_edit.setFont(fixed_font())
+        self.text_edit.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        self.text_edit.setMinimumHeight(240)
+        self._form.addRow(_text("gui.templates_inline_content"), self.text_edit)
+        self.finish_layout()
+
+    def _collect(self):
+        return (self.text_edit.toPlainText(),)
 
 
 class TemplateEditorDialog(_FormDialog):
-    """The protein template states: search allowed, none, or a file list.
+    """The protein template states: search allowed, none, or a reference list.
 
     The three routes are the console's own (``menu.templates_search`` /
     ``menu.templates_none`` / ``menu.templates_list``). In list mode each row
-    is one reference: an mmCIF file chosen with a file picker, plus its
-    optional 0-based index pairs in the form the console asks for
-    (``query:template``, comma separated).
+    is one reference: either an mmCIF file chosen with a file picker or inline
+    mmCIF text authored in :class:`InlineTextDialog`, plus its optional
+    0-based index pairs in the form the console asks for (``query:template``,
+    comma separated). A row's own kind is preserved — an imported inline
+    template stays inline when the dialog is accepted.
     """
 
     def __init__(
@@ -344,14 +495,18 @@ class TemplateEditorDialog(_FormDialog):
         )
         self.table.verticalHeader().setVisible(False)
         self.table.setMinimumHeight(140)
-        for path, pairs in entries:
-            self._append_row(path, pairs)
+        for entry in entries:
+            self._append_row(*entry)
         self.add_file_button = QPushButton(_text("gui.templates_add_file"))
+        self.add_inline_button = QPushButton(_text("gui.templates_add_inline"))
+        self.edit_source_button = QPushButton(_text("gui.templates_edit_source"))
         self.remove_file_button = QPushButton(_text("gui.templates_remove_file"))
         buttons_row = QWidget()
         buttons_layout = QHBoxLayout(buttons_row)
         buttons_layout.setContentsMargins(0, 0, 0, 0)
         buttons_layout.addWidget(self.add_file_button)
+        buttons_layout.addWidget(self.add_inline_button)
+        buttons_layout.addWidget(self.edit_source_button)
         buttons_layout.addWidget(self.remove_file_button)
         buttons_layout.addStretch(1)
         self.buttons_row = buttons_row
@@ -365,14 +520,31 @@ class TemplateEditorDialog(_FormDialog):
         self.finish_layout()
 
         self.add_file_button.clicked.connect(self.add_file)
+        self.add_inline_button.clicked.connect(self.add_inline)
+        self.edit_source_button.clicked.connect(self.edit_selected_source)
         self.remove_file_button.clicked.connect(self.remove_selected)
         self.route_group.buttonClicked.connect(lambda _button: self._refresh_controls())
         self._refresh_controls()
 
-    def _append_row(self, path="", pairs="") -> None:
+    #: Where a row keeps its source kind and, for inline rows, its text. Kept
+    #: on the row's own item so a row removal takes the content with it.
+    _KIND_ROLE = Qt.UserRole
+    _TEXT_ROLE = Qt.UserRole + 1
+
+    def _append_row(self, kind="file", value="", pairs="") -> None:
+        """Append one reference row: ``kind`` is ``file`` or ``inline``."""
         row = self.table.rowCount()
         self.table.insertRow(row)
-        item = QTableWidgetItem(path)
+        inline = kind == "inline"
+        label = (
+            _text("gui.templates_inline_row") % (len(value.splitlines()) or 1)
+            if inline
+            else value
+        )
+        item = QTableWidgetItem(label)
+        item.setData(self._KIND_ROLE, "inline" if inline else "file")
+        if inline:
+            item.setData(self._TEXT_ROLE, value)
         # A path is never typed: it comes from the file picker, so the cell
         # is read-only while the pairs cell stays editable in place.
         item.setFlags(item.flags() & ~Qt.ItemIsEditable)
@@ -388,7 +560,57 @@ class TemplateEditorDialog(_FormDialog):
             _text("gui.templates_file_filter"),
         )
         if path:
-            self._append_row(path, "")
+            self._append_row("file", path, "")
+
+    def add_inline(self, content=None) -> None:
+        """Add a reference row holding pasted mmCIF text.
+
+        ``content`` is supplied by a test; a real click opens the editor and
+        stores whatever it returns. Cancelling adds nothing.
+        """
+        if content is None:
+            content = self._ask_inline_text("")
+            if content is None:
+                return
+        if not content.strip():
+            return
+        self._append_row("inline", content, "")
+
+    def edit_selected_source(self) -> bool:
+        """Re-open the editor for the selected inline row (no-op for a file)."""
+        row = self._selected_row()
+        if row is None:
+            return False
+        item = self.table.item(row, 0)
+        if item is None or item.data(self._KIND_ROLE) != "inline":
+            return False
+        content = self._ask_inline_text(item.data(self._TEXT_ROLE) or "")
+        if content is None or not content.strip():
+            return False
+        item.setData(self._TEXT_ROLE, content)
+        item.setText(
+            _text("gui.templates_inline_row") % (len(content.splitlines()) or 1)
+        )
+        return True
+
+    def _ask_inline_text(self, content):
+        """The editor's answer, or ``None`` when it was cancelled."""
+        dialog = InlineTextDialog(
+            self,
+            title=_text("gui.templates_inline_dialog"),
+            accept_text=_text("gui.form_save"),
+            apply=lambda text: _Accepted(),
+            content=content,
+        )
+        if dialog.exec() != InlineTextDialog.Accepted:
+            return None
+        return dialog.text_edit.toPlainText()
+
+    def _selected_row(self):
+        rows = {index.row() for index in self.table.selectedIndexes()}
+        if rows:
+            return min(rows)
+        return None
 
     def remove_selected(self) -> None:
         """Remove the selected rows (the last one when nothing is selected)."""
@@ -422,12 +644,26 @@ class TemplateEditorDialog(_FormDialog):
         self.remove_file_button.setEnabled(self.table.rowCount() > 0)
 
     def entries(self):
-        """The rows as ``(path, pairs_text)`` pairs, in display order."""
+        """The rows as ``(kind, value, pairs_text)`` triples, in display order.
+
+        ``kind`` is ``file`` (``value`` is the path) or ``inline`` (``value``
+        is the mmCIF text). The kind travels with the row, so accepting the
+        dialog never converts an inline template into a path reference.
+        """
         rows = []
         for row in range(self.table.rowCount()):
-            path = self.table.item(row, 0).text() if self.table.item(row, 0) else ""
+            item = self.table.item(row, 0)
             pairs = self.table.item(row, 1).text() if self.table.item(row, 1) else ""
-            rows.append((path, pairs))
+            if item is None:
+                rows.append(("file", "", pairs))
+                continue
+            kind = item.data(self._KIND_ROLE) or "file"
+            value = (
+                item.data(self._TEXT_ROLE) or ""
+                if kind == "inline"
+                else item.text()
+            )
+            rows.append((kind, value, pairs))
         return tuple(rows)
 
     def _collect(self):

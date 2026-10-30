@@ -1287,12 +1287,19 @@ class VariantService:
     def generate_from_file(self, path: str, family: str = "protein") -> MutationOutput:
         """Batch-generate one independent variant per entry in a file.
 
-        **Legacy surface, not the user-facing workflow.** This commits a
-        ``base + AddRecord`` spec per entry into the open project; the console
-        and the desktop generate files instead (``GenerationService``), and
-        neither calls this. Use ``generate_input_batch`` for user-facing
-        behaviour, or this one only when the result you want *is* a set of
-        variants in the job.
+        **LEGACY / DEPRECATED — not the user-facing workflow, do not add
+        callers.** This commits a ``base + AddRecord`` spec per entry into the
+        open project, which mutates the job the user is editing. The console
+        and the desktop instead write one independent configuration per entry
+        through ``GenerationService`` (``generate_input_batch``), which never
+        touches the base. Neither front end calls this method; the only
+        remaining callers are test/fixture tooling, and the migration plan for
+        them is ``docs/LEGACY_GENERATION_API_MIGRATION.md``.
+
+        Keep this until those callers are migrated and verified — deleting it
+        first would break fixture generation. Use ``generate_input_batch`` for
+        any user-facing behaviour, or this one only when the result you want
+        *is* a set of variants committed into the job.
 
         ``path`` is a file containing multiple entries:
         - For protein/dna families: a sequence file (.txt) with one sequence per line

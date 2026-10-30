@@ -527,7 +527,8 @@ def test_console_rna_msa_file_flow_round_trips_a_path_with_spaces(tmp_path):
         "2",
         "3",
         QUERY_RNA,
-        "2",
+        "2",  # provide an MSA
+        "2",  # the source is a file
         _pack("msa", "with spaces", "rna query.a3m"),
     ]
     document, transcript = _save(script, destination)
@@ -537,8 +538,9 @@ def test_console_rna_msa_file_flow_round_trips_a_path_with_spaces(tmp_path):
     assert rna["unpairedMsaPath"] == "assets/rna-query.a3m"
     assert (destination.parent / "assets" / "rna-query.a3m").is_file()
     assert "pairedMsa" not in rna
-    assert "RNA MSA file: " in transcript
-    assert "Paired MSA file" not in transcript
+    assert "Alignment source" in transcript
+    assert "Alignment file: " in transcript
+    assert "Paired side" not in transcript
 
 
 def test_console_ligand_file_writes_one_configuration_per_entry(tmp_path):

@@ -296,7 +296,7 @@ def test_ui_quantity_is_asked_on_add(tmp_path, monkeypatch):
         ["1", "QtyUI"]
         # job 2 (add entity) → 4 (ligand) → 1 (CCD) → NA → qty 2, then the
         # entity picker shows the counted line, then leave → discard → exit
-        + ["2", "4", "1", "NA", "2", "3", "0", "0", "2", "0"]
+        + ["2", "4", "1", "NA", "2", "", "3", "0", "0", "2", "0"]
     )
     app = MenuApp(build_services(), console)
     status = app.run()

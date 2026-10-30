@@ -174,13 +174,15 @@ class GuiState(QObject):
         copies=1,
         description=None,
         representation_kind="",
+        duplex=True,
     ):
         """Add a record; the service validates and allocates identifiers.
 
         ``description=None`` leaves the record's description unset (the
         service distinguishes that from an explicitly empty value); pass
-        ``""`` for an explicitly empty one. DNA adds the duplex — both
-        records — exactly as the service defines it.
+        ``""`` for an explicitly empty one. A DNA add is a duplex by default;
+        ``duplex=False`` commits the supplied strand alone — the same lone
+        record an imported single-chain DNA entity produces.
         """
         outcome = self._services.configuration.add_record(
             family,
@@ -189,6 +191,7 @@ class GuiState(QObject):
             copies=copies,
             description=description,
             representation_kind=representation_kind,
+            duplex=duplex,
         )
         if outcome.ok:
             self.project_changed.emit()
@@ -264,10 +267,27 @@ class GuiState(QObject):
             self.project_changed.emit()
         return outcome
 
-    def set_alignment(self, record_key, mode, inline_text=None, external_path=None):
-        """Set a chain's alignment mode and, when it needs one, its source."""
+    def set_alignment(
+        self,
+        record_key,
+        mode,
+        inline_text=None,
+        external_path=None,
+        paired_inline_text=None,
+        paired_external_path=None,
+    ):
+        """Set a chain's alignment mode and, when it needs them, its sources.
+
+        ``both`` may carry an independent paired side; ``None`` for it means
+        the unpaired source feeds both sides (the service's own rule).
+        """
         outcome = self._services.configuration.set_alignment(
-            record_key, mode, inline_text=inline_text, external_path=external_path
+            record_key,
+            mode,
+            inline_text=inline_text,
+            external_path=external_path,
+            paired_inline_text=paired_inline_text,
+            paired_external_path=paired_external_path,
         )
         if outcome.ok:
             self.project_changed.emit()

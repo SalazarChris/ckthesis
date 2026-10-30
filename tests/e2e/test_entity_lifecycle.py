@@ -31,7 +31,9 @@ ADD_PROTEIN = lambda sequence: ["2", "1", sequence, "1", ""]
 ADD_RNA = lambda sequence: ["2", "3", sequence, "1"]
 ADD_DNA = lambda sequence: ["2", "2", sequence, "1"]  # yes to the complement
 ADD_LONE_DNA = lambda sequence: ["2", "2", sequence, "2"]  # single strand
-ADD_LIGAND = lambda value, copies="1": ["2", "4", "1", value, copies]
+ADD_LIGAND = lambda value, copies="1", description="": [
+    "2", "4", "1", value, copies, description
+]
 DELETE_ENTITY = lambda number: ["3", str(number), "2", "1", "0"]
 EDIT_PROTEIN = lambda number, sequence, description="": [
     "3", str(number), "1", sequence, description, "1", "", "0", "0",

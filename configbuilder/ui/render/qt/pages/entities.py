@@ -56,6 +56,7 @@ from configbuilder.model import (
     Present,
     fold_representation,
 )
+from configbuilder.ui.present.notices import removal_notice
 from configbuilder.ui.present.strings import text as _text
 from configbuilder.ui.render.qt.dialogs import (
     LigandFormDialog,
@@ -504,6 +505,13 @@ class EntitiesPage(QWidget):
         return self._add_sequence("rna")
 
     def add_dna(self) -> bool:
+        """Add DNA, asking whether the entered strand is half of a duplex.
+
+        The question is the console's own (``menu.dna_complement_menu``); the
+        answer is passed to the service, which builds the complement. A
+        single-stranded answer is a supported model state — the lone record an
+        imported single DNA chain produces — not a degraded duplex.
+        """
         return self._add_sequence("dna")
 
     def add_ligand(self) -> bool:
@@ -530,20 +538,26 @@ class EntitiesPage(QWidget):
         return False
 
     def _add_sequence(self, family: str) -> bool:
-        """Add a protein/RNA/DNA chain through the service's own add."""
+        """Add a protein/RNA/DNA chain through the service's own add.
+
+        Only DNA gets the duplex control; the other families pass the
+        service's own default through unchanged.
+        """
         dialog = SequenceFormDialog(
             self,
             title=_text(_ADD_TITLE_KEYS[family]),
             accept_text=_text("gui.form_add"),
-            apply=lambda sequence, description: self._add_with_selection(
+            apply=lambda sequence, description, duplex: self._add_with_selection(
                 lambda: self._state.add_record(
                     family,
                     sequence=sequence,
                     description=(description.strip() or None),
+                    duplex=duplex,
                 )
             ),
             hint=_text(_SEQUENCE_HINT_KEYS[family]),
             warning=self._description_warning(),
+            duplex=(True if family == "dna" else None),
         )
         if dialog.exec() == SequenceFormDialog.Accepted:
             self._notify(_text("menu.entity_added"))
@@ -582,7 +596,7 @@ class EntitiesPage(QWidget):
             self,
             title=_text(_EDIT_TITLE_KEYS[type(row.record)]),
             accept_text=_text("gui.form_save"),
-            apply=lambda sequence, description: self._apply_sequence_edit(
+            apply=lambda sequence, description, _duplex: self._apply_sequence_edit(
                 row, original, sequence, description
             ),
             sequence=row.record.sequence.text,
@@ -677,12 +691,12 @@ class EntitiesPage(QWidget):
         return True
 
     def _delete_message(self, row) -> str:
-        """What the confirmation says, from the record's own shape."""
-        if row.partner_key:
-            return _text("gui.delete_duplex") % (row.ids, row.partner_key)
-        if len(row.record.ids) > 1:
-            return _text("gui.delete_copies") % (row.ids, len(row.record.ids))
-        return _text("gui.delete_single") % row.ids
+        """What the confirmation says, from the record's own shape.
+
+        The wording is shared with the console (``present.notices``), so the
+        same deletion is described identically in both front ends.
+        """
+        return removal_notice(row.ids, row.partner_key, len(row.record.ids))
 
     # -- the description/version explanation -------------------------------
 

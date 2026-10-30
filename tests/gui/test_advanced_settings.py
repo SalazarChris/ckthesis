@@ -17,6 +17,7 @@ Only ``exec`` (and the file pickers) are replaced — never the service.
 from __future__ import annotations
 
 import json
+import pathlib
 
 import pytest
 
@@ -113,9 +114,21 @@ def _drive_modification_form(
 
 
 def _drive_alignment_form(
-    monkeypatch, mode=None, kind=None, text=None, path=None, cancel=False
+    monkeypatch,
+    mode=None,
+    kind=None,
+    text=None,
+    path=None,
+    cancel=False,
+    paired_kind=None,
+    paired_text=None,
+    paired_path=None,
 ):
-    """Answer the alignment form: a mode word and, when used, one source."""
+    """Answer the alignment form: a mode word and, when used, its source(s).
+
+    The paired-side arguments drive the ``both`` mode's second source; leaving
+    them out keeps the single-source behaviour every older test relies on.
+    """
     opened = []
 
     def fake_exec(dialog):
@@ -131,6 +144,13 @@ def _drive_alignment_form(
             dialog.inline_edit.setPlainText(text)
         if path is not None:
             dialog.path_edit.setText(path)
+        if paired_kind is not None:
+            for candidate, radio in dialog.paired_radios:
+                radio.setChecked(candidate == paired_kind)
+        if paired_text is not None:
+            dialog.paired_inline_edit.setPlainText(paired_text)
+        if paired_path is not None:
+            dialog.paired_path_edit.setText(paired_path)
         dialog.accept()
         return dialog.result()
 
@@ -138,7 +158,9 @@ def _drive_alignment_form(
     return opened
 
 
-def _drive_template_dialog(monkeypatch, route, files=(), pairs=None, cancel=False):
+def _drive_template_dialog(
+    monkeypatch, route, files=(), pairs=None, cancel=False, inline=None
+):
     """Answer the template editor: choose a route and pick files as a user does.
 
     The file picker is replaced, so the dialog's own ``add_file`` runs and the
@@ -161,6 +183,9 @@ def _drive_template_dialog(monkeypatch, route, files=(), pairs=None, cancel=Fals
             dialog.table.setRowCount(0)
             for _path in files:
                 dialog.add_file()
+        if inline is not None:
+            dialog.table.setRowCount(0)
+            dialog.add_inline(inline)
         if pairs is not None:
             for row in range(dialog.table.rowCount()):
                 dialog.table.setItem(row, 1, QTableWidgetItem(pairs))
@@ -637,7 +662,7 @@ def test_a_mode_without_a_source_sends_no_source_and_shows_no_source_controls(
 ):
     opened = _drive_alignment_form(monkeypatch, mode="free")
     assert protein_job.advanced_page.change_alignment()
-    assert opened[0]._collect() == ("free", "", "")
+    assert opened[0]._collect() == ("free", "", "", "", "")
     assert not opened[0].source_row.isEnabled() or all(
         not radio.isEnabled() for _kind, radio in opened[0].source_radios
     )
@@ -879,7 +904,7 @@ def test_cancelling_the_template_editor_changes_nothing(
     assert protein_job.state.configuration is before
     # The imported references were shown, unchanged, in the editor.
     assert opened[0].current_route() == "list"
-    assert opened[0].entries() == ((path, "0:0"),)
+    assert opened[0].entries() == (("file", path, "0:0"),)
 
 
 # =============================================================================
@@ -1370,5 +1395,135 @@ def test_the_template_add_file_button_adds_a_row_for_the_chosen_file(monkeypatch
 
     dialog.add_file()
 
-    assert dialog.entries() == (("model.cif", ""),)
+    assert dialog.entries() == (("file", "model.cif", ""),)
     assert dialog.current_route() == "list"
+
+
+# -- both-mode MSA: one source per side ---------------------------------------
+
+
+def test_both_mode_can_give_each_side_its_own_source(protein_job, monkeypatch, tmp_path):
+    """The paired side is no longer forced to reuse the unpaired file."""
+    paired = _msa_a3m(tmp_path, "paired.a3m")
+    unpaired_text = ">q\nACDE"
+    _drive_alignment_form(
+        monkeypatch,
+        mode="both",
+        kind="inline",
+        text=unpaired_text,
+        paired_kind="file",
+        paired_path=paired,
+    )
+
+    assert protein_job.advanced_page.change_alignment()
+
+    body = _entry(_document(protein_job), "A")
+    assert body["unpairedMsa"] == unpaired_text
+    assert body["pairedMsaPath"] == paired
+    assert "pairedMsa" not in body
+    record = _record(protein_job.state, "A")
+    assert record.alignment.paired_source.path.raw == paired
+
+
+def test_both_mode_without_a_paired_choice_still_reuses_the_unpaired_source(
+    protein_job, monkeypatch
+):
+    """The default is the historical single-source behaviour, unchanged."""
+    opened = _drive_alignment_form(
+        monkeypatch, mode="both", kind="inline", text=">q\nACDE"
+    )
+    assert protein_job.advanced_page.change_alignment()
+    assert opened[0].current_paired_kind() == "same"
+    assert opened[0]._collect()[3:] == ("", "")
+    body = _entry(_document(protein_job), "A")
+    assert body["unpairedMsa"] == ">q\nACDE"
+    assert body["pairedMsa"] == ">q\nACDE"
+
+
+def test_the_form_reopens_with_both_sources_intact(protein_job, monkeypatch, tmp_path):
+    """A stored paired side is shown again, not silently collapsed."""
+    paired = _msa_a3m(tmp_path, "paired.a3m")
+    assert protein_job.state.set_alignment(
+        "A",
+        "both",
+        inline_text=">q\nACDE",
+        paired_external_path=paired,
+    ).ok
+    protein_job.entities_page.select_record("A")
+    opened = _drive_alignment_form(monkeypatch, mode="both", cancel=True)
+    assert not protein_job.advanced_page.change_alignment()
+
+    dialog = opened[0]
+    assert dialog.current_mode() == "both"
+    assert dialog.current_source_kind() == "inline"
+    assert dialog.inline_edit.toPlainText() == ">q\nACDE"
+    assert dialog.current_paired_kind() == "file"
+    assert dialog.paired_path_edit.text() == paired
+
+
+def test_the_paired_controls_appear_only_for_both_mode(monkeypatch):
+    dialog = AlignmentFormDialog(
+        None,
+        title="Alignment",
+        accept_text="Save",
+        apply=lambda *values: None,
+        modes=(('menu.msa_mode_unpaired', "unpaired"), ('menu.msa_mode_both', "both")),
+        mode="unpaired",
+        source_kind="inline",
+    )
+    assert not dialog.paired_block.isVisibleTo(dialog)
+    dialog.select_mode("both")
+    assert dialog.paired_block.isVisibleTo(dialog)
+    assert [kind for kind, _radio in dialog.paired_radios] == ["same", "inline", "file"]
+
+
+# -- inline mmCIF templates: authoring and preservation -----------------------
+
+
+def test_an_inline_template_can_be_authored_in_the_window(protein_job, monkeypatch, tmp_path):
+    content = pathlib.Path(_template_cif(tmp_path)).read_text(encoding="utf-8")
+    _drive_template_dialog(monkeypatch, route="list", inline=content, pairs="0:1")
+
+    assert protein_job.advanced_page.edit_templates()
+
+    body = _entry(_document(protein_job), "A")
+    template = body["templates"][0]
+    assert "mmcif" in template and "mmcifPath" not in template
+    assert template["mmcif"].startswith("data_template")
+    assert template["queryIndices"] == [0]
+    assert template["templateIndices"] == [1]
+
+
+def test_accepting_the_dialog_does_not_turn_an_inline_template_into_a_path(
+    protein_job, monkeypatch, tmp_path
+):
+    """The imported representation survives: no row, no silent conversion."""
+    content = pathlib.Path(_template_cif(tmp_path)).read_text(encoding="utf-8")
+    assert protein_job.state.set_references(
+        "A", references=(ReferenceInput(inline_text=content, pairs=((0, 1),)),)
+    ).ok
+    protein_job.entities_page.select_record("A")
+
+    opened = _drive_template_dialog(monkeypatch, route="list", pairs="0:1")
+    assert protein_job.advanced_page.edit_templates()
+
+    # The editor showed the inline template as an inline row…
+    rows = opened[0].entries()
+    assert len(rows) == 1 and rows[0][0] == "inline"
+    assert rows[0][1].startswith("data_template")
+    # …and saving kept it inline in the document.
+    template = _entry(_document(protein_job), "A")["templates"][0]
+    assert "mmcif" in template and "mmcifPath" not in template
+
+
+def test_a_template_row_keeps_its_own_kind(monkeypatch):
+    dialog = TemplateEditorDialog(
+        None,
+        title="Templates",
+        accept_text="Save",
+        apply=lambda *values: None,
+        mode="list",
+        entries=(("file", "model.cif", "0:1"), ("inline", "data_x\n#\n", "0:2")),
+    )
+    assert [row[0] for row in dialog.entries()] == ["file", "inline"]
+    assert dialog.entries()[1][1].startswith("data_x")

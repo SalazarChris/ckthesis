@@ -164,7 +164,8 @@ def test_editing_a_protein_collects_two_msa_files_and_templates(tmp_path):
         OPEN
         + PROTEIN
         + EDIT_ENTITY_FIELDS                       # Edit entity → record 1 → Edit → keep seq/desc
-        + ["2", str(paired), str(unpaired)]        # MSA: files → paired → unpaired
+        # MSA: files → paired side (file → path) → unpaired side (file → path)
+        + ["2", "2", str(paired), "2", str(unpaired)]
         + ["y", "2"]                               # templates: yes → explicitly none
         + ["0", "0"]                               # action screen → entity list → job menu
         + ["0", "2", "0"]                          # leave → discard the edits → exit
@@ -172,8 +173,9 @@ def test_editing_a_protein_collects_two_msa_files_and_templates(tmp_path):
     assert status == 0
     assert "Not applied" not in out
     assert "MSA (multiple sequence alignment) configuration:" in out
-    assert "Paired MSA file (blank = empty paired side): " in out
-    assert "Unpaired MSA file (blank = empty unpaired side): " in out
+    assert "Paired side" in out
+    assert "Unpaired side" in out
+    assert "Alignment file: " in out
     assert "Use structural templates for this record? [y/N]" in out
     # The two edits landed from the edit flow (the add reported its own).
     assert out.split("SELECTED ENTITY", 1)[1].count("Applied.") >= 2
@@ -208,16 +210,17 @@ def test_rna_is_asked_for_its_msa_but_never_for_templates(tmp_path):
     status, out = run(OPEN + RNA + ["0", "2", "0"])
     assert status == 0
     assert "MSA (multiple sequence alignment) configuration:" in out
-    assert "RNA MSA file: " not in out  # default choice asks for no file
+    assert "Alignment source" not in out  # default choice asks for no source
     assert "Use structural templates for this record? [y/N]" not in out
 
     msa = tmp_path / "rna.a3m"
     msa.write_text(">q\nACGU\n", encoding="utf-8")
     status, out = run(
-        OPEN + ["2", "3", "ACGU", "2", str(msa), "0", "2", "0"]
+        OPEN + ["2", "3", "ACGU", "2", "2", str(msa), "0", "2", "0"]
     )
     assert status == 0
-    assert "RNA MSA file: " in out
+    assert "Alignment source" in out
+    assert "Alignment file: " in out
     assert "Use structural templates for this record? [y/N]" not in out
     assert "Applied." in out
 
@@ -230,7 +233,8 @@ def test_invalid_msa_path_reasks_and_recovers(tmp_path):
         OPEN
         + PROTEIN
         + EDIT_ENTITY_FIELDS
-        + ["2", str(tmp_path / "missing.a3m"), str(valid)]  # retry paired-only
+        # MSA: files → paired side (file → missing, then valid) → unpaired empty
+        + ["2", "2", str(tmp_path / "missing.a3m"), str(valid), "3"]
         + ["n"]                                            # templates: no, keep
         + ["0", "0"]                                      # action → entity list → job menu
         + ["0", "2", "0"]                                 # leave → discard → exit
@@ -250,7 +254,7 @@ def test_add_flow_chains_msa_and_templates_onto_the_new_record(tmp_path):
     status, out = run(
         OPEN
         + ["2", "1", PROTEIN_SEQUENCE,
-           "2", str(paired), str(unpaired),                # MSA: two existing files
+           "2", "2", str(paired), "2", str(unpaired),    # MSA: two existing files
            "y", "1",                                      # templates: search allowed
            "0", "2", "0"]
     )

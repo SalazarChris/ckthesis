@@ -59,7 +59,7 @@ def test_two_files_land_in_their_own_fields(tmp_path):
     paired.write_text(">paired\nACDEFGHIKL\n", encoding="utf-8")
     unpaired.write_text(">unpaired\nACDEFGHIKL\n", encoding="utf-8")
     document, transcript = _save(
-        _protein_script("2", str(paired), str(unpaired)),
+        _protein_script("2", "2", str(paired), "2", str(unpaired)),
         tmp_path / "both.json",
     )
     assert "Paired and unpaired are separate files" in transcript
@@ -78,7 +78,7 @@ def test_a_blank_side_keeps_the_valid_one_sided_cases(tmp_path):
     unpaired.write_text(">unpaired\nACDEFGHIKL\n", encoding="utf-8")
 
     document, _ = _save(
-        _protein_script("2", str(paired), ""), tmp_path / "paired-only.json"
+        _protein_script("2", "2", str(paired), "3"), tmp_path / "paired-only.json"
     )
     protein = document["sequences"][0]["protein"]
     assert protein["pairedMsaPath"].endswith("paired.a3m")
@@ -86,7 +86,7 @@ def test_a_blank_side_keeps_the_valid_one_sided_cases(tmp_path):
     assert "unpairedMsaPath" not in protein
 
     document, _ = _save(
-        _protein_script("2", "", str(unpaired)), tmp_path / "unpaired-only.json"
+        _protein_script("2", "3", "2", str(unpaired)), tmp_path / "unpaired-only.json"
     )
     protein = document["sequences"][0]["protein"]
     assert protein["unpairedMsaPath"].endswith("unpaired.a3m")
@@ -102,7 +102,7 @@ def test_missing_and_empty_files_are_reported_and_retried(tmp_path):
     valid.write_text(">q\nACDEFGHIKL\n", encoding="utf-8")
 
     document, transcript = _save(
-        _protein_script("2", str(missing), str(empty), str(valid), ""),
+        _protein_script("2", "2", str(missing), str(empty), str(valid), "3"),
         tmp_path / "retry.json",
     )
     assert "cannot be used: the file does not exist" in transcript
@@ -135,15 +135,16 @@ def test_rna_asks_for_one_file_and_writes_the_single_field(tmp_path):
     msa = tmp_path / "rna.a3m"
     msa.write_text(">q\nACGU\n", encoding="utf-8")
     console = ScriptedConsole(
-        ["1", "rna-job", "2", "3", "ACGU", "2", str(msa), "6", str(tmp_path / "rna.json"), "0", "0"]
+        ["1", "rna-job", "2", "3", "ACGU", "2", "2", str(msa), "6", str(tmp_path / "rna.json"), "0", "0"]
     )
     assert MenuApp(build_services(), console).run() == 0
     document = json.loads((tmp_path / "rna.json").read_text(encoding="utf-8"))
     rna = document["sequences"][0]["rna"]
     assert rna["unpairedMsaPath"].endswith("rna.a3m")
     assert "pairedMsa" not in rna
-    assert "RNA MSA file: " in console.transcript
-    assert "Paired MSA file" not in console.transcript
+    assert "Alignment source" in console.transcript
+    assert "Alignment file: " in console.transcript
+    assert "Paired side" not in console.transcript
 
 
 def test_the_rna_file_choice_does_not_explain_paired_sides(tmp_path):
@@ -156,7 +157,7 @@ def test_the_rna_file_choice_does_not_explain_paired_sides(tmp_path):
     msa = tmp_path / "rna.a3m"
     msa.write_text(">q\nACGU\n", encoding="utf-8")
     console = ScriptedConsole(
-        ["1", "rna-job", "2", "3", "ACGU", "2", str(msa), "6", str(tmp_path / "r.json"), "0", "0"]
+        ["1", "rna-job", "2", "3", "ACGU", "2", "2", str(msa), "6", str(tmp_path / "r.json"), "0", "0"]
     )
     assert MenuApp(build_services(), console).run() == 0
     assert "single MSA file" in console.transcript
@@ -175,7 +176,8 @@ def test_skipping_templates_says_templates_not_msa(tmp_path):
     paired.write_text(">query\nACDEFGHIKL\n", encoding="utf-8")
     unpaired.write_text(">query\nACDEFGHIKL\n", encoding="utf-8")
     _document, transcript = _save(
-        _protein_script("2", str(paired), str(unpaired)), tmp_path / "skip.json"
+        _protein_script("2", "2", str(paired), "2", str(unpaired)),
+        tmp_path / "skip.json",
     )
     assert "No templates will be used" in transcript
     assert "No MSA will be used" not in transcript

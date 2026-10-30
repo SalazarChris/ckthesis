@@ -178,26 +178,12 @@ class ConfigurationService:
             return self._refused("a job name cannot be empty — %s" % (error,))
         return self._commit(configuration.with_metadata(renamed))
 
-    def set_job_description(self, description) -> MutationOutput:
-        """Set or clear the job-level description (spec §15 naming factor).
-
-        Pass a string to set it, ``None`` to clear it to ``Unset``; an
-        empty string means explicitly empty (``ExplicitEmpty``) — the
-        three presence states, never a bare contract distinction."""
-        configuration = self._configuration()
-        if configuration is None:
-            return self._not_open()
-        if description is None:
-            from configbuilder.model import Unset
-
-            value = Unset()
-        elif isinstance(description, str):
-            from configbuilder.model import ExplicitEmpty, Present
-
-            value = Present(description) if description else ExplicitEmpty()
-        else:
-            value = description  # already a Presence value
-        return self._commit(configuration.with_job_description(value))
+    # A job-level description is **not** part of the AF3 wire format (only the
+    # per-entity ``description`` is), and no front end ever offered it, so
+    # ``set_job_description`` was removed rather than documented: an operation
+    # whose result cannot reach an output file is a trap for the next caller.
+    # The model keeps ``ConfigurationMetadata.description`` because the
+    # configuration value carries it; only the unreachable setter is gone.
 
     def set_seeds(self, seeds) -> MutationOutput:
         configuration = self._configuration()

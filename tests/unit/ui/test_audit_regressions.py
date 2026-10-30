@@ -183,7 +183,10 @@ def test_multi_copy_ligand_is_deletable_through_the_menu():
     """Job menu 3 → the 3-copy ligand → Delete → Yes; the empty list is
     announced."""
     status, out = run(
-        NEW_JOB + ["2", "4", "1", "ATP", "3"] + ["3", "1", "2", "1"] + LEAVE_DIRTY
+        NEW_JOB
+        + ["2", "4", "1", "ATP", "3", ""]          # add ligand (blank description)
+        + ["3", "1", "2", "1"]
+        + LEAVE_DIRTY
     )
     assert status == 0
     assert "(no entities)" in out
@@ -218,7 +221,7 @@ def test_back_at_the_ligand_kind_menu_says_nothing_was_added():
 def test_ligand_is_not_offered_as_a_modification_carrier():
     status, out = run(
         NEW_JOB
-        + ["2", "4", "1", "ATP", "1"]
+        + ["2", "4", "1", "ATP", "1", ""]      # add ligand (blank description)
         + ["5", "2"]                    # PTM → add: the carrier picker is empty
         + LEAVE_DIRTY
     )
