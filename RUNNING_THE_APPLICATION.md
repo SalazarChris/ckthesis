@@ -23,6 +23,19 @@ reachable as `python -m configbuilder`). The core builder has no runtime
 dependencies, so this needs nothing installed beyond Python itself
 (3.9 or newer).
 
+The text menu covers the same job a user can build in the window, including the
+additions below; every action goes through the same services, so the two front
+ends validate, save and generate identically.
+
+- Adding DNA asks whether the strand is single- or double-stranded.
+- Ligands accept an optional description, which can also be changed later.
+- Alignments and structural templates can be read from a file **or** pasted
+  inline, including a separate paired source for a `both` alignment.
+- **Covalent bonds** (job menu `8`) lists, adds and removes `bondedAtomPairs`
+  entries by entity, residue and atom.
+- The custom CCD definition is set or replaced as one action, and its content is
+  shown before you change it.
+
 ## The desktop front end (optional)
 
 The PySide6 GUI is optional in project metadata. The Windows setup installs
